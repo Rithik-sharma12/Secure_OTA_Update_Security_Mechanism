@@ -10,10 +10,17 @@ on:
 env:
   PYTHON_VERSION: "3.12"
 
+# Restrict default token permissions for all jobs
+permissions:
+  contents: read
+
 jobs:
   bandit:
     name: Static Security Analysis (bandit)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +50,8 @@ jobs:
   dependency-audit:
     name: Dependency Vulnerability Scan (pip-audit)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -72,6 +81,8 @@ jobs:
   secret-scan:
     name: Secret Detection (trufflehog)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,6 +99,9 @@ jobs:
   container-scan:
     name: Container Image Scan (trivy)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 

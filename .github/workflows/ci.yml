@@ -9,10 +9,16 @@ on:
 env:
   PYTHON_VERSION: "3.12"
 
+# Restrict default token permissions for all jobs
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & Format Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -41,6 +47,8 @@ jobs:
   typecheck:
     name: Type Check (mypy)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -59,6 +67,8 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -101,6 +111,8 @@ jobs:
   security-scan:
     name: Security Scan (bandit)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -130,6 +142,8 @@ jobs:
   docker-build:
     name: Docker Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [lint, test]
     steps:
       - uses: actions/checkout@v4
