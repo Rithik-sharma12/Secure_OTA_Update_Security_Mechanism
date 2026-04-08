@@ -105,6 +105,11 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const [lastPortScan, setLastPortScan] = React.useState<Date | null>(null);
   const scanningRef = React.useRef(false);
 
+  const getActiveComPort = React.useCallback(
+    () => serialPort.trim() || availablePorts[0]?.path || '',
+    [availablePorts, serialPort]
+  );
+
   const updateStatus = React.useCallback((label: string, tone: StatusTone, message: string) => {
     setStatusLabel(label);
     setStatusTone(tone);
@@ -252,7 +257,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const handleSerialSession = () => {
     setConnectionMode('serial');
 
-    const activePort = serialPort.trim() || availablePorts[0]?.path || '';
+    const activePort = getActiveComPort();
 
     if (!activePort) {
       updateStatus(
@@ -291,7 +296,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const handleSerialFlash = () => {
     setConnectionMode('serial');
 
-    const activePort = serialPort.trim() || availablePorts[0]?.path || '';
+    const activePort = getActiveComPort();
 
     if (!activePort) {
       updateStatus(
@@ -330,7 +335,27 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const handleOtaCheck = () => {
     setConnectionMode('ota');
 
+    const activePort = getActiveComPort();
     const parsedPort = Number(otaPort);
+
+    if (!activePort) {
+      updateStatus(
+        'OTA COM port missing',
+        'error',
+        'Select a COM port for OTA flash pairing before checking the target. Use auto-detect or enter one manually.'
+      );
+      return;
+    }
+
+    if (!isValidPortName(activePort)) {
+      updateStatus(
+        'Invalid OTA COM port',
+        'error',
+        'Use a valid COM port format (for example COM3) before running the OTA target check.'
+      );
+      return;
+    }
+
     if (!otaHost.trim()) {
       updateStatus('OTA host missing', 'error', 'Provide a device host or IP address before checking the OTA target.');
       return;
@@ -344,14 +369,26 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     updateStatus(
       'OTA target reachable',
       'success',
-      `Validated ${otaHost}:${otaPort} on the ${otaChannel} channel. The target is ready for wireless deployment.`
+      `Validated ${otaHost}:${otaPort} on the ${otaChannel} channel with ${activePort} selected for flash pairing. The target is ready for wireless deployment.`
     );
   };
 
   const handleOtaDeploy = () => {
     setConnectionMode('ota');
 
+    const activePort = getActiveComPort();
     const parsedPort = Number(otaPort);
+
+    if (!activePort) {
+      updateStatus('OTA deployment blocked', 'error', 'Select a COM port for OTA flash pairing before pushing the release.');
+      return;
+    }
+
+    if (!isValidPortName(activePort)) {
+      updateStatus('OTA deployment blocked', 'error', 'The selected OTA COM port is invalid. Use a value like COM3 and retry.');
+      return;
+    }
+
     if (!otaHost.trim()) {
       updateStatus('OTA deployment blocked', 'error', 'Provide a target host or IP address before starting the OTA push.');
       return;
@@ -370,11 +407,11 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     updateStatus(
       'OTA deployment queued',
       'warning',
-      `Pushing the ${otaChannel} release to ${otaHost}:${otaPort}. If the target becomes unreachable, the workflow will fall back to the last detected state.`
+      `Pushing the ${otaChannel} release to ${otaHost}:${otaPort} with ${activePort} selected for flash pairing. If the target becomes unreachable, rescan and retry with a stable COM link.`
     );
   };
 
-  const selectedPort = serialPort.trim() || availablePorts[0]?.path || '';
+  const selectedPort = getActiveComPort();
 
   return (
     <Card id="device-connection-panel" className="glass border-border/50">
@@ -527,7 +564,55 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
 
           <TabsContent value="ota" className="mt-5 space-y-5">
             <div className="rounded-lg border border-border/60 bg-muted/15 p-4">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-background/60 px-3 py-2">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-foreground/60">COM selection</p>
+                  <p className="text-sm text-foreground/70">
+                    {isScanningPorts
+                      ? 'Scanning connected COM devices for OTA flash pairing.'
+                      : availablePorts.length > 0
+                        ? `${availablePorts.length} port(s) available for OTA flash pairing.`
+                        : 'No COM device is currently detected. Enter a COM port manually to continue OTA flashing.'}
+                  </p>
+                </div>
+                <Button type="button" variant="outline" className="border-border/60" onClick={() => void scanSerialPorts('manual')} disabled={isScanningPorts}>
+                  {isScanningPorts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  {isScanningPorts ? 'Scanning' : 'Scan COM Ports'}
+                </Button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground" htmlFor="ota-com-port">
+                    Flash COM Port
+                  </label>
+                  {availablePorts.length > 0 ? (
+                    <Select value={selectedPort} onValueChange={setSerialPort}>
+                      <SelectTrigger id="ota-com-port" className="w-full border-border/60 bg-background/60">
+                        <SelectValue placeholder="Select COM port" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availablePorts.map((port) => (
+                          <SelectItem key={port.path} value={port.path}>
+                            <div className="flex flex-col items-start gap-0.5 text-left">
+                              <span>{port.path}</span>
+                              <span className="text-xs text-muted-foreground">{port.description}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="ota-com-port"
+                      value={serialPort}
+                      onChange={(event) => setSerialPort(event.target.value)}
+                      className="border-border/60 bg-background/60"
+                      placeholder="COM3"
+                    />
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground" htmlFor="ota-host">
                     Device Host / IP
