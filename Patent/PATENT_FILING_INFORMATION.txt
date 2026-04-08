@@ -1,0 +1,60 @@
+PATENT FILING INFORMATION
+
+Project / Invention Title:
+Secure Heterogeneous OTA Update Mechanism
+
+Proposed Patent Title:
+Secure Heterogeneous Over-The-Air (OTA) Update Security Mechanism for IoT Devices
+
+Inventors / Student Contributors:
+1. Priyankaa Devi S (Reg. No. 9123128034)
+2. Ritesh V (Reg. No. 9123128039)
+3. Rithik Sharma A (Reg. No. 9123128040)
+
+Institution:
+KCG College of Technology, Karapakkam, Chennai
+B.E. CSE (Cyber Security)
+
+Type of Filing (Suggested):
+Indian Provisional Patent Application (to secure priority date)
+
+Technical Field:
+Cyber Security, IoT Security, OTA Firmware Update Systems
+
+Problem Addressed:
+Conventional OTA systems in heterogeneous IoT deployments are vulnerable to
+firmware tampering, replay attacks, rollback attacks, and inconsistent trust
+verification across device classes.
+
+Core Novelty / Inventive Concept:
+A secure OTA framework that enables trusted firmware lifecycle management across
+heterogeneous IoT hardware using cryptographic signing, encrypted update
+transport, device identity attestation, and anti-rollback controls.
+
+Key Patentable Claims (Draft Pointers):
+1. A heterogeneous-device compatible secure OTA orchestration architecture.
+2. Multi-stage firmware authenticity verification before installation.
+3. Cryptographically enforced anti-rollback with secure version binding.
+4. Signed update package flow with integrity validation and trust-chain checks.
+5. Secure recovery/fallback workflow after failed or untrusted update events.
+
+Suggested Form Mapping (Indian Patent Forms):
+- Form 1  : Application for Grant of Patent
+- Form 2  : Provisional / Complete Specification
+- Form 3  : Statement and Undertaking
+- Form 5  : Declaration as to Inventorship
+- Form 9  : Request for Publication
+- Form 18 : Request for Examination
+- Form 28 : Startup/Small Entity declaration (if applicable)
+
+Minimum Filing Inputs Required:
+- Finalized invention title
+- Applicant ownership details (student/institution rights)
+- Inventor addresses and nationality
+- Provisional specification with drawings/flowcharts
+- At least one broad independent claim and dependent claims
+- Correspondence address and authorized signatory details
+
+Status Note:
+This repository includes draft patent forms. The above information is prepared
+as a filing-ready summary to help complete the patent documentation set.
