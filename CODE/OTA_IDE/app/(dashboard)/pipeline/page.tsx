@@ -1,0 +1,195 @@
+'use client';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CheckCircle, AlertCircle, Clock, Play, Pause, StopCircle, ChevronDown } from 'lucide-react';
+import { mockPipeline } from '@/lib/mock-data';
+import { formatUtcDateTime } from '@/lib/formatters';
+
+function getStageStatusIcon(status: string) {
+  switch (status) {
+    case 'success':
+      return <CheckCircle className="w-5 h-5 text-chart-1" />;
+    case 'running':
+      return <Clock className="w-5 h-5 text-chart-3 animate-spin" />;
+    case 'failed':
+      return <AlertCircle className="w-5 h-5 text-chart-4" />;
+    case 'pending':
+      return <Clock className="w-5 h-5 text-muted-foreground" />;
+    default:
+      return <CheckCircle className="w-5 h-5" />;
+  }
+}
+
+function getStageStatusColor(status: string) {
+  switch (status) {
+    case 'success':
+      return 'bg-chart-1/20 text-chart-1';
+    case 'running':
+      return 'bg-chart-3/20 text-chart-3';
+    case 'failed':
+      return 'bg-chart-4/20 text-chart-4';
+    case 'pending':
+      return 'bg-muted text-muted-foreground';
+    default:
+      return 'bg-muted text-muted-foreground';
+  }
+}
+
+export default function PipelinePage() {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Deployment Pipeline</h1>
+          <p className="text-foreground/70 mt-1">CI/CD workflow and deployment status</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" className="border-border">
+            <Pause className="w-4 h-4 mr-2" />
+            Pause
+          </Button>
+          <Button variant="outline" className="border-border">
+            <StopCircle className="w-4 h-4 mr-2" />
+            Cancel
+          </Button>
+        </div>
+      </div>
+
+      {/* Pipeline Overview */}
+      <Card className="glass border-border/50">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Build #{mockPipeline.id.split('-')[1]}</CardTitle>
+              <CardDescription>Release v2.4.0 deployment</CardDescription>
+            </div>
+            <Badge variant="outline" className="bg-chart-3/20 text-chart-3 capitalize">
+              {mockPipeline.status}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {/* Pipeline Stages */}
+          <div className="space-y-4">
+            {mockPipeline.stages.map((stage, index) => (
+              <div key={stage.id}>
+                {/* Stage Header */}
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="flex items-center gap-3 flex-1">
+                    {getStageStatusIcon(stage.status)}
+                    <div>
+                      <h4 className="font-semibold text-foreground capitalize">{stage.name}</h4>
+                      <p className="text-xs text-foreground/50">
+                        {stage.duration ? `${(stage.duration / 60).toFixed(1)}m` : 'Not started'}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`capitalize text-xs ${getStageStatusColor(stage.status)}`}
+                  >
+                    {stage.status}
+                  </Badge>
+                </div>
+
+                {/* Stage Progress Bar */}
+                <div className="w-full bg-muted/30 rounded-full h-1.5 mb-3 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      stage.status === 'success'
+                        ? 'bg-chart-1'
+                        : stage.status === 'running'
+                        ? 'bg-chart-3'
+                        : stage.status === 'failed'
+                        ? 'bg-chart-4'
+                        : 'bg-muted-foreground'
+                    }`}
+                    style={{
+                      width: stage.status === 'success' ? '100%' : stage.status === 'running' ? '65%' : '0%',
+                    }}
+                  />
+                </div>
+
+                {/* Stage Logs */}
+                {stage.logs && (
+                  <div className="bg-muted/20 rounded-lg p-3 mb-3 font-mono text-xs text-foreground/70 max-h-32 overflow-y-auto">
+                    {stage.logs.split('\n').map((line, i) => (
+                      <div key={i}>{line || '\u00A0'}</div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Divider */}
+                {index < mockPipeline.stages.length - 1 && (
+                  <div className="flex items-center gap-2 my-4">
+                    <div className="flex-1 h-px bg-border/50" />
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    <div className="flex-1 h-px bg-border/50" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Pipeline Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Started', value: formatUtcDateTime(mockPipeline.createdAt), icon: '📅' },
+          { label: 'Duration', value: mockPipeline.stages.reduce((sum, s) => sum + (s.duration || 0), 0) / 60 + 'm', icon: '⏱️' },
+          { label: 'Completed Stages', value: mockPipeline.stages.filter(s => s.status === 'success').length + '/' + mockPipeline.stages.length, icon: '✓' },
+          { label: 'Status', value: mockPipeline.status.charAt(0).toUpperCase() + mockPipeline.status.slice(1), icon: '🔄' },
+        ].map((stat) => (
+          <Card key={stat.label} className="glass border-border/50">
+            <CardContent className="pt-6">
+              <p className="text-sm text-foreground/70 mb-1">{stat.label}</p>
+              <p className="text-lg font-semibold text-foreground">{stat.value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Actions */}
+      <Card className="glass border-border/50">
+        <CardHeader>
+          <CardTitle>Pipeline Actions</CardTitle>
+          <CardDescription>Manage this deployment pipeline</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Button variant="outline" className="border-border justify-start">
+            <Play className="w-4 h-4 mr-2" />
+            Resume Pipeline
+          </Button>
+          <Button variant="outline" className="border-border justify-start">
+            View Logs
+          </Button>
+          <Button variant="outline" className="border-border justify-start text-chart-4">
+            Cancel Pipeline
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ChevronDown({ className }: { className: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M19 14l-7 7m0 0l-7-7m7 7V3"
+      />
+    </svg>
+  );
+}

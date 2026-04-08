@@ -1,0 +1,1 @@
+{"version": "1.0.0", "filename": "firmware_v1.0.0.bin", "sha256": "dummy_hash", "size": 1024, "signature": "mock_ed25519_signature_placeholder", "min_hw_rev": "1.0"}

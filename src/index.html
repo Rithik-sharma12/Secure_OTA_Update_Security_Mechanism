@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LG-OTA — Secure Heterogeneous OTA Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0b0e14;
+  --bg2: #111520;
+  --bg3: #161b27;
+  --card: #13182200;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.13);
+  --text: #e8eaf0;
+  --muted: #7a8196;
+  --accent: #00d4a0;
+  --accent2: #0099ff;
+  --accent3: #ff6b35;
+  --accent4: #a855f7;
+  --red: #ff4757;
+  --yellow: #ffc107;
+  --green: #00d4a0;
+  --mono: 'JetBrains Mono', monospace;
+  --head: 'Syne', sans-serif;
+  --body: 'DM Sans', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 14px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Grid noise texture */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,160,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,160,0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Layout */
+.shell { display: flex; min-height: 100vh; position: relative; z-index: 1; }
+
+/* Sidebar */
+.sidebar {
+  width: 220px; flex-shrink: 0;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  padding: 0 0 16px;
+  position: fixed; top: 0; left: 0; bottom: 0;
+  z-index: 100;
+}
+
+.logo {
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.logo-mark {
+  font-family: var(--head);
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+}
+.logo-sub { font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 2px; }
+
+.nav { flex: 1; padding: 12px 0; }
+.nav-section { font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; padding: 12px 20px 6px; }
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 20px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all .15s;
+  border-left: 2px solid transparent;
+  font-family: var(--body);
+}
+.nav-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(0,212,160,0.06); }
+.nav-icon { width: 16px; text-align: center; font-size: 14px; }
+
+.sidebar-footer {
+  padding: 12px 16px 0;
+  border-top: 1px solid var(--border);
+}
+.conn-status {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted);
+  padding: 8px 4px;
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1; transform: scale(1);} 50%{opacity:.6; transform: scale(0.85);} }
+
+/* Main content */
+.main { margin-left: 220px; flex: 1; display: flex; flex-direction: column; }
+
+/* Header */
+.topbar {
+  height: 56px; background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 28px;
+  gap: 16px;
+  position: sticky; top: 0; z-index: 50;
+}
+.page-title { font-family: var(--head); font-size: 15px; font-weight: 600; color: var(--text); }
+.breadcrumb { color: var(--muted); font-size: 13px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+.btn {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border2);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: var(--body);
+  transition: all .15s;
+}
+.btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
+.btn-primary {
+  background: var(--accent); color: #000; border-color: var(--accent); font-weight: 500;
+}
+.btn-primary:hover { background: #00b88a; }
+.btn-danger { background: rgba(255,71,87,0.15); color: var(--red); border-color: rgba(255,71,87,0.3); }
+.btn-danger:hover { background: rgba(255,71,87,0.25); }
+
+/* Pages */
+.page { display: none; flex: 1; padding: 24px 28px; overflow-y: auto; }
+.page.active { display: block; }
+
+/* Section header */
+.section-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.section-title { font-family: var(--head); font-size: 22px; font-weight: 700; line-height: 1.2; }
+.section-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+/* Cards grid */
+.metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+
+.metric-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+}
+.metric-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: var(--card-accent, var(--accent));
+  border-radius: 12px 12px 0 0;
+}
+.metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+.metric-value { font-family: var(--head); font-size: 28px; font-weight: 700; margin: 6px 0 4px; }
+.metric-delta { font-size: 12px; }
+.metric-delta.up { color: var(--green); }
+.metric-delta.down { color: var(--red); }
+
+/* Table */
+.table-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.table-head {
+  display: flex; align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.table-head-title { font-family: var(--head); font-size: 14px; font-weight: 600; }
+.table-actions { margin-left: auto; display: flex; gap: 8px; }
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; padding: 10px 18px;
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 1px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,0,0,0.15);
+  font-weight: 500;
+}
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+  cursor: pointer;
+}
+tbody tr:hover { background: rgba(255,255,255,0.025); }
+tbody tr:last-child { border-bottom: none; }
+td { padding: 12px 18px; font-size: 13px; }
+
+/* Badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 500; letter-spacing: 0.3px;
+}
+.badge-green { background: rgba(0,212,160,0.12); color: var(--green); }
+.badge-red { background: rgba(255,71,87,0.12); color: var(--red); }
+.badge-yellow { background: rgba(255,193,7,0.12); color: var(--yellow); }
+.badge-blue { background: rgba(0,153,255,0.12); color: var(--accent2); }
+.badge-purple { background: rgba(168,85,247,0.12); color: var(--accent4); }
+.badge-gray { background: rgba(122,129,150,0.15); color: var(--muted); }
+
+/* Progress bar */
+.progress-bar {
+  height: 5px; background: rgba(255,255,255,0.06);
+  border-radius: 3px; overflow: hidden;
+}
+.progress-fill { height: 100%; border-radius: 3px; transition: width .5s ease; }
+
+/* Tier visualization */
+.tier-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tier-row:last-child { border-bottom: none; }
+.tier-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; font-family: var(--mono);
+  flex-shrink: 0;
+}
+.tier-info { flex: 1; }
+.tier-name { font-size: 13px; font-weight: 500; }
+.tier-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.tier-cost {
+  font-family: var(--mono); font-size: 11px;
+  padding: 3px 8px; border-radius: 6px;
+  background: rgba(255,255,255,0.05);
+  color: var(--muted); white-space: nowrap;
+}
+.tier-status { width: 80px; text-align: right; }
+
+/* Pipeline flow */
+.pipeline {
+  display: flex; align-items: center; gap: 0;
+  padding: 8px 0; overflow-x: auto;
+}
+.pipe-step {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 120px;
+  text-align: center;
+  position: relative;
+  flex-shrink: 0;
+}
+.pipe-step.running { border-color: rgba(0,212,160,0.4); background: rgba(0,212,160,0.06); }
+.pipe-step.done { border-color: rgba(0,212,160,0.2); }
+.pipe-step.pending { opacity: .5; }
+.pipe-arrow {
+  width: 28px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 16px;
+}
+.pipe-icon { font-size: 20px; margin-bottom: 6px; }
+.pipe-name { font-size: 11px; font-weight: 500; color: var(--text); }
+.pipe-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.pipe-time { font-size: 10px; font-family: var(--mono); color: var(--accent); margin-top: 4px; }
+
+/* Two-col grid */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+
+/* Log terminal */
+.log-terminal {
+  background: #08090d;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.8;
+  height: 200px;
+  overflow-y: auto;
+}
+.log-line { display: flex; gap: 12px; }
+.log-ts { color: var(--muted); flex-shrink: 0; }
+.log-ok { color: var(--accent); }
+.log-err { color: var(--red); }
+.log-warn { color: var(--yellow); }
+.log-info { color: var(--accent2); }
+.log-dim { color: var(--muted); }
+
+/* Heartbeat graph placeholder */
+.sparkline { height: 60px; position: relative; }
+
+/* Score ring */
+.score-ring {
+  width: 100px; height: 100px;
+  border-radius: 50%;
+  border: 4px solid rgba(255,255,255,0.05);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative;
+}
+.score-ring svg { position: absolute; top: -4px; left: -4px; }
+.score-number { font-family: var(--head); font-size: 26px; font-weight: 700; color: var(--accent); }
+.score-label { font-size: 10px; color: var(--muted); }
+
+/* Forms */
+.form-group { margin-bottom: 16px; }
+.form-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.8px; }
+.form-input {
+  width: 100%; background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--body);
+  outline: none;
+  transition: border-color .15s;
+}
+.form-input:focus { border-color: rgba(0,212,160,0.5); }
+select.form-input option { background: #1a1f2e; }
+
+/* Modal */
+.modal-bg {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  visibility: hidden; opacity: 0; transition: all .2s;
+}
+.modal-bg.open { visibility: visible; opacity: 1; }
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%; max-width: 500px;
+  transform: translateY(16px); transition: transform .2s;
+}
+.modal-bg.open .modal { transform: translateY(0); }
+.modal-head { display: flex; align-items: center; margin-bottom: 20px; }
+.modal-title { font-family: var(--head); font-size: 16px; font-weight: 600; }
+.modal-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; padding: 0 4px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+
+/* Tier colors */
+.t1 { background: rgba(0,153,255,0.15); color: var(--accent2); }
+.t2 { background: rgba(168,85,247,0.15); color: var(--accent4); }
+.t3 { background: rgba(0,212,160,0.15); color: var(--accent); }
+.t4 { background: rgba(255,193,7,0.15); color: var(--yellow); }
+.t5 { background: rgba(255,107,53,0.15); color: var(--accent3); }
+
+/* Tag pill */
+.tag {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 4px; font-size: 11px; font-family: var(--mono);
+  background: rgba(255,255,255,0.06); color: var(--muted);
+}
+
+/* Divider */
+.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* Chart bars */
+.bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 80px; padding: 0 4px; }
+.bar { flex: 1; border-radius: 4px 4px 0 0; min-width: 8px; transition: height .5s ease; cursor: pointer; }
+.bar:hover { opacity: .8; }
+
+/* Toggle */
+.toggle-wrap { display: flex; align-items: center; gap: 10px; }
+.toggle { position: relative; width: 36px; height: 20px; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.1);
+  border-radius: 20px; cursor: pointer;
+  transition: .2s;
+}
+.toggle-slider::before {
+  content: ''; position: absolute;
+  width: 14px; height: 14px;
+  left: 3px; top: 3px;
+  background: var(--muted);
+  border-radius: 50%;
+  transition: .2s;
+}
+.toggle input:checked + .toggle-slider { background: rgba(0,212,160,0.3); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(16px); background: var(--accent); }
+
+/* Animations */
+@keyframes slideIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+.animate-in { animation: slideIn .3s ease forwards; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { animation: spin 1s linear infinite; }
+
+/* Alert bar */
+.alert-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.alert-warn { background: rgba(255,193,7,0.08); border: 1px solid rgba(255,193,7,0.2); color: var(--yellow); }
+.alert-danger { background: rgba(255,71,87,0.08); border: 1px solid rgba(255,71,87,0.2); color: var(--red); }
+.alert-success { background: rgba(0,212,160,0.08); border: 1px solid rgba(0,212,160,0.2); color: var(--accent); }
+
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">⬡ LG-OTA</div>
+      <div class="logo-sub">Firmware Control Center</div>
+    </div>
+    <div class="nav">
+      <div class="nav-section">Monitor</div>
+      <div class="nav-item active" onclick="goto('dashboard')"><span class="nav-icon">◈</span> Dashboard</div>
+      <div class="nav-item" onclick="goto('devices')"><span class="nav-icon">◉</span> Devices</div>
+      <div class="nav-item" onclick="goto('logs')"><span class="nav-icon">≡</span> Event Logs</div>
+      <div class="nav-section">Deploy</div>
+      <div class="nav-item" onclick="goto('pipeline')"><span class="nav-icon">⟶</span> Pipeline</div>
+      <div class="nav-item" onclick="goto('releases')"><span class="nav-icon">⬡</span> Releases</div>
+      <div class="nav-item" onclick="goto('manifest')"><span class="nav-icon">◫</span> Manifest</div>
+      <div class="nav-section">Security</div>
+      <div class="nav-item" onclick="goto('tcv')"><span class="nav-icon">⬢</span> TCV Engine</div>
+      <div class="nav-item" onclick="goto('ash')"><span class="nav-icon">♡</span> ASH Monitor</div>
+      <div class="nav-item" onclick="goto('keys')"><span class="nav-icon">⬡</span> Key Vault</div>
+      <div class="nav-section">Config</div>
+      <div class="nav-item" onclick="goto('settings')"><span class="nav-icon">⚙</span> Settings</div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="conn-status"><span class="dot"></span> GitHub API connected</div>
+      <div class="conn-status" style="padding-top:0;color:#7a8196;font-size:11px;">v2.1.0 · Ed25519 active</div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Topbar -->
+    <header class="topbar">
+      <span class="breadcrumb" id="topbar-bread">Monitor /</span>
+      <span class="page-title" id="topbar-title">Dashboard</span>
+      <div class="topbar-right">
+        <button class="btn" onclick="refreshAll()">↺ Refresh</button>
+        <button class="btn btn-primary" onclick="openModal('deploy-modal')">⬆ Push Update</button>
+      </div>
+    </header>
+
+    <!-- ===== DASHBOARD ===== -->
+    <div class="page active" id="page-dashboard">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Fleet Overview</div>
+          <div class="section-sub">Real-time status across all registered devices</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="badge badge-green">● Live</span>
+          <span style="font-size:12px;color:var(--muted)" id="last-refresh">Updated just now</span>
+        </div>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card" style="--card-accent: var(--accent)">
+          <div class="metric-label">Total Devices</div>
+          <div class="metric-value" style="color:var(--accent)">247</div>
+          <div class="metric-delta up">↑ 12 this week</div>
+        </div>
+        <div class="metric-card" style="--card-accent: var(--accent2)">
+          <div class="metric-label">Up to Date</div>
+          <div class="metric-value" style="color:var(--accent2)">191</div>
+          <div class="metric-delta up">77.3% of fleet</div>
+        </div>
+        <div class="metric-card" style="--card-accent: var(--yellow)">
+          <div class="metric-label">Pending Update</div>
+          <div class="metric-value" style="color:var(--yellow)">43</div>
+          <div class="metric-delta">Queued for v2.1.0</div>
+        </div>
+        <div class="metric-card" style="--card-accent: var(--red)">
+          <div class="metric-label">Quarantined</div>
+          <div class="metric-value" style="color:var(--red)">13</div>
+          <div class="metric-delta down">↓ 3 from yesterday</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <!-- TCV Pass Rate -->
+        <div class="table-card">
+          <div class="table-head">
+            <div class="table-head-title">TCV Tier Pass Rates (Last 24h)</div>
+          </div>
+          <div style="padding:16px 18px;">
+            <div class="tier-row">
+              <div class="tier-num t1">1</div>
+              <div class="tier-info">
+                <div class="tier-name">Connectivity & Rate Limit</div>
+                <div class="tier-sub">0 bytes RAM overhead</div>
+              </div>
+              <div style="flex:1;margin:0 12px;"><div class="progress-bar"><div class="progress-fill" style="width:98%;background:var(--accent2)"></div></div></div>
+              <div style="font-family:var(--mono);font-size:12px;color:var(--accent2)">98%</div>
+            </div>
+            <div class="tier-row">
+              <div class="tier-num t2">2</div>
+              <div class="tier-info">
+                <div class="tier-name">Manifest Integrity</div>
+                <div class="tier-sub">100 bytes RAM</div>
+              </div>
+              <div style="flex:1;margin:0 12px;"><div class="progress-bar"><div class="progress-fill" style="width:95%;background:var(--accent4)"></div></div></div>
+              <div style="font-family:var(--mono);font-size:12px;color:var(--accent4)">95%</div>
+            </div>
+            <div class="tier-row">
+              <div class="tier-num t3">3</div>
+              <div class="tier-info">
+                <div class="tier-name">Semantic Version Gating</div>
+                <div class="tier-sub">50 bytes RAM · Anti-rollback</div>
+              </div>
+              <div style="flex:1;margin:0 12px;"><div class="progress-bar"><div class="progress-fill" style="width:92%;background:var(--accent)"></div></div></div>
+              <div style="font-family:var(--mono);font-size:12px;color:var(--accent)">92%</div>
+            </div>
+            <div class="tier-row">
+              <div class="tier-num t4">4</div>
+              <div class="tier-info">
+                <div class="tier-name">Streaming Hash Check</div>
+                <div class="tier-sub">32 bytes RAM · SHA-256</div>
+              </div>
+              <div style="flex:1;margin:0 12px;"><div class="progress-bar"><div class="progress-fill" style="width:89%;background:var(--yellow)"></div></div></div>
+              <div style="font-family:var(--mono);font-size:12px;color:var(--yellow)">89%</div>
+            </div>
+            <div class="tier-row">
+              <div class="tier-num t5">5</div>
+              <div class="tier-info">
+                <div class="tier-name">Ed25519 Signature Verify</div>
+                <div class="tier-sub">~1.5 KB RAM · Final gate</div>
+              </div>
+              <div style="flex:1;margin:0 12px;"><div class="progress-bar"><div class="progress-fill" style="width:99%;background:var(--accent3)"></div></div></div>
+              <div style="font-family:var(--mono);font-size:12px;color:var(--accent3)">99%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Activity chart + ASH summary -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="table-card" style="flex:1">
+            <div class="table-head">
+              <div class="table-head-title">Update Activity (7 days)</div>
+            </div>
+            <div style="padding:16px 18px;">
+              <div class="bar-chart" id="activity-chart"></div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:8px;font-family:var(--mono);" id="chart-labels"></div>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="table-head">
+              <div class="table-head-title">Fleet ASH Score</div>
+            </div>
+            <div style="padding:16px 18px;display:flex;align-items:center;gap:20px;">
+              <div style="position:relative;width:80px;height:80px;flex-shrink:0;">
+                <svg width="80" height="80" viewBox="0 0 80 80">
+                  <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="7"/>
+                  <circle cx="40" cy="40" r="34" fill="none" stroke="var(--accent)" stroke-width="7"
+                    stroke-dasharray="213.6" stroke-dashoffset="32"
+                    stroke-linecap="round" transform="rotate(-90 40 40)"/>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                  <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--accent)">85</div>
+                  <div style="font-size:9px;color:var(--muted)">/ 100</div>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:14px;font-weight:500;margin-bottom:6px;">Fleet Health: <span style="color:var(--accent)">Good</span></div>
+                <div style="font-size:12px;color:var(--muted);line-height:1.6;">13 devices below threshold<br>3 entering quarantine today<br>Threshold: &lt;40 triggers isolation</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent activity -->
+      <div class="table-card">
+        <div class="table-head">
+          <div class="table-head-title">Recent Update Events</div>
+          <div class="table-actions">
+            <button class="btn" onclick="goto('logs')">View all logs →</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Device ID</th><th>Architecture</th><th>Version</th><th>Event</th><th>TCV Tier</th><th>Time</th><th>Status</th>
+          </tr></thead>
+          <tbody id="recent-events"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== DEVICES ===== -->
+    <div class="page" id="page-devices">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Device Registry</div>
+          <div class="section-sub">All registered IoT nodes across architectures</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-input" style="width:160px;padding:7px 10px;" onchange="filterDevices(this.value)">
+            <option value="all">All architectures</option>
+            <option value="esp32">ESP32</option>
+            <option value="stm32">STM32</option>
+            <option value="avr">AVR</option>
+            <option value="riscv">RISC-V</option>
+          </select>
+          <button class="btn btn-primary" onclick="openModal('register-modal')">+ Register Device</button>
+        </div>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card" style="--card-accent:#3B8BD4">
+          <div class="metric-label">ESP32</div><div class="metric-value" style="color:#3B8BD4">112</div>
+          <div class="metric-delta">45% of fleet</div>
+        </div>
+        <div class="metric-card" style="--card-accent:var(--accent4)">
+          <div class="metric-label">STM32</div><div class="metric-value" style="color:var(--accent4)">78</div>
+          <div class="metric-delta">32% of fleet</div>
+        </div>
+        <div class="metric-card" style="--card-accent:var(--accent3)">
+          <div class="metric-label">AVR (low-end)</div><div class="metric-value" style="color:var(--accent3)">41</div>
+          <div class="metric-delta">17% of fleet</div>
+        </div>
+        <div class="metric-card" style="--card-accent:var(--yellow)">
+          <div class="metric-label">RISC-V (beta)</div><div class="metric-value" style="color:var(--yellow)">16</div>
+          <div class="metric-delta">6% of fleet</div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-head">
+          <div class="table-head-title">Device List</div>
+          <div class="table-actions">
+            <input class="form-input" style="width:200px;padding:7px 10px;" placeholder="Search device ID..." oninput="searchDevices(this.value)">
+          </div>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Device ID</th><th>Arch</th><th>RAM</th><th>Firmware</th><th>ASH Score</th><th>Last Seen</th><th>Status</th><th>Action</th>
+          </tr></thead>
+          <tbody id="device-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== LOGS ===== -->
+    <div class="page" id="page-logs">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Event Logs</div>
+          <div class="section-sub">Full audit trail of OTA events and security events</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <select class="form-input" style="width:140px;padding:7px 10px;" onchange="filterLogs(this.value)">
+            <option value="all">All events</option>
+            <option value="ok">Success</option>
+            <option value="err">Errors</option>
+            <option value="warn">Warnings</option>
+            <option value="sec">Security</option>
+          </select>
+          <button class="btn" onclick="exportLogs()">⬇ Export CSV</button>
+        </div>
+      </div>
+
+      <div class="log-terminal" id="log-terminal" style="height:420px;">
+        <div style="color:var(--muted);margin-bottom:8px;font-size:10px;">── LG-OTA Event Log ─ Live Stream ──────────────────────────────</div>
+      </div>
+
+      <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+        <label class="toggle-wrap" style="font-size:12px;color:var(--muted);">
+          <label class="toggle"><input type="checkbox" id="live-toggle" checked onchange="toggleLive(this)"><span class="toggle-slider"></span></label>
+          Live stream
+        </label>
+        <span style="margin-left:auto;font-size:12px;color:var(--muted);" id="log-count">Showing 0 events</span>
+      </div>
+    </div>
+
+    <!-- ===== PIPELINE ===== -->
+    <div class="page" id="page-pipeline">
+      <div class="section-head">
+        <div>
+          <div class="section-title">CI/CD Pipeline</div>
+          <div class="section-sub">Push-to-Deploy — Git tag → Signed firmware release</div>
+        </div>
+        <button class="btn btn-primary" onclick="runPipeline()">▶ Simulate Run</button>
+      </div>
+
+      <div class="alert-success" id="pipeline-alert" style="display:none">
+        ✓ Pipeline completed successfully · firmware.bin signed with Ed25519 · manifest.json published to GitHub Releases
+      </div>
+
+      <div class="table-card" style="margin-bottom:20px;">
+        <div class="table-head"><div class="table-head-title">Pipeline Stages</div><span id="pipeline-status" class="badge badge-gray">Idle</span></div>
+        <div style="padding:20px 18px;">
+          <div class="pipeline" id="pipeline-stages"></div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Build Log</div></div>
+          <div class="log-terminal" id="build-log"></div>
+        </div>
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Signing & Release</div></div>
+          <div style="padding:16px 18px;">
+            <div style="margin-bottom:14px;">
+              <div class="form-label">Target Architecture</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <span class="badge badge-blue" id="arch-esp32" style="cursor:pointer" onclick="toggleArch('esp32',this)">● ESP32</span>
+                <span class="badge badge-purple" id="arch-stm32" style="cursor:pointer" onclick="toggleArch('stm32',this)">● STM32</span>
+                <span class="badge badge-yellow" style="cursor:pointer">○ AVR</span>
+                <span class="badge badge-gray" style="cursor:pointer">○ RISC-V</span>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.8;">
+              <div>Signing key: <span style="font-family:var(--mono);color:var(--accent)">ed25519_prod_2025</span></div>
+              <div>Key fingerprint: <span style="font-family:var(--mono);color:var(--text);font-size:11px">a3:f2:9d:1c:...</span></div>
+              <div>Releases target: <span style="font-family:var(--mono);color:var(--accent2)">github.com/org/fw</span></div>
+              <div>CDN: <span style="color:var(--text)">GitHub Global CDN (99.9% SLA)</span></div>
+            </div>
+            <div class="divider"></div>
+            <div style="display:flex;gap:8px;margin-top:4px;">
+              <button class="btn btn-primary" style="flex:1;" onclick="runPipeline()">▶ Build & Sign</button>
+              <button class="btn btn-danger" onclick="abortPipeline()">✕ Abort</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== RELEASES ===== -->
+    <div class="page" id="page-releases">
+      <div class="section-head">
+        <div><div class="section-title">Firmware Releases</div><div class="section-sub">GitHub Releases API — source of truth for all OTA binaries</div></div>
+        <button class="btn btn-primary" onclick="openModal('release-modal')">+ New Release</button>
+      </div>
+
+      <div class="table-card">
+        <div class="table-head"><div class="table-head-title">Release History</div></div>
+        <table>
+          <thead><tr><th>Tag</th><th>Binary</th><th>Size</th><th>Signature</th><th>Architecture</th><th>Rollout</th><th>Date</th><th>Status</th></tr></thead>
+          <tbody id="releases-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== MANIFEST ===== -->
+    <div class="page" id="page-manifest">
+      <div class="section-head">
+        <div><div class="section-title">Manifest Editor</div><div class="section-sub">manifest.json — device reads this to verify and pull updates</div></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="validateManifest()">✓ Validate</button>
+          <button class="btn btn-primary" onclick="saveManifest()">⬆ Push to Release</button>
+        </div>
+      </div>
+
+      <div id="manifest-alert" style="display:none" class="alert-success">✓ Manifest is valid JSON · All required fields present · Version is newer than current</div>
+      <div id="manifest-err" style="display:none" class="alert-danger">✕ Validation failed: Missing required field "signature"</div>
+
+      <div class="two-col">
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">manifest.json</div><span style="font-size:11px;color:var(--muted);margin-left:auto;font-family:var(--mono);">UTF-8</span></div>
+          <textarea id="manifest-editor" style="width:100%;background:#08090d;border:none;color:var(--text);font-family:var(--mono);font-size:12px;line-height:1.8;padding:16px 18px;height:380px;resize:none;outline:none;border-radius:0 0 12px 12px;">{
+  "schema": "lg-ota-v1",
+  "version": "2.1.0",
+  "previous_version": "2.0.3",
+  "architecture": ["esp32", "stm32", "avr"],
+  "binary": {
+    "esp32": "firmware_esp32_v2.1.0.bin",
+    "stm32": "firmware_stm32_v2.1.0.bin",
+    "avr":   "firmware_avr_v2.1.0.bin"
+  },
+  "sha256": {
+    "esp32": "a3f29d1c8e4b7f2a...",
+    "stm32": "b4e30f2d9f5c8a3b...",
+    "avr":   "c5f41a3e0a6d9b4c..."
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "key_id": "ed25519_prod_2025",
+    "value": "MEYCIQDxyz..."
+  },
+  "rollback_blocked": true,
+  "min_ash_score": 40,
+  "release_url": "https://github.com/org/fw/releases/tag/v2.1.0",
+  "changelog": "Security patch + delta update support",
+  "timestamp": "2025-09-12T14:30:00Z"
+}</textarea>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="table-card">
+            <div class="table-head"><div class="table-head-title">Required Fields</div></div>
+            <div style="padding:12px 18px;">
+              <div id="field-checks" style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-family:var(--mono);"></div>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="table-head"><div class="table-head-title">Version Gate Preview</div></div>
+            <div style="padding:14px 18px;font-size:13px;line-height:1.8;color:var(--muted);">
+              <div>Current fleet version: <span style="color:var(--text)">v2.0.3</span></div>
+              <div>Manifest version: <span style="color:var(--accent)">v2.1.0</span></div>
+              <div style="margin-top:8px;">
+                <span class="badge badge-green">✓ Newer version detected</span>
+              </div>
+              <div style="margin-top:8px;">Rollback protection: <span style="color:var(--accent)">Active</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TCV ENGINE ===== -->
+    <div class="page" id="page-tcv">
+      <div class="section-head">
+        <div><div class="section-title">TCV Engine — Tiered Crypto Verification</div><div class="section-sub">Run checks in stages: cheap gates first, expensive crypto last</div></div>
+        <button class="btn btn-primary" onclick="runTCV()">▶ Simulate TCV Run</button>
+      </div>
+
+      <div id="tcv-result" style="display:none;margin-bottom:16px;"></div>
+
+      <div class="three-col">
+        <div class="metric-card" style="--card-accent:var(--accent)">
+          <div class="metric-label">Attacks stopped (pre-T5)</div>
+          <div class="metric-value" style="color:var(--accent)">95%</div>
+          <div class="metric-delta up">Before Ed25519 is called</div>
+        </div>
+        <div class="metric-card" style="--card-accent:var(--accent2)">
+          <div class="metric-label">Avg RAM used per check</div>
+          <div class="metric-value" style="color:var(--accent2)">&lt;2KB</div>
+          <div class="metric-delta">vs 64KB for TLS 1.3</div>
+        </div>
+        <div class="metric-card" style="--card-accent:var(--accent3)">
+          <div class="metric-label">Battery drain reduction</div>
+          <div class="metric-value" style="color:var(--accent3)">~80%</div>
+          <div class="metric-delta up">vs full-verify on every poll</div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-head"><div class="table-head-title">Live TCV Simulation</div><span id="tcv-badge" class="badge badge-gray">Ready</span></div>
+        <div style="padding:16px 18px;">
+          <div id="tcv-tiers" style="display:flex;flex-direction:column;gap:0;"></div>
+        </div>
+      </div>
+
+      <div class="table-card" style="margin-top:16px;">
+        <div class="table-head"><div class="table-head-title">Cost Analysis</div></div>
+        <table>
+          <thead><tr><th>Tier</th><th>Check</th><th>RAM Cost</th><th>CPU Cycles</th><th>Blocks</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge t1" style="border-radius:6px">T1</span></td><td>Connectivity & rate limit</td><td><span class="tag">0 bytes</span></td><td>&lt;10</td><td>Network floods</td></tr>
+            <tr><td><span class="badge t2" style="border-radius:6px">T2</span></td><td>Manifest JSON validity</td><td><span class="tag">100 bytes</span></td><td>&lt;500</td><td>Malformed payloads</td></tr>
+            <tr><td><span class="badge t3" style="border-radius:6px">T3</span></td><td>Semantic version gate</td><td><span class="tag">50 bytes</span></td><td>&lt;200</td><td>Rollback attacks</td></tr>
+            <tr><td><span class="badge t4" style="border-radius:6px">T4</span></td><td>SHA-256 hash stream</td><td><span class="tag">32 bytes</span></td><td>~5K/KB</td><td>Corruption / MITM</td></tr>
+            <tr><td><span class="badge t5" style="border-radius:6px">T5</span></td><td>Ed25519 signature verify</td><td><span class="tag">~1.5 KB</span></td><td>~150K</td><td>Unsigned binaries</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== ASH MONITOR ===== -->
+    <div class="page" id="page-ash">
+      <div class="section-head">
+        <div><div class="section-title">ASH Monitor — Anomaly-Scored Heartbeat</div><div class="section-sub">Behavioral security — each device maintains a live health score</div></div>
+      </div>
+
+      <div class="alert-warn" id="ash-alert">⚠ 13 devices below quarantine threshold (score &lt; 40). Reviewing attack patterns.</div>
+
+      <div class="three-col">
+        <div class="metric-card" style="--card-accent:var(--accent)">
+          <div class="metric-label">Good Update +pts</div>
+          <div class="metric-value" style="color:var(--accent)">+10</div>
+          <div class="metric-delta">Score reward</div>
+        </div>
+        <div class="metric-card" style="--card-accent:var(--yellow)">
+          <div class="metric-label">Failed Hash check</div>
+          <div class="metric-value" style="color:var(--yellow)">−20</div>
+          <div class="metric-delta down">Score penalty</div>
+        </div>
+        <div class="metric-card" style="--card-accent:var(--red)">
+          <div class="metric-label">Bad Signature</div>
+          <div class="metric-value" style="color:var(--red)">−50</div>
+          <div class="metric-delta down">Immediate threat</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Device ASH Scores</div></div>
+          <div style="padding:16px 18px;" id="ash-device-list"></div>
+        </div>
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Simulate ASH Event</div></div>
+          <div style="padding:16px 18px;">
+            <div class="form-group">
+              <label class="form-label">Device ID</label>
+              <select class="form-input" id="ash-device-sel">
+                <option>DEV-0047 (ESP32)</option>
+                <option>DEV-0089 (STM32)</option>
+                <option>DEV-0213 (AVR)</option>
+                <option>DEV-0012 (ESP32) — Quarantined</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Event Type</label>
+              <select class="form-input" id="ash-event-sel">
+                <option value="10">Good Update (+10)</option>
+                <option value="-20">Failed Hash (−20)</option>
+                <option value="-50">Invalid Signature (−50)</option>
+                <option value="-100">Multiple bad attempts (−100)</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" style="width:100%;" onclick="simulateASH()">Apply Event</button>
+            <div id="ash-sim-result" style="margin-top:12px;font-size:12px;display:none;"></div>
+            <div class="divider"></div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.8;">
+              <strong style="color:var(--text);">Quarantine Mode:</strong><br>
+              Score &lt; 40 → device rejects all network packets<br>
+              Prevents battery-draining flood attacks<br>
+              Auto-recovers after 24h quarantine window
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== KEY VAULT ===== -->
+    <div class="page" id="page-keys">
+      <div class="section-head">
+        <div><div class="section-title">Key Vault</div><div class="section-sub">Ed25519 signing keys — stored in GitHub repository secrets</div></div>
+        <button class="btn btn-primary" onclick="openModal('key-modal')">+ Generate Key Pair</button>
+      </div>
+
+      <div class="alert-success">✓ All keys verified · Ed25519 active · Private key never leaves CI environment</div>
+
+      <div class="table-card" style="margin-top:16px;">
+        <div class="table-head"><div class="table-head-title">Active Keys</div></div>
+        <table>
+          <thead><tr><th>Key ID</th><th>Algorithm</th><th>Fingerprint</th><th>Created</th><th>Usage</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody id="keys-table"></tbody>
+        </table>
+      </div>
+
+      <div class="two-col" style="margin-top:16px;">
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Why Ed25519?</div></div>
+          <div style="padding:16px 18px;font-size:13px;color:var(--muted);line-height:1.9;">
+            <div><span style="color:var(--accent)">✓</span> Only ~1.5KB RAM for verification</div>
+            <div><span style="color:var(--accent)">✓</span> Faster than RSA-4096 by 100x</div>
+            <div><span style="color:var(--accent)">✓</span> 128-bit security level</div>
+            <div><span style="color:var(--accent)">✓</span> Deterministic — no random oracle needed</div>
+            <div><span style="color:var(--red)">✗</span> RSA-4096 requires ~64KB RAM (unusable)</div>
+            <div><span style="color:var(--red)">✗</span> TLS 1.3 requires OS-level support</div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Integrity vs. Confidentiality</div></div>
+          <div style="padding:16px 18px;font-size:13px;color:var(--muted);line-height:1.9;">
+            <div style="margin-bottom:8px;color:var(--text);font-weight:500;">Our focus: <span style="color:var(--accent)">Integrity (Signing)</span></div>
+            <div>Open-source firmware doesn't need encryption — everyone can read the code.</div>
+            <div style="margin-top:8px;">What matters: <em style="color:var(--text);">did the authentic build server sign this binary?</em></div>
+            <div style="margin-top:8px;">Answer: <span style="font-family:var(--mono);color:var(--accent);font-size:12px;">Ed25519.verify(sig, bin, pubkey)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SETTINGS ===== -->
+    <div class="page" id="page-settings">
+      <div class="section-head">
+        <div><div class="section-title">Settings</div><div class="section-sub">System configuration for LG-OTA infrastructure</div></div>
+        <button class="btn btn-primary" onclick="saveSettings()">✓ Save Changes</button>
+      </div>
+
+      <div class="two-col">
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">GitHub Integration</div></div>
+          <div style="padding:16px 18px;">
+            <div class="form-group">
+              <label class="form-label">Repository URL</label>
+              <input class="form-input" value="https://github.com/org/firmware">
+            </div>
+            <div class="form-group">
+              <label class="form-label">GitHub API Token</label>
+              <input class="form-input" type="password" value="ghp_xxxxxxxxxxxx">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Release Tag Pattern</label>
+              <input class="form-input" value="v{major}.{minor}.{patch}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Backend (modular)</label>
+              <select class="form-input">
+                <option>GitHub Releases (default)</option>
+                <option>GitLab Releases</option>
+                <option>S3-compatible bucket</option>
+                <option>Self-hosted (custom URL)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">ASH Configuration</div></div>
+          <div style="padding:16px 18px;">
+            <div class="form-group">
+              <label class="form-label">Quarantine Threshold</label>
+              <input class="form-input" type="number" value="40" min="0" max="100">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Quarantine Duration (hours)</label>
+              <input class="form-input" type="number" value="24">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Score: Good Update</label>
+              <input class="form-input" type="number" value="10">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Score: Failed Hash</label>
+              <input class="form-input" type="number" value="-20">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Score: Invalid Signature</label>
+              <input class="form-input" type="number" value="-50">
+            </div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Poll Configuration</div></div>
+          <div style="padding:16px 18px;">
+            <div class="form-group">
+              <label class="form-label">Poll Interval (minutes)</label>
+              <input class="form-input" type="number" value="60">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Rate Limit (requests/hour)</label>
+              <input class="form-input" type="number" value="5">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Delta Updates</label>
+              <div class="toggle-wrap" style="margin-top:4px;">
+                <label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;color:var(--muted);">Coming soon (RISC-V port in progress)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-head"><div class="table-head-title">Danger Zone</div></div>
+          <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
+            <button class="btn btn-danger" style="width:100%;" onclick="alert('Quarantine lifted for all 13 devices')">↺ Lift All Quarantines</button>
+            <button class="btn btn-danger" style="width:100%;" onclick="alert('Rollback initiated — all devices will revert to v2.0.3')">⟳ Force Fleet Rollback</button>
+            <button class="btn btn-danger" style="width:100%;" onclick="alert('All device registrations cleared')">✕ Clear Device Registry</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Deploy Modal -->
+<div class="modal-bg" id="deploy-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">⬆ Push OTA Update</div>
+      <button class="modal-close" onclick="closeModal('deploy-modal')">✕</button>
+    </div>
+    <div class="form-group"><label class="form-label">Git Tag</label><input class="form-input" value="v2.1.0" id="deploy-tag"></div>
+    <div class="form-group"><label class="form-label">Target Architecture</label>
+      <select class="form-input"><option>All (ESP32 + STM32 + AVR)</option><option>ESP32 only</option><option>STM32 only</option><option>AVR only</option></select></div>
+    <div class="form-group"><label class="form-label">Rollout Strategy</label>
+      <select class="form-input"><option>Canary (10% first)</option><option>Full fleet rollout</option><option>Manual per-device</option></select></div>
+    <div class="form-group"><label class="form-label">Changelog</label><textarea class="form-input" style="height:80px;resize:none;">Security patch + delta update foundation</textarea></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn" style="flex:1" onclick="closeModal('deploy-modal')">Cancel</button>
+      <button class="btn btn-primary" style="flex:2" onclick="triggerDeploy()">▶ Trigger Pipeline</button>
+    </div>
+  </div>
+</div>
+
+<!-- Register Device Modal -->
+<div class="modal-bg" id="register-modal">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">+ Register Device</div><button class="modal-close" onclick="closeModal('register-modal')">✕</button></div>
+    <div class="form-group"><label class="form-label">Device ID</label><input class="form-input" placeholder="DEV-XXXX"></div>
+    <div class="form-group"><label class="form-label">Architecture</label>
+      <select class="form-input"><option>ESP32</option><option>STM32</option><option>AVR</option><option>RISC-V (beta)</option></select></div>
+    <div class="form-group"><label class="form-label">Available RAM</label><input class="form-input" placeholder="e.g. 4 KB"></div>
+    <div class="form-group"><label class="form-label">Location / Group</label><input class="form-input" placeholder="e.g. Factory-A, Floor-2"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn" style="flex:1" onclick="closeModal('register-modal')">Cancel</button>
+      <button class="btn btn-primary" style="flex:2" onclick="registerDevice()">Register</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Release Modal -->
+<div class="modal-bg" id="release-modal">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">+ Create Release</div><button class="modal-close" onclick="closeModal('release-modal')">✕</button></div>
+    <div class="form-group"><label class="form-label">Version Tag</label><input class="form-input" value="v2.2.0"></div>
+    <div class="form-group"><label class="form-label">Binary File</label><input class="form-input" type="file" style="padding:6px 10px;"></div>
+    <div class="form-group"><label class="form-label">Release Notes</label><textarea class="form-input" style="height:80px;resize:none;" placeholder="What changed?"></textarea></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn" style="flex:1" onclick="closeModal('release-modal')">Cancel</button>
+      <button class="btn btn-primary" style="flex:2" onclick="closeModal('release-modal');alert('Release created and signed!')">Create & Sign</button>
+    </div>
+  </div>
+</div>
+
+<!-- Generate Key Modal -->
+<div class="modal-bg" id="key-modal">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title">+ Generate Ed25519 Key Pair</div><button class="modal-close" onclick="closeModal('key-modal')">✕</button></div>
+    <div class="form-group"><label class="form-label">Key ID / Label</label><input class="form-input" placeholder="ed25519_prod_2025_v2"></div>
+    <div class="form-group"><label class="form-label">Store private key in</label>
+      <select class="form-input"><option>GitHub Actions Secret</option><option>Environment variable</option></select></div>
+    <div style="padding:12px;background:#08090d;border-radius:8px;font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:16px;">
+      Private key never stored in dashboard.<br>Public key embedded in device firmware.<br>Signing done exclusively in CI/CD.
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" style="flex:1" onclick="closeModal('key-modal')">Cancel</button>
+      <button class="btn btn-primary" style="flex:2" onclick="closeModal('key-modal');alert('Key pair generated and stored in GitHub Secrets!')">Generate</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Data ───────────────────────────────────────────────────
+const DEVICES = [
+  {id:'DEV-0047',arch:'ESP32',ram:'520KB',fw:'v2.0.3',ash:78,seen:'2m ago',status:'online'},
+  {id:'DEV-0089',arch:'STM32',ram:'64KB',fw:'v2.0.3',ash:91,seen:'5m ago',status:'online'},
+  {id:'DEV-0213',arch:'AVR',ram:'2KB',fw:'v1.9.1',ash:55,seen:'12m ago',status:'pending'},
+  {id:'DEV-0102',arch:'ESP32',ram:'520KB',fw:'v2.1.0',ash:88,seen:'1m ago',status:'online'},
+  {id:'DEV-0012',arch:'ESP32',ram:'520KB',fw:'v1.8.0',ash:22,seen:'3h ago',status:'quarantined'},
+  {id:'DEV-0178',arch:'RISC-V',ram:'8KB',fw:'v2.0.3',ash:66,seen:'8m ago',status:'online'},
+  {id:'DEV-0304',arch:'STM32',ram:'64KB',fw:'v2.0.3',ash:44,seen:'45m ago',status:'pending'},
+  {id:'DEV-0077',arch:'AVR',ram:'1KB',fw:'v1.9.1',ash:31,seen:'2h ago',status:'quarantined'},
+];
+
+const RELEASES = [
+  {tag:'v2.1.0',bin:'firmware_v2.1.0.bin',size:'48.2 KB',sig:'Ed25519 ✓',arch:'ESP32+STM32+AVR',rollout:'100%',date:'2025-09-12',status:'live'},
+  {tag:'v2.0.3',bin:'firmware_v2.0.3.bin',size:'46.8 KB',sig:'Ed25519 ✓',arch:'ESP32+STM32',rollout:'100%',date:'2025-08-01',status:'stable'},
+  {tag:'v2.0.0',bin:'firmware_v2.0.0.bin',size:'45.1 KB',sig:'Ed25519 ✓',arch:'ESP32',rollout:'100%',date:'2025-06-15',status:'archived'},
+  {tag:'v1.9.1',bin:'firmware_v1.9.1.bin',size:'41.0 KB',sig:'Ed25519 ✓',arch:'All',rollout:'100%',date:'2025-04-02',status:'archived'},
+];
+
+const KEYS = [
+  {id:'ed25519_prod_2025',algo:'Ed25519',fp:'a3:f2:9d:1c:8e:4b',created:'2025-01-10',usage:'382 signs',status:'active'},
+  {id:'ed25519_staging',algo:'Ed25519',fp:'b4:e3:0f:2d:9f:5c',created:'2025-01-10',usage:'54 signs',status:'active'},
+  {id:'ed25519_2024_deprecated',algo:'Ed25519',fp:'c5:f4:1a:3e:0a:6d',created:'2024-06-01',usage:'1,204 signs',status:'revoked'},
+];
+
+const EVENTS = [
+  {dev:'DEV-0102',arch:'ESP32',ver:'v2.1.0',event:'Update success',tier:'T5',time:'2m ago',status:'ok'},
+  {dev:'DEV-0089',arch:'STM32',ver:'v2.1.0',event:'Hash check passed',tier:'T4',time:'4m ago',status:'ok'},
+  {dev:'DEV-0012',arch:'ESP32',ver:'v1.7.0',event:'Signature invalid',tier:'T5',time:'18m ago',status:'err'},
+  {dev:'DEV-0213',arch:'AVR',ver:'v2.0.3',event:'Rollback blocked',tier:'T3',time:'32m ago',status:'warn'},
+  {dev:'DEV-0178',arch:'RISC-V',ver:'v2.1.0',event:'Update success',tier:'T5',time:'45m ago',status:'ok'},
+  {dev:'DEV-0077',arch:'AVR',ver:'v1.6.0',event:'Quarantine triggered',tier:'T5',time:'2h ago',status:'err'},
+];
+
+const LOG_ENTRIES = [
+  {ts:'14:32:01',type:'ok',msg:'[DEV-0102] T5 — Ed25519 signature verified · update applied · score +10'},
+  {ts:'14:31:58',type:'info',msg:'[DEV-0102] T4 — SHA-256 hash match: a3f29d1c8e4b7f2a'},
+  {ts:'14:31:55',type:'info',msg:'[DEV-0102] T3 — Version gate: v2.0.3 → v2.1.0 ✓'},
+  {ts:'14:31:53',type:'info',msg:'[DEV-0102] T2 — Manifest JSON parsed successfully'},
+  {ts:'14:31:52',type:'info',msg:'[DEV-0102] T1 — Connectivity OK · rate limit check passed'},
+  {ts:'14:31:50',type:'ok',msg:'[DEV-0089] T5 — Signature valid · firmware applied'},
+  {ts:'14:18:44',type:'err',msg:'[DEV-0012] T5 — INVALID SIGNATURE · score −50 · total: 22/100'},
+  {ts:'14:18:40',type:'warn',msg:'[DEV-0012] Anomaly detected — 3rd bad attempt in 60 min'},
+  {ts:'13:59:02',type:'warn',msg:'[DEV-0213] T3 — Rollback attempt blocked: v1.9.1 < current v2.0.3'},
+  {ts:'12:10:30',type:'err',msg:'[DEV-0077] Score fell below 40 · QUARANTINE MODE ACTIVATED'},
+  {ts:'12:10:28',type:'err',msg:'[DEV-0077] T5 — Signature mismatch · score −50 · total: 31'},
+];
+
+const PIPELINE_STAGES = [
+  {icon:'⬡',name:'Git Tag Push',sub:'v2.1.0 detected',time:'0s',state:'done'},
+  {icon:'◈',name:'Actions Runner',sub:'Ubuntu-latest',time:'3s',state:'done'},
+  {icon:'⚙',name:'Compile',sub:'ESP32 + STM32 + AVR',time:'42s',state:'done'},
+  {icon:'⬡',name:'Ed25519 Sign',sub:'ci_key_secret',time:'0.2s',state:'done'},
+  {icon:'◉',name:'SHA-256 Hash',sub:'firmware.bin',time:'0.1s',state:'done'},
+  {icon:'⬆',name:'GitHub Release',sub:'manifest.json',time:'1.1s',state:'done'},
+];
+
+const TCV_TIERS = [
+  {num:'1',name:'Connectivity & Rate Limit',sub:'Check GitHub API reachable · enforce poll interval',cost:'0 bytes',col:'var(--accent2)'},
+  {num:'2',name:'Manifest Integrity',sub:'Parse manifest.json · validate required fields',cost:'100 bytes',col:'var(--accent4)'},
+  {num:'3',name:'Semantic Version Gating',sub:'new_ver > current_ver → prevent rollback attacks',cost:'50 bytes',col:'var(--accent)'},
+  {num:'4',name:'Streaming Hash Check',sub:'SHA-256 computed chunk-by-chunk · 32 bytes buffer',cost:'32 bytes',col:'var(--yellow)'},
+  {num:'5',name:'Ed25519 Signature Verify',sub:'Final cryptographic proof — only runs if T1-T4 pass',cost:'~1.5 KB',col:'var(--accent3)'},
+];
+
+const ASH_DEVICES = [
+  {id:'DEV-0102',score:88,status:'good'},
+  {id:'DEV-0089',score:91,status:'good'},
+  {id:'DEV-0047',score:78,status:'good'},
+  {id:'DEV-0178',score:66,status:'ok'},
+  {id:'DEV-0304',score:44,status:'ok'},
+  {id:'DEV-0213',score:55,status:'ok'},
+  {id:'DEV-0077',score:31,status:'quarantined'},
+  {id:'DEV-0012',score:22,status:'quarantined'},
+];
+
+// ─── Navigation ─────────────────────────────────────────────
+const pages = {
+  dashboard: {bread:'Monitor /', title:'Dashboard'},
+  devices: {bread:'Monitor /', title:'Devices'},
+  logs: {bread:'Monitor /', title:'Event Logs'},
+  pipeline: {bread:'Deploy /', title:'Pipeline'},
+  releases: {bread:'Deploy /', title:'Releases'},
+  manifest: {bread:'Deploy /', title:'Manifest'},
+  tcv: {bread:'Security /', title:'TCV Engine'},
+  ash: {bread:'Security /', title:'ASH Monitor'},
+  keys: {bread:'Security /', title:'Key Vault'},
+  settings: {bread:'Config /', title:'Settings'},
+};
+
+function goto(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const page = document.getElementById('page-'+id);
+  if (page) page.classList.add('animate-in');
+  page && page.classList.add('active');
+  event.currentTarget && event.currentTarget.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick') === `goto('${id}')`) n.classList.add('active');
+  });
+  document.getElementById('topbar-bread').textContent = pages[id]?.bread || '';
+  document.getElementById('topbar-title').textContent = pages[id]?.title || id;
+}
+
+// ─── Modals ─────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-bg').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
+
+// ─── Render tables ──────────────────────────────────────────
+function statusBadge(s) {
+  const map = {ok:'badge-green',err:'badge-red',warn:'badge-yellow',info:'badge-blue'};
+  return map[s] || 'badge-gray';
+}
+function deviceStatusBadge(s) {
+  if (s==='online') return '<span class="badge badge-green">● Online</span>';
+  if (s==='quarantined') return '<span class="badge badge-red">⊘ Quarantined</span>';
+  return '<span class="badge badge-yellow">↺ Pending</span>';
+}
+function ashColor(s) {
+  if (s >= 70) return 'var(--accent)';
+  if (s >= 40) return 'var(--yellow)';
+  return 'var(--red)';
+}
+
+function renderEvents() {
+  const tb = document.getElementById('recent-events');
+  if (!tb) return;
+  tb.innerHTML = EVENTS.map(e => `
+    <tr>
+      <td><span style="font-family:var(--mono);font-size:12px;">${e.dev}</span></td>
+      <td><span class="tag">${e.arch}</span></td>
+      <td><span style="font-family:var(--mono);font-size:12px;">${e.ver}</span></td>
+      <td style="font-size:13px;">${e.event}</td>
+      <td><span class="badge ${e.tier==='T5'?'t5':e.tier==='T4'?'t4':e.tier==='T3'?'t3':e.tier==='T2'?'t2':'t1'}" style="border-radius:6px;">${e.tier}</span></td>
+      <td style="color:var(--muted);font-size:12px;">${e.time}</td>
+      <td><span class="badge ${statusBadge(e.status)}">${e.status==='ok'?'✓ Success':e.status==='err'?'✕ Error':'⚠ Warning'}</span></td>
+    </tr>`).join('');
+}
+
+function renderDevices(filter='all',search='') {
+  const tb = document.getElementById('device-table');
+  if (!tb) return;
+  const filtered = DEVICES.filter(d =>
+    (filter==='all' || d.arch.toLowerCase()===filter) &&
+    (d.id.toLowerCase().includes(search.toLowerCase()) || d.arch.toLowerCase().includes(search.toLowerCase()))
+  );
+  tb.innerHTML = filtered.map(d => `
+    <tr>
+      <td><span style="font-family:var(--mono);font-size:12px;color:var(--accent2)">${d.id}</span></td>
+      <td><span class="tag">${d.arch}</span></td>
+      <td style="font-family:var(--mono);font-size:12px;">${d.ram}</td>
+      <td><span style="font-family:var(--mono);font-size:12px;">${d.fw}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="progress-bar" style="width:60px;"><div class="progress-fill" style="width:${d.ash}%;background:${ashColor(d.ash)};"></div></div>
+          <span style="font-family:var(--mono);font-size:12px;color:${ashColor(d.ash)}">${d.ash}</span>
+        </div>
+      </td>
+      <td style="color:var(--muted);font-size:12px;">${d.seen}</td>
+      <td>${deviceStatusBadge(d.status)}</td>
+      <td>
+        <button class="btn" style="padding:4px 10px;font-size:11px;" onclick="alert('Force update sent to ${d.id}')">↑ Update</button>
+      </td>
+    </tr>`).join('');
+}
+
+function filterDevices(v) { renderDevices(v.toLowerCase()); }
+function searchDevices(v) {
+  const sel = document.querySelector('#page-devices select');
+  renderDevices(sel ? sel.value.toLowerCase() : 'all', v);
+}
+
+function renderReleases() {
+  const tb = document.getElementById('releases-table');
+  if (!tb) return;
+  const statusMap = {live:'badge-green',stable:'badge-blue',archived:'badge-gray'};
+  tb.innerHTML = RELEASES.map(r => `
+    <tr>
+      <td><span style="font-family:var(--mono);font-size:12px;color:var(--accent)">${r.tag}</span></td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${r.bin}</td>
+      <td style="font-family:var(--mono);font-size:12px;">${r.size}</td>
+      <td><span class="badge badge-green" style="font-size:11px;">${r.sig}</span></td>
+      <td><span class="tag">${r.arch}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="progress-bar" style="width:60px;"><div class="progress-fill" style="width:${r.rollout};background:var(--accent);"></div></div>
+          <span style="font-size:12px;color:var(--muted);">${r.rollout}</span>
+        </div>
+      </td>
+      <td style="color:var(--muted);font-size:12px;">${r.date}</td>
+      <td><span class="badge ${statusMap[r.status]}">${r.status}</span></td>
+    </tr>`).join('');
+}
+
+function renderKeys() {
+  const tb = document.getElementById('keys-table');
+  if (!tb) return;
+  tb.innerHTML = KEYS.map(k => `
+    <tr>
+      <td><span style="font-family:var(--mono);font-size:12px;color:var(--accent)">${k.id}</span></td>
+      <td><span class="tag">${k.algo}</span></td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--muted);">${k.fp}…</td>
+      <td style="font-size:12px;color:var(--muted);">${k.created}</td>
+      <td style="font-family:var(--mono);font-size:12px;">${k.usage}</td>
+      <td><span class="badge ${k.status==='active'?'badge-green':'badge-red'}">${k.status}</span></td>
+      <td>
+        ${k.status==='active'?`<button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="alert('Key ${k.id} revoked')">Revoke</button>`:'<span style="font-size:11px;color:var(--muted);">Archived</span>'}
+      </td>
+    </tr>`).join('');
+}
+
+function renderASHDevices() {
+  const el = document.getElementById('ash-device-list');
+  if (!el) return;
+  el.innerHTML = ASH_DEVICES.map(d => `
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-family:var(--mono);font-size:12px;color:var(--muted);width:90px;">${d.id}</span>
+      <div class="progress-bar" style="flex:1;"><div class="progress-fill" style="width:${d.score}%;background:${ashColor(d.score)};"></div></div>
+      <span style="font-family:var(--mono);font-size:13px;color:${ashColor(d.score)};width:28px;text-align:right;">${d.score}</span>
+      ${d.status==='quarantined'?'<span class="badge badge-red" style="font-size:10px;">⊘ Quarantined</span>':''}
+    </div>`).join('');
+}
+
+function renderLogs(filter='all') {
+  const el = document.getElementById('log-terminal');
+  if (!el) return;
+  el.innerHTML = `<div style="color:var(--muted);margin-bottom:8px;font-size:10px;">── LG-OTA Event Log ─ Live Stream ──────────────────────────────</div>`;
+  const filtered = filter==='all' ? LOG_ENTRIES : LOG_ENTRIES.filter(l =>
+    (filter==='ok' && l.type==='ok') ||
+    (filter==='err' && l.type==='err') ||
+    (filter==='warn' && l.type==='warn') ||
+    (filter==='sec' && l.msg.includes('INVALID') || l.msg.includes('QUARANTINE'))
+  );
+  filtered.forEach(l => {
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="log-ts">${l.ts}</span><span class="log-${l.type}">${l.msg}</span>`;
+    el.appendChild(line);
+  });
+  document.getElementById('log-count').textContent = `Showing ${filtered.length} events`;
+}
+
+function filterLogs(v) { renderLogs(v); }
+
+// ─── Activity chart ──────────────────────────────────────────
+function renderChart() {
+  const chart = document.getElementById('activity-chart');
+  const labels = document.getElementById('chart-labels');
+  if (!chart) return;
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const vals = [18,24,31,12,47,29,38];
+  const max = Math.max(...vals);
+  chart.innerHTML = vals.map((v,i) => {
+    const pct = Math.round(v/max*100);
+    const col = v===max ? 'var(--accent)' : v > max*0.6 ? 'var(--accent2)' : 'rgba(255,255,255,0.12)';
+    return `<div class="bar" style="height:${pct}%;background:${col};" title="${v} updates · ${days[i]}"></div>`;
+  }).join('');
+  if (labels) labels.innerHTML = days.map(d => `<span>${d}</span>`).join('');
+}
+
+// ─── Manifest field check ────────────────────────────────────
+function renderFieldChecks() {
+  const el = document.getElementById('field-checks');
+  if (!el) return;
+  const fields = ['schema','version','binary','sha256','signature','rollback_blocked'];
+  el.innerHTML = fields.map(f => `
+    <div style="color:var(--accent);">✓ <span style="color:var(--muted);">${f}</span></div>`).join('');
+}
+
+// ─── Pipeline ────────────────────────────────────────────────
+function renderPipeline(runState='idle') {
+  const el = document.getElementById('pipeline-stages');
+  if (!el) return;
+  el.innerHTML = '';
+  PIPELINE_STAGES.forEach((s, i) => {
+    const stateClass = runState === 'done' ? 'done' : runState === 'run' && i === 0 ? 'running' : runState === 'idle' ? '' : 'pending';
+    el.innerHTML += `<div class="pipe-step ${stateClass}">
+      <div class="pipe-icon">${s.icon}</div>
+      <div class="pipe-name">${s.name}</div>
+      <div class="pipe-sub">${s.sub}</div>
+      ${runState==='done' ? `<div class="pipe-time">${s.time}</div>` : ''}
+    </div>${i < PIPELINE_STAGES.length-1 ? '<div class="pipe-arrow">→</div>' : ''}`;
+  });
+}
+
+let pipelineTimer = null;
+function runPipeline() {
+  closeModal('deploy-modal');
+  goto('pipeline');
+  const badge = document.getElementById('pipeline-status');
+  const alert = document.getElementById('pipeline-alert');
+  const log = document.getElementById('build-log');
+  alert.style.display = 'none';
+  badge.className = 'badge badge-yellow';
+  badge.textContent = 'Running…';
+
+  const buildLines = [
+    {t:'info',m:'[github-actions] Workflow triggered by tag: v2.1.0'},
+    {t:'info',m:'[setup] Using ubuntu-latest · avr-gcc · arm-none-eabi-gcc'},
+    {t:'ok',m:'[build:esp32] Compiling 47 source files…'},
+    {t:'ok',m:'[build:esp32] Linked · firmware_esp32.bin (48.2 KB)'},
+    {t:'ok',m:'[build:stm32] Linked · firmware_stm32.bin (46.8 KB)'},
+    {t:'ok',m:'[build:avr] Linked · firmware_avr.bin (11.2 KB)'},
+    {t:'warn',m:'[sign] Loading ed25519_prod_2025 from GITHUB_SECRET…'},
+    {t:'ok',m:'[sign] Ed25519 signature applied · MEYCIQDxyz…'},
+    {t:'ok',m:'[hash] SHA-256 computed for all binaries'},
+    {t:'ok',m:'[manifest] manifest.json generated and committed'},
+    {t:'ok',m:'[release] Published to github.com/org/firmware/releases/tag/v2.1.0'},
+    {t:'ok',m:'✓ Pipeline complete in 47.3s'},
+  ];
+
+  if (log) log.innerHTML = '';
+  let lineIdx = 0;
+  let stageIdx = 0;
+  const stages = document.getElementById('pipeline-stages');
+
+  const interval = setInterval(() => {
+    if (lineIdx < buildLines.length) {
+      const l = buildLines[lineIdx++];
+      if (log) {
+        const now = new Date().toLocaleTimeString('en-GB');
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        line.innerHTML = `<span class="log-ts">${now}</span><span class="log-${l.t}">${l.m}</span>`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+      }
+    }
+    if (lineIdx > 2 && stageIdx < PIPELINE_STAGES.length) {
+      const steps = document.querySelectorAll('#pipeline-stages .pipe-step');
+      if (steps[stageIdx]) {
+        steps[stageIdx].className = 'pipe-step done';
+        if (stageIdx < steps.length-1) steps[stageIdx+1].className = 'pipe-step running';
+        stageIdx++;
+      }
+    }
+    if (lineIdx >= buildLines.length) {
+      clearInterval(interval);
+      badge.className = 'badge badge-green';
+      badge.textContent = '✓ Success';
+      alert.style.display = 'flex';
+      renderPipeline('done');
+    }
+  }, 400);
+}
+
+function abortPipeline() {
+  const badge = document.getElementById('pipeline-status');
+  badge.className = 'badge badge-red';
+  badge.textContent = '✕ Aborted';
+  renderPipeline('idle');
+}
+
+// ─── TCV Simulation ─────────────────────────────────────────
+function renderTCVTiers(pass=-1) {
+  const el = document.getElementById('tcv-tiers');
+  if (!el) return;
+  el.innerHTML = TCV_TIERS.map((t,i) => {
+    const state = pass < 0 ? 'idle' : i < pass ? 'pass' : i === pass ? 'running' : 'wait';
+    const icon = state==='pass' ? '✓' : state==='running' ? '…' : '○';
+    const col = state==='pass' ? 'var(--accent)' : state==='running' ? t.col : 'var(--muted)';
+    return `<div class="tier-row" style="${state==='running'?'background:rgba(255,255,255,0.03);border-radius:8px;margin:0 -4px;padding:12px 4px;':''}">
+      <div class="tier-num" style="background:${state==='pass'?'rgba(0,212,160,0.15)':state==='running'?'rgba(255,255,255,0.06)':'rgba(255,255,255,0.04)'};color:${col}">${icon}</div>
+      <div class="tier-info">
+        <div class="tier-name" style="color:${state==='wait'?'var(--muted)':'var(--text)'}">T${t.num} — ${t.name}</div>
+        <div class="tier-sub">${t.sub}</div>
+      </div>
+      <div class="tier-cost" style="${state==='wait'?'opacity:.4':''}">${t.cost}</div>
+    </div>`;
+  }).join('');
+}
+
+function runTCV() {
+  const badge = document.getElementById('tcv-badge');
+  const result = document.getElementById('tcv-result');
+  result.style.display = 'none';
+  badge.className = 'badge badge-yellow'; badge.textContent = 'Running…';
+  let pass = 0;
+  renderTCVTiers(pass);
+  const interval = setInterval(() => {
+    pass++;
+    renderTCVTiers(pass);
+    if (pass >= TCV_TIERS.length) {
+      clearInterval(interval);
+      badge.className = 'badge badge-green'; badge.textContent = '✓ All tiers passed';
+      result.className = 'alert-bar alert-success';
+      result.style.display = 'flex';
+      result.innerHTML = '✓ All 5 TCV tiers passed · Ed25519 signature verified · Firmware cleared for installation';
+      renderTCVTiers(99);
+    }
+  }, 700);
+}
+
+// ─── ASH ─────────────────────────────────────────────────────
+function simulateASH() {
+  const sel = document.getElementById('ash-event-sel');
+  const result = document.getElementById('ash-sim-result');
+  const delta = parseInt(sel.value);
+  const deviceSel = document.getElementById('ash-device-sel');
+  const deviceName = deviceSel.value.split(' ')[0];
+  const device = ASH_DEVICES.find(d => d.id === deviceName) || ASH_DEVICES[0];
+  const newScore = Math.max(0, Math.min(100, device.ash + delta));
+  device.ash = newScore;
+  device.status = newScore < 40 ? 'quarantined' : 'good';
+  renderASHDevices();
+  result.style.display = 'block';
+  result.className = `alert-bar ${newScore < 40 ? 'alert-danger' : delta > 0 ? 'alert-success' : 'alert-warn'}`;
+  result.innerHTML = `${device.id}: score ${delta > 0 ? '+' : ''}${delta} → <strong>${newScore}/100</strong>${newScore < 40 ? ' · QUARANTINE ACTIVATED' : ''}`;
+}
+
+// ─── Manifest ────────────────────────────────────────────────
+function validateManifest() {
+  const ed = document.getElementById('manifest-editor');
+  const ok = document.getElementById('manifest-alert');
+  const err = document.getElementById('manifest-err');
+  try {
+    const j = JSON.parse(ed.value);
+    const required = ['schema','version','binary','sha256','signature'];
+    const missing = required.filter(f => !j[f]);
+    if (missing.length) {
+      err.style.display = 'flex'; ok.style.display = 'none';
+      err.innerHTML = `✕ Missing required fields: ${missing.join(', ')}`;
+    } else {
+      ok.style.display = 'flex'; err.style.display = 'none';
+    }
+  } catch(e) {
+    err.style.display = 'flex'; ok.style.display = 'none';
+    err.innerHTML = '✕ Invalid JSON: ' + e.message;
+  }
+}
+function saveManifest() {
+  validateManifest();
+  const ok = document.getElementById('manifest-alert');
+  if (ok.style.display !== 'none') alert('Manifest pushed to GitHub Releases!');
+}
+
+// ─── Misc ─────────────────────────────────────────────────────
+function refreshAll() {
+  const el = document.getElementById('last-refresh');
+  if (el) el.textContent = 'Updated just now';
+}
+function exportLogs() { alert('Exporting logs as CSV…\n\n(In a real deployment this would download lg-ota-logs.csv)'); }
+function toggleLive() {}
+function toggleArch(arch, el) {
+  el.style.opacity = el.style.opacity === '0.4' ? '1' : '0.4';
+}
+function saveSettings() { alert('Settings saved successfully!'); }
+function registerDevice() {
+  closeModal('register-modal');
+  alert('Device registered and added to fleet!');
+}
+function triggerDeploy() {
+  closeModal('deploy-modal');
+  goto('pipeline');
+  setTimeout(runPipeline, 300);
+}
+
+// ─── Init ────────────────────────────────────────────────────
+function init() {
+  renderEvents();
+  renderDevices();
+  renderReleases();
+  renderKeys();
+  renderASHDevices();
+  renderLogs();
+  renderChart();
+  renderPipeline('done');
+  renderTCVTiers(-1);
+  renderFieldChecks();
+}
+
+init();
+</script>
+</body>
+</html>

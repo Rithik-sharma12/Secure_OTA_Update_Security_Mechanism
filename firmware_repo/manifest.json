@@ -1,0 +1,8 @@
+{
+    "version": "1.0.0",
+    "filename": "firmware_v1.0.0.bin",
+    "sha256": "767085fe4ff013f9de575e0d6bcc0bfaaf90ea66b4f5dc2ddae0f6d927e915a7",
+    "size": 36,
+    "signature": "mock_ed25519_signature_placeholder",
+    "min_hw_rev": "1.0"
+}
