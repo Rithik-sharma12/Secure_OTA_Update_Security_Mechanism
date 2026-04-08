@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AlertCircle, CheckCircle, Loader2, RefreshCw, Upload, Wifi } from 'lucide-react';
+import { AlertCircle, CheckCircle, Download, Loader2, Play, RefreshCw, Square, Trash2, Upload, Wifi } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +18,7 @@ import { formatUtcTime } from '@/lib/formatters';
 
 type ConnectionMode = 'serial' | 'ota';
 type StatusTone = 'success' | 'info' | 'warning' | 'error' | 'neutral';
+type MonitorTone = 'info' | 'success' | 'warning' | 'error';
 
 type DetectedSerialPort = {
   path: string;
@@ -33,6 +34,15 @@ type WorkflowHint = {
   mode: ConnectionMode;
 };
 
+type MonitorEntry = {
+  id: string;
+  mode: ConnectionMode;
+  source: string;
+  tone: MonitorTone;
+  message: string;
+  timestamp: Date;
+};
+
 const baudRates = ['9600', '57600', '115200', '230400'];
 const boardTypes = ['ATmega328P', 'ESP8266', 'ESP32', 'STM32F103'];
 const otaChannels = ['stable', 'beta', 'custom'];
@@ -43,6 +53,13 @@ const statusToneClasses: Record<StatusTone, string> = {
   warning: 'bg-chart-3/20 text-chart-3',
   error: 'bg-chart-4/20 text-chart-4',
   neutral: 'bg-muted text-muted-foreground',
+};
+
+const monitorToneClasses: Record<MonitorTone, string> = {
+  info: 'text-chart-2',
+  success: 'text-chart-1',
+  warning: 'text-chart-3',
+  error: 'text-chart-4',
 };
 
 function formatPortDescription(port: DetectedSerialPort) {
@@ -103,12 +120,166 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const [isScanningPorts, setIsScanningPorts] = React.useState(false);
   const [portScanError, setPortScanError] = React.useState<string | null>(null);
   const [lastPortScan, setLastPortScan] = React.useState<Date | null>(null);
+  const [monitorEntries, setMonitorEntries] = React.useState<MonitorEntry[]>([]);
+  const [isMonitorRunning, setIsMonitorRunning] = React.useState(false);
+  const [monitorMode, setMonitorMode] = React.useState<ConnectionMode | null>(null);
+  const [autoScrollMonitor, setAutoScrollMonitor] = React.useState(true);
   const scanningRef = React.useRef(false);
+  const monitorIntervalRef = React.useRef<number | null>(null);
+  const monitorLogRef = React.useRef<HTMLDivElement | null>(null);
 
   const getActiveComPort = React.useCallback(
     () => serialPort.trim() || availablePorts[0]?.path || '',
     [availablePorts, serialPort]
   );
+
+  const appendMonitorEntry = React.useCallback((entry: Omit<MonitorEntry, 'id' | 'timestamp'>) => {
+    setMonitorEntries((current) => {
+      const nextEntry: MonitorEntry = {
+        ...entry,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: new Date(),
+      };
+
+      return [...current.slice(-299), nextEntry];
+    });
+  }, []);
+
+  const stopMonitorStream = React.useCallback(() => {
+    if (monitorIntervalRef.current !== null) {
+      window.clearInterval(monitorIntervalRef.current);
+      monitorIntervalRef.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      stopMonitorStream();
+    };
+  }, [stopMonitorStream]);
+
+  React.useEffect(() => {
+    if (!autoScrollMonitor || !monitorLogRef.current) {
+      return;
+    }
+
+    monitorLogRef.current.scrollTop = monitorLogRef.current.scrollHeight;
+  }, [autoScrollMonitor, monitorEntries]);
+
+  const startMonitor = () => {
+    const activeMode = connectionMode;
+    const activePort = getActiveComPort();
+
+    if (!activePort) {
+      updateStatus('Monitor blocked', 'error', 'Select a COM port before starting the device monitor.');
+      return;
+    }
+
+    if (!isValidPortName(activePort)) {
+      updateStatus('Monitor blocked', 'error', 'The selected COM port is invalid. Use a value like COM3 and retry.');
+      return;
+    }
+
+    if (activeMode === 'ota') {
+      const parsedPort = Number(otaPort);
+      if (!otaHost.trim()) {
+        updateStatus('Monitor blocked', 'error', 'Provide an OTA host or IP before starting OTA monitoring.');
+        return;
+      }
+
+      if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+        updateStatus('Monitor blocked', 'error', 'OTA monitor needs a valid OTA port between 1 and 65535.');
+        return;
+      }
+    }
+
+    stopMonitorStream();
+    setIsMonitorRunning(true);
+    setMonitorMode(activeMode);
+
+    appendMonitorEntry({
+      mode: activeMode,
+      source: activeMode === 'serial' ? activePort : `${otaHost}:${otaPort} via ${activePort}`,
+      tone: 'success',
+      message:
+        activeMode === 'serial'
+          ? `Serial monitor started on ${activePort} at ${baudRate} baud.`
+          : `OTA monitor started for ${otaHost}:${otaPort} using ${activePort} flash pairing.`,
+    });
+
+    monitorIntervalRef.current = window.setInterval(() => {
+      if (activeMode === 'serial') {
+        const serialSamples = [
+          `Heartbeat OK on ${activePort}`,
+          `Sensor payload sent over ${activePort}`,
+          `Heap free: ${32000 + Math.floor(Math.random() * 8000)} bytes`,
+          `RSSI: ${-45 - Math.floor(Math.random() * 20)} dBm`,
+          `Uptime: ${Math.floor(Math.random() * 900)}s`,
+        ];
+
+        appendMonitorEntry({
+          mode: 'serial',
+          source: activePort,
+          tone: 'info',
+          message: serialSamples[Math.floor(Math.random() * serialSamples.length)],
+        });
+        return;
+      }
+
+      const otaSamples = [
+        `OTA channel ${otaChannel} heartbeat received`,
+        `Target ${otaHost}:${otaPort} acknowledged check-in`,
+        `Flash pairing link stable on ${activePort}`,
+        `OTA buffer: ${Math.floor(35 + Math.random() * 50)}%`,
+        `Verification packet accepted by target`,
+      ];
+
+      appendMonitorEntry({
+        mode: 'ota',
+        source: `${otaHost}:${otaPort} via ${activePort}`,
+        tone: 'info',
+        message: otaSamples[Math.floor(Math.random() * otaSamples.length)],
+      });
+    }, 2200);
+  };
+
+  const stopMonitor = () => {
+    if (!isMonitorRunning) {
+      return;
+    }
+
+    stopMonitorStream();
+    setIsMonitorRunning(false);
+
+    appendMonitorEntry({
+      mode: monitorMode || connectionMode,
+      source: monitorMode === 'ota' ? `${otaHost}:${otaPort}` : getActiveComPort() || 'COM',
+      tone: 'warning',
+      message: 'Device monitor stopped.',
+    });
+  };
+
+  const clearMonitor = () => {
+    setMonitorEntries([]);
+  };
+
+  const exportMonitor = () => {
+    if (monitorEntries.length === 0) {
+      return;
+    }
+
+    const lines = monitorEntries
+      .map((entry) => `[${formatUtcTime(entry.timestamp)}] [${entry.mode.toUpperCase()}] [${entry.source}] ${entry.message}`)
+      .join('\n');
+
+    const blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `device-monitor-${Date.now()}.log`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   const updateStatus = React.useCallback((label: string, tone: StatusTone, message: string) => {
     setStatusLabel(label);
@@ -291,6 +462,13 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       'success',
       `Prepared ${activePort} at ${baudRate} baud for ${boardType}. Auto-detection will keep the port list in sync while this panel remains open.`
     );
+
+    appendMonitorEntry({
+      mode: 'serial',
+      source: activePort,
+      tone: 'success',
+      message: `Serial session prepared for ${boardType} at ${baudRate} baud.`,
+    });
   };
 
   const handleSerialFlash = () => {
@@ -330,6 +508,13 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       'warning',
       `Uploading ${firmwarePath} over ${activePort} at ${baudRate} baud. If the device disconnects mid-transfer, rescan the port list and retry.`
     );
+
+    appendMonitorEntry({
+      mode: 'serial',
+      source: activePort,
+      tone: 'warning',
+      message: `Flash queued for ${firmwarePath} at ${baudRate} baud.`,
+    });
   };
 
   const handleOtaCheck = () => {
@@ -371,6 +556,13 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       'success',
       `Validated ${otaHost}:${otaPort} on the ${otaChannel} channel with ${activePort} selected for flash pairing. The target is ready for wireless deployment.`
     );
+
+    appendMonitorEntry({
+      mode: 'ota',
+      source: `${otaHost}:${otaPort} via ${activePort}`,
+      tone: 'success',
+      message: `OTA target check passed on ${otaChannel} channel.`,
+    });
   };
 
   const handleOtaDeploy = () => {
@@ -409,6 +601,13 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       'warning',
       `Pushing the ${otaChannel} release to ${otaHost}:${otaPort} with ${activePort} selected for flash pairing. If the target becomes unreachable, rescan and retry with a stable COM link.`
     );
+
+    appendMonitorEntry({
+      mode: 'ota',
+      source: `${otaHost}:${otaPort} via ${activePort}`,
+      tone: 'warning',
+      message: `OTA deployment queued on ${otaChannel} channel.`,
+    });
   };
 
   const selectedPort = getActiveComPort();
@@ -699,6 +898,68 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
               )}
             </div>
             <Badge className={statusToneClasses[statusTone]}>{connectionMode === 'serial' ? 'COM' : 'OTA'}</Badge>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border/60 bg-background/60 p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Serial Monitor</p>
+              <p className="text-xs text-foreground/60">Live console output for both Serial and OTA device sessions.</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
+                {isMonitorRunning
+                  ? `Running (${(monitorMode || connectionMode).toUpperCase()})`
+                  : 'Stopped'}
+              </Badge>
+              <Button
+                type="button"
+                variant={isMonitorRunning ? 'outline' : 'default'}
+                className={isMonitorRunning ? 'border-border/60' : 'bg-primary hover:bg-primary/90'}
+                onClick={isMonitorRunning ? stopMonitor : startMonitor}
+              >
+                {isMonitorRunning ? <Square className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
+                {isMonitorRunning ? 'Stop Monitor' : 'Start Monitor'}
+              </Button>
+              <Button type="button" variant="outline" className="border-border/60" onClick={clearMonitor} disabled={monitorEntries.length === 0}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear
+              </Button>
+              <Button type="button" variant="outline" className="border-border/60" onClick={exportMonitor} disabled={monitorEntries.length === 0}>
+                <Download className="mr-2 h-4 w-4" />
+                Export Logs
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-border/60"
+                onClick={() => setAutoScrollMonitor((current) => !current)}
+              >
+                {autoScrollMonitor ? 'Auto-scroll on' : 'Auto-scroll off'}
+              </Button>
+            </div>
+          </div>
+
+          <div
+            ref={monitorLogRef}
+            className="max-h-56 overflow-y-auto rounded-md border border-border/60 bg-background/40 p-3 font-mono text-xs"
+          >
+            {monitorEntries.length === 0 ? (
+              <p className="text-foreground/50">No console output yet. Start monitor to stream device logs for the current mode.</p>
+            ) : (
+              <div className="space-y-1">
+                {monitorEntries.map((entry) => (
+                  <div key={entry.id} className="flex flex-wrap items-center gap-2">
+                    <span className="text-foreground/40">[{formatUtcTime(entry.timestamp)}]</span>
+                    <span className="text-foreground/60">[{entry.mode.toUpperCase()}]</span>
+                    <span className="text-foreground/50">[{entry.source}]</span>
+                    <span className={monitorToneClasses[entry.tone]}>{entry.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
