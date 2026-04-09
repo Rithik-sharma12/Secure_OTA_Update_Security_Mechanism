@@ -112,7 +112,7 @@ Open Serial Monitor at **115200 baud**:
 [OTA] Firmware v2.4.0 starting...
 [Health] Loaded: score=100 quarantine=0
 [WiFi] Connecting to MyNetwork.....
-[WiFi] Connected – IP: 192.168.1.120
+[WiFi] Connected – IP: 10.10.72.15
 [ArduinoOTA] Listening on port 3232
 [OTA] Setup complete
 ```
@@ -125,7 +125,7 @@ Note the **IP address** – you need it for network OTA.
 
 ### From Arduino IDE
 - **Tools → Port** – select the device under "Network ports"
-  (shows as `esp32-ota-device-01 at 192.168.1.120`)
+  (shows as `esp32-ota-device-01 at 10.10.72.15`)
 - Click **Upload**
 
 ### From PlatformIO
@@ -133,7 +133,7 @@ Edit `platformio.ini` → update `upload_port` with the device IP:
 ```ini
 [env:esp32dev_ota]
 upload_protocol = espota
-upload_port     = 192.168.1.120
+upload_port     = 10.10.72.15
 upload_flags    = --auth=your_ota_password_here
 ```
 Then:
@@ -143,7 +143,7 @@ pio run -e esp32dev_ota --target upload
 
 ### From OTA IDE Terminal
 ```bash
-deploy --host 192.168.1.120 --method ota --password your_ota_password
+deploy --host 10.10.72.15 --method ota --password your_ota_password
 ```
 
 ---
