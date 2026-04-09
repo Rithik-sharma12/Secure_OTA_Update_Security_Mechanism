@@ -2,15 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertCircle, CheckCircle, GitBranch } from 'lucide-react';
-import { getOnlineDevices, getOfflineDevices, mockDeployments } from '@/lib/mock-data';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 
 export default function StatusBar() {
   const [mounted, setMounted] = useState(false);
   const [time, setTime] = useState('');
+  const { snapshot } = useRuntimeSnapshot(5000);
 
-  const onlineCount = getOnlineDevices().length;
-  const offlineCount = getOfflineDevices().length;
-  const activeDeployment = mockDeployments.find(d => d.status === 'in-progress');
+  const onlineCount = snapshot.devices.filter((device) => device.status === 'online').length;
+  const offlineCount = snapshot.devices.filter((device) => device.status === 'offline' || device.status === 'error').length;
+  const activeDeployment = snapshot.pipeline?.status === 'running' || snapshot.devices.some((device) => device.status === 'updating');
+  const latestVersion = snapshot.releases[0]?.version || 'n/a';
+  const warningCount = snapshot.events.filter((event) => event.severity === 'warning' || event.severity === 'error').length;
 
   useEffect(() => {
     setMounted(true);
@@ -54,7 +57,7 @@ export default function StatusBar() {
 
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-primary" />
-            <span className="text-foreground/70">Latest: v2.4.0</span>
+            <span className="text-foreground/70">Latest: {latestVersion === 'n/a' ? latestVersion : `v${latestVersion}`}</span>
           </div>
 
           <div className="hidden h-4 w-px bg-border sm:block" />
@@ -68,7 +71,7 @@ export default function StatusBar() {
         <div className="flex items-center justify-between gap-4 sm:justify-end">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-3 h-3 text-yellow-500" />
-            <span className="text-foreground/70">1 Warning</span>
+            <span className="text-foreground/70">{warningCount} Warning{warningCount === 1 ? '' : 's'}</span>
           </div>
 
           {mounted && (

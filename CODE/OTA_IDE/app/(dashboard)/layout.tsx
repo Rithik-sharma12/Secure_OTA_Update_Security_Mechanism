@@ -1,20 +1,65 @@
 'use client';
 
 import React from 'react';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import TopBar from '@/components/layout/TopBar';
 import StatusBar from '@/components/layout/StatusBar';
 import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { ErrorFallback } from '@/components/error/ErrorFallback';
 import { logger } from '@/lib/logger';
+import { clearAuthSession, getStoredAuthToken } from '@/lib/client-auth';
 
 function DashboardShell({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = React.useState(true);
+
+  React.useEffect(() => {
+    const token = getStoredAuthToken();
+    if (!token) {
+      router.replace('/login');
+      return;
+    }
+
+    const validateSession = async () => {
+      try {
+        const response = await fetch('/api/auth/session', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          clearAuthSession();
+          router.replace('/login');
+          return;
+        }
+
+        setIsCheckingAuth(false);
+      } catch {
+        clearAuthSession();
+        router.replace('/login');
+      }
+    };
+
+    void validateSession();
+  }, [router]);
+
+  if (isCheckingAuth) {
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background px-4">
+        <div className="rounded-lg border border-border/50 bg-card px-6 py-4 text-sm text-foreground/80">
+          Validating platform access...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-svh flex-col bg-background md:flex-row">

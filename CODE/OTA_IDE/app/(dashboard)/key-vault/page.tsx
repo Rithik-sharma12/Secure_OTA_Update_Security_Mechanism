@@ -4,16 +4,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Plus, Lock } from 'lucide-react';
-import { mockKeys, mockCertificates } from '@/lib/mock-data';
 import { formatUtcDate } from '@/lib/formatters';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 
 export default function KeyVaultPage() {
+  const { snapshot } = useRuntimeSnapshot();
+  const keys = snapshot.keys;
+  const certificates = snapshot.certificates;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Key Vault</h1>
           <p className="text-foreground/70 mt-1">Manage cryptographic keys and certificates</p>
+          {!snapshot.connection.reachable && snapshot.connection.error && (
+            <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
+          )}
         </div>
         <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
           <Plus className="w-4 h-4 mr-2" />
@@ -25,7 +32,7 @@ export default function KeyVaultPage() {
       <div>
         <h2 className="text-xl font-semibold text-foreground mb-4">Cryptographic Keys</h2>
         <div className="grid grid-cols-1 gap-4">
-          {mockKeys.map((key) => (
+          {keys.map((key) => (
             <Card key={key.id} className="glass border-border/50">
               <CardContent className="pt-6">
                 <div className="flex items-start justify-between">
@@ -59,6 +66,13 @@ export default function KeyVaultPage() {
               </CardContent>
             </Card>
           ))}
+          {keys.length === 0 && (
+            <Card className="glass border-border/50">
+              <CardContent className="pt-6 text-sm text-foreground/60">
+                No live key records detected. Connect your key service to publish runtime key metadata.
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -66,7 +80,7 @@ export default function KeyVaultPage() {
       <div>
         <h2 className="text-xl font-semibold text-foreground mb-4">Certificates</h2>
         <div className="grid grid-cols-1 gap-4">
-          {mockCertificates.map((cert) => (
+          {certificates.map((cert) => (
             <Card key={cert.id} className="glass border-border/50">
               <CardContent className="pt-6">
                 <div className="flex items-start justify-between">
@@ -88,6 +102,13 @@ export default function KeyVaultPage() {
               </CardContent>
             </Card>
           ))}
+          {certificates.length === 0 && (
+            <Card className="glass border-border/50">
+              <CardContent className="pt-6 text-sm text-foreground/60">
+                No live certificates detected. Runtime certificate data will appear when your PKI integration is active.
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

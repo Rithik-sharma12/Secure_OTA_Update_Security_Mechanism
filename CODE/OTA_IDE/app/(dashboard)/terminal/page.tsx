@@ -26,7 +26,7 @@ const day = 24 * 60 * 60 * 1000;
 
 const fixedDate = (offsetMs: number) => new Date(FIXED_BASE_TIME + offsetMs);
 
-const mockCodeFiles: CodeFile[] = [
+const initialCodeFiles: CodeFile[] = [
   {
     id: '1',
     name: 'firmware-config.json',
@@ -106,8 +106,8 @@ int main(void) {
 export default function TerminalPage() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<CodeFile | null>(mockCodeFiles[0]);
-  const [files, setFiles] = useState<CodeFile[]>(mockCodeFiles);
+  const [selectedFile, setSelectedFile] = useState<CodeFile | null>(initialCodeFiles[0]);
+  const [files, setFiles] = useState<CodeFile[]>(initialCodeFiles);
 
   const handleSaveCode = (code: string) => {
     if (!selectedFile) return;

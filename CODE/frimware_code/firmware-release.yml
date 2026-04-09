@@ -1,0 +1,173 @@
+# .github/workflows/firmware-release.yml
+# ─────────────────────────────────────────────────────────
+# Triggers on push of a version tag (v1.0.0, v2.4.1, etc.)
+# Builds the ESP32 firmware and creates a GitHub Release
+# with the .bin attached – ready for devices to pull.
+# ─────────────────────────────────────────────────────────
+
+name: Build & Release ESP32 Firmware
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'   # matches v1.0.0, v2.4.1 …
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout source ────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Cache PlatformIO libraries/toolchains ──────────
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+
+      # ── 3. Install PlatformIO ─────────────────────────────
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # ── 4. Inject secrets into ota_config.h ──────────────
+      # Wi-Fi and OTA secrets live in GitHub repo secrets,
+      # NOT in the source tree.
+      - name: Create ota_config.h from secrets
+        run: |
+          cat > ota_config.h <<'EOF'
+          #pragma once
+          #define WIFI_SSID       "${{ secrets.WIFI_SSID }}"
+          #define WIFI_PASSWORD   "${{ secrets.WIFI_PASSWORD }}"
+          #define OTA_PASSWORD    "${{ secrets.OTA_PASSWORD }}"
+          #define DEVICE_HOSTNAME "esp32-ota-device"
+          #define BACKEND_URL     "${{ secrets.BACKEND_URL }}"
+          #define DEVICE_ID       "${{ secrets.DEVICE_ID }}"
+          #define DEVICE_TYPE     "ESP32"
+          #define BACKEND_API_KEY "${{ secrets.BACKEND_API_KEY }}"
+          #define FIRMWARE_ENC_KEY "${{ secrets.FIRMWARE_ENC_KEY }}"
+          static const char FIRMWARE_PUB_KEY[] = R"KEY(
+          ${{ secrets.FIRMWARE_PUB_KEY }}
+          )KEY";
+          EOF
+
+      # ── 5. Build for all board variants ───────────────────
+      - name: Build esp32dev
+        run: pio run -e esp32dev
+
+      - name: Build esp32s3
+        run: pio run -e esp32s3
+
+      - name: Build esp32c3
+        run: pio run -e esp32c3
+
+      # ── 6. Rename binaries to include board & version ─────
+      - name: Rename firmware binaries
+        run: |
+          TAG=${{ github.ref_name }}
+          mkdir -p release-assets
+
+          cp .pio/build/esp32dev/firmware.bin  release-assets/firmware-esp32-${TAG}.bin
+          cp .pio/build/esp32s3/firmware.bin   release-assets/firmware-esp32s3-${TAG}.bin
+          cp .pio/build/esp32c3/firmware.bin   release-assets/firmware-esp32c3-${TAG}.bin
+
+          # Also copy as the "latest" names (devices match on 'esp32')
+          cp .pio/build/esp32dev/firmware.bin  release-assets/firmware-esp32.bin
+          cp .pio/build/esp32s3/firmware.bin   release-assets/firmware-esp32s3.bin
+          cp .pio/build/esp32c3/firmware.bin   release-assets/firmware-esp32c3.bin
+
+      # ── 6.5. Sign & Encrypt firmware binaries ────────────
+      - name: Sign & Encrypt firmware binaries
+        if: secrets.FIRMWARE_ENC_KEY != '' && secrets.FIRMWARE_PRIV_KEY != ''
+        env:
+          FIRMWARE_ENC_KEY: ${{ secrets.FIRMWARE_ENC_KEY }}
+          FIRMWARE_PRIV_KEY: ${{ secrets.FIRMWARE_PRIV_KEY }}
+        run: |
+          echo "Signing and Encrypting firmware binaries..."
+
+          if [ ${#FIRMWARE_ENC_KEY} -ne 32 ]; then
+            echo "FIRMWARE_ENC_KEY must be exactly 32 characters for AES-256."
+            exit 1
+          fi
+
+          # Save the private key to a temporary file for openssl to use
+          echo "$FIRMWARE_PRIV_KEY" > priv.pem
+
+          for f in release-assets/*.bin; do
+            echo "Processing $f..."
+
+            # 1. Sign the unencrypted binary (SHA-256 + RSA signature)
+            openssl dgst -sha256 -sign priv.pem -out "$f.sig" "$f"
+
+            # 2. Generate a random 16-byte IV
+            iv=$(openssl rand -hex 16)
+
+            # 3. Encrypt the firmware
+            openssl enc -aes-256-cbc -in "$f" -out "$f.enc" -K $(echo -n "$FIRMWARE_ENC_KEY" | xxd -p -c 256) -iv "$iv"
+
+            # 4. Pack IV (16 bytes), Signature (256 bytes), and encrypted firmware
+            echo "$iv" | xxd -r -p > "$f.iv"
+            cat "$f.iv" "$f.sig" "$f.enc" > "$f.secure"
+
+            # Replace the original unencrypted file with the final secure payload
+            mv "$f.secure" "$f"
+            rm "$f.enc" "$f.iv" "$f.sig"
+          done
+
+          rm priv.pem
+
+      # ── 7. Compute SHA-256 checksums ──────────────────────
+      - name: Compute checksums
+        run: |
+          cd release-assets
+          sha256sum *.bin > checksums.txt
+          cat checksums.txt
+
+      # ── 8. Create GitHub Release & upload assets ──────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Firmware ${{ github.ref_name }}"
+          body: |
+            ## ESP32 OTA Firmware ${{ github.ref_name }}
+
+            ### Files
+            | File | Board |
+            |------|-------|
+            | `firmware-esp32.bin` | ESP32 DevKit |
+            | `firmware-esp32s3.bin` | ESP32-S3 |
+            | `firmware-esp32c3.bin` | ESP32-C3 |
+
+            ### How to flash manually (USB)
+            ```bash
+            esptool.py --chip esp32 --port COM3 write_flash 0x0 firmware-esp32.bin
+            ```
+
+            ### OTA
+            Devices automatically pull this release within 15 minutes.
+            You can also trigger manually by holding the BOOT button for 3 s.
+          files: |
+            release-assets/*.bin
+            release-assets/checksums.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# ─────────────────────────────────────────────────────────
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#
+#   WIFI_SSID      – Wi-Fi network name
+#   WIFI_PASSWORD  – Wi-Fi password
+#   OTA_PASSWORD   – ArduinoOTA push password
+#   BACKEND_URL    – gateway base URL, e.g. http://192.168.1.100:5000
+#   BACKEND_API_KEY – optional API key accepted by gateway
+#   DEVICE_ID      – device identity used in telemetry
+#   FIRMWARE_ENC_KEY – 32-character AES key (required for secure package mode)
+#   FIRMWARE_PUB_KEY – PEM public key used by device for signature verification
+#   FIRMWARE_PRIV_KEY – PEM private key used by CI for signing
+#
+# GITHUB_TOKEN is provided automatically by GitHub Actions.
+# ─────────────────────────────────────────────────────────

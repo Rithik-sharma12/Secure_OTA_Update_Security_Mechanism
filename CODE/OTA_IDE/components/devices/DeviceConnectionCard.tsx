@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -15,10 +16,12 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatUtcTime } from '@/lib/formatters';
+import { apiFetch } from '@/lib/client-auth';
 
 type ConnectionMode = 'serial' | 'ota';
 type StatusTone = 'success' | 'info' | 'warning' | 'error' | 'neutral';
 type MonitorTone = 'info' | 'success' | 'warning' | 'error';
+type UploadJobStatus = 'queued' | 'compiling' | 'uploading' | 'success' | 'failed';
 
 type DetectedSerialPort = {
   path: string;
@@ -102,12 +105,13 @@ interface DeviceConnectionCardProps {
 }
 
 export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: DeviceConnectionCardProps) {
+  const defaultFirmwarePath = 'C:/Users/Rithik Sharma/Desktop/OTA_IOT/src/firmware.ino';
   const [connectionMode, setConnectionMode] = React.useState<ConnectionMode>('serial');
   const [availablePorts, setAvailablePorts] = React.useState<DetectedSerialPort[]>([]);
   const [serialPort, setSerialPort] = React.useState('');
   const [baudRate, setBaudRate] = React.useState('115200');
   const [boardType, setBoardType] = React.useState('ESP32');
-  const [firmwarePath, setFirmwarePath] = React.useState('C:/OTA/build/firmware.bin');
+  const [firmwarePath, setFirmwarePath] = React.useState(defaultFirmwarePath);
   const [otaHost, setOtaHost] = React.useState('192.168.1.120');
   const [otaPort, setOtaPort] = React.useState('3232');
   const [otaToken, setOtaToken] = React.useState('');
@@ -124,21 +128,29 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const [isMonitorRunning, setIsMonitorRunning] = React.useState(false);
   const [monitorMode, setMonitorMode] = React.useState<ConnectionMode | null>(null);
   const [autoScrollMonitor, setAutoScrollMonitor] = React.useState(true);
+  const [uploadJobId, setUploadJobId] = React.useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = React.useState<UploadJobStatus | 'idle'>('idle');
+  const [uploadProgress, setUploadProgress] = React.useState(0);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
   const scanningRef = React.useRef(false);
   const monitorIntervalRef = React.useRef<number | null>(null);
+  const uploadPollingRef = React.useRef<number | null>(null);
+  const uploadLastSequenceRef = React.useRef(0);
+  const uploadSourceRef = React.useRef('');
   const monitorLogRef = React.useRef<HTMLDivElement | null>(null);
+  const seenMonitorEventIdsRef = React.useRef<Set<string>>(new Set());
 
   const getActiveComPort = React.useCallback(
     () => serialPort.trim() || availablePorts[0]?.path || '',
     [availablePorts, serialPort]
   );
 
-  const appendMonitorEntry = React.useCallback((entry: Omit<MonitorEntry, 'id' | 'timestamp'>) => {
+  const appendMonitorEntry = React.useCallback((entry: Omit<MonitorEntry, 'id' | 'timestamp'> & { timestamp?: Date }) => {
     setMonitorEntries((current) => {
       const nextEntry: MonitorEntry = {
         ...entry,
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        timestamp: new Date(),
+        timestamp: entry.timestamp || new Date(),
       };
 
       return [...current.slice(-299), nextEntry];
@@ -152,11 +164,19 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     }
   }, []);
 
+  const stopUploadPolling = React.useCallback(() => {
+    if (uploadPollingRef.current !== null) {
+      window.clearInterval(uploadPollingRef.current);
+      uploadPollingRef.current = null;
+    }
+  }, []);
+
   React.useEffect(() => {
     return () => {
       stopMonitorStream();
+      stopUploadPolling();
     };
-  }, [stopMonitorStream]);
+  }, [stopMonitorStream, stopUploadPolling]);
 
   React.useEffect(() => {
     if (!autoScrollMonitor || !monitorLogRef.current) {
@@ -170,12 +190,12 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     const activeMode = connectionMode;
     const activePort = getActiveComPort();
 
-    if (!activePort) {
+    if (activeMode === 'serial' && !activePort) {
       updateStatus('Monitor blocked', 'error', 'Select a COM port before starting the device monitor.');
       return;
     }
 
-    if (!isValidPortName(activePort)) {
+    if (activeMode === 'serial' && !isValidPortName(activePort)) {
       updateStatus('Monitor blocked', 'error', 'The selected COM port is invalid. Use a value like COM3 and retry.');
       return;
     }
@@ -199,48 +219,60 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
 
     appendMonitorEntry({
       mode: activeMode,
-      source: activeMode === 'serial' ? activePort : `${otaHost}:${otaPort} via ${activePort}`,
+      source: activeMode === 'serial' ? activePort : `${otaHost}:${otaPort}`,
       tone: 'success',
       message:
         activeMode === 'serial'
           ? `Serial monitor started on ${activePort} at ${baudRate} baud.`
-          : `OTA monitor started for ${otaHost}:${otaPort} using ${activePort} flash pairing.`,
+          : `OTA monitor started for ${otaHost}:${otaPort}.`,
     });
 
     monitorIntervalRef.current = window.setInterval(() => {
-      if (activeMode === 'serial') {
-        const serialSamples = [
-          `Heartbeat OK on ${activePort}`,
-          `Sensor payload sent over ${activePort}`,
-          `Heap free: ${32000 + Math.floor(Math.random() * 8000)} bytes`,
-          `RSSI: ${-45 - Math.floor(Math.random() * 20)} dBm`,
-          `Uptime: ${Math.floor(Math.random() * 900)}s`,
-        ];
+      void (async () => {
+        try {
+          const response = await apiFetch('/api/runtime/snapshot', { cache: 'no-store' });
+          if (!response.ok) {
+            return;
+          }
 
-        appendMonitorEntry({
-          mode: 'serial',
-          source: activePort,
-          tone: 'info',
-          message: serialSamples[Math.floor(Math.random() * serialSamples.length)],
-        });
-        return;
-      }
+          const payload = await response.json() as {
+            events?: Array<{
+              id?: string;
+              title?: string;
+              description?: string;
+              severity?: string;
+              deviceId?: string;
+            }>;
+          };
 
-      const otaSamples = [
-        `OTA channel ${otaChannel} heartbeat received`,
-        `Target ${otaHost}:${otaPort} acknowledged check-in`,
-        `Flash pairing link stable on ${activePort}`,
-        `OTA buffer: ${Math.floor(35 + Math.random() * 50)}%`,
-        `Verification packet accepted by target`,
-      ];
+          const liveEvents = Array.isArray(payload.events) ? payload.events : [];
+          const newEvents = liveEvents.filter((event) => event.id && !seenMonitorEventIdsRef.current.has(event.id));
 
-      appendMonitorEntry({
-        mode: 'ota',
-        source: `${otaHost}:${otaPort} via ${activePort}`,
-        tone: 'info',
-        message: otaSamples[Math.floor(Math.random() * otaSamples.length)],
-      });
-    }, 2200);
+          newEvents.slice(0, 8).forEach((event) => {
+            if (!event.id) {
+              return;
+            }
+
+            seenMonitorEventIdsRef.current.add(event.id);
+            appendMonitorEntry({
+              mode: activeMode,
+              source: activeMode === 'serial' ? activePort : `${otaHost}:${otaPort}`,
+              tone:
+                event.severity === 'error'
+                  ? 'error'
+                  : event.severity === 'warning'
+                    ? 'warning'
+                    : event.severity === 'success'
+                      ? 'success'
+                      : 'info',
+              message: `${event.title || 'Runtime event'}${event.description ? `: ${event.description}` : ''}`,
+            });
+          });
+        } catch {
+          // Ignore intermittent polling failures while monitor is active.
+        }
+      })();
+    }, 3000);
   };
 
   const stopMonitor = () => {
@@ -261,6 +293,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
 
   const clearMonitor = () => {
     setMonitorEntries([]);
+    seenMonitorEventIdsRef.current.clear();
   };
 
   const exportMonitor = () => {
@@ -287,6 +320,95 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     setStatusMessage(message);
   }, []);
 
+  const pollUploadJob = React.useCallback(async (jobId: string) => {
+    try {
+      const response = await apiFetch(`/api/serial/upload/${jobId}?since=${uploadLastSequenceRef.current}`);
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        status?: UploadJobStatus;
+        progress?: number;
+        errorMessage?: string;
+        logs?: Array<{
+          sequence: number;
+          level: 'info' | 'warning' | 'error' | 'success';
+          message: string;
+          loggedAt: string;
+        }>;
+        lastSequence?: number;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        const message = payload.error || 'Unable to fetch upload progress.';
+        setUploadError(message);
+        updateStatus('Upload monitor error', 'error', message);
+        stopUploadPolling();
+        return;
+      }
+
+      if (Array.isArray(payload.logs)) {
+        payload.logs.forEach((log) => {
+          appendMonitorEntry({
+            mode: 'serial',
+            source: uploadSourceRef.current || getActiveComPort() || 'COM',
+            tone: log.level === 'error' ? 'error' : log.level === 'warning' ? 'warning' : log.level === 'success' ? 'success' : 'info',
+            message: log.message,
+            timestamp: new Date(log.loggedAt),
+          });
+        });
+      }
+
+      if (typeof payload.lastSequence === 'number') {
+        uploadLastSequenceRef.current = Math.max(uploadLastSequenceRef.current, payload.lastSequence);
+      }
+
+      if (payload.status) {
+        setUploadStatus(payload.status);
+      }
+
+      if (typeof payload.progress === 'number') {
+        setUploadProgress(payload.progress);
+      }
+
+      if (payload.errorMessage) {
+        setUploadError(payload.errorMessage);
+      }
+
+      if (payload.status === 'success') {
+        updateStatus(
+          'Serial upload complete',
+          'success',
+          `Sketch ${firmwarePath.split(/[\\/]/).pop() || firmwarePath} uploaded successfully to ${uploadSourceRef.current || getActiveComPort()}.`
+        );
+        stopUploadPolling();
+      }
+
+      if (payload.status === 'failed') {
+        updateStatus(
+          'Serial upload failed',
+          'error',
+          payload.errorMessage || 'Upload failed. Review monitor logs for compiler or serial-port errors.'
+        );
+        stopUploadPolling();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Upload polling failed unexpectedly.';
+      setUploadError(message);
+      updateStatus('Upload polling failed', 'error', message);
+      stopUploadPolling();
+    }
+  }, [appendMonitorEntry, firmwarePath, getActiveComPort, stopUploadPolling, updateStatus]);
+
+  const startUploadPolling = React.useCallback((jobId: string) => {
+    uploadLastSequenceRef.current = 0;
+    stopUploadPolling();
+    void pollUploadJob(jobId);
+
+    uploadPollingRef.current = window.setInterval(() => {
+      void pollUploadJob(jobId);
+    }, 1200);
+  }, [pollUploadJob, stopUploadPolling]);
+
   const scanSerialPorts = React.useCallback(async (reason: 'mount' | 'manual' | 'mode-change' | 'workflow' = 'manual') => {
     if (scanningRef.current) {
       return [];
@@ -297,7 +419,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     setPortScanError(null);
 
     try {
-      const response = await fetch('/api/serial-ports', { cache: 'no-store' });
+      const response = await apiFetch('/api/serial-ports', { cache: 'no-store' });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.error || `Unable to scan COM ports (${response.status})`);
@@ -471,7 +593,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     });
   };
 
-  const handleSerialFlash = () => {
+  const handleSerialFlash = async () => {
     setConnectionMode('serial');
 
     const activePort = getActiveComPort();
@@ -498,48 +620,96 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       updateStatus(
         'Firmware path missing',
         'error',
-        'Provide a firmware binary path before starting the COM flash.'
+        'Provide a firmware sketch path before starting the COM flash.'
       );
       return;
     }
 
+    const normalizedPath = firmwarePath.trim();
+    if (!normalizedPath.toLowerCase().endsWith('.ino')) {
+      updateStatus(
+        'Unsupported file type',
+        'error',
+        'Serial upload currently supports .ino sketches. Select an Arduino sketch file and retry.'
+      );
+      return;
+    }
+
+    setUploadStatus('queued');
+    setUploadProgress(0);
+    setUploadError(null);
+    uploadSourceRef.current = activePort;
+
     updateStatus(
       'COM upload queued',
       'warning',
-      `Uploading ${firmwarePath} over ${activePort} at ${baudRate} baud. If the device disconnects mid-transfer, rescan the port list and retry.`
+      `Upload job queued for ${normalizedPath} over ${activePort}. Preparing compile and serial flash pipeline.`
     );
 
     appendMonitorEntry({
       mode: 'serial',
       source: activePort,
-      tone: 'warning',
-      message: `Flash queued for ${firmwarePath} at ${baudRate} baud.`,
+      tone: 'info',
+      message: `Starting .ino upload job for ${normalizedPath} at ${baudRate} baud.`,
     });
+
+    try {
+      const response = await apiFetch('/api/serial/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filePath: normalizedPath,
+          boardType,
+          comPort: activePort,
+          baudRate,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        jobId?: string;
+        status?: UploadJobStatus;
+        progress?: number;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.ok || !payload.jobId) {
+        throw new Error(payload.error || 'Unable to start serial upload.');
+      }
+
+      setUploadJobId(payload.jobId);
+      setUploadStatus(payload.status || 'queued');
+      setUploadProgress(typeof payload.progress === 'number' ? payload.progress : 0);
+
+      appendMonitorEntry({
+        mode: 'serial',
+        source: activePort,
+        tone: 'info',
+        message: `Upload job ${payload.jobId} started. Waiting for compile and upload output...`,
+      });
+
+      startUploadPolling(payload.jobId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Serial upload failed to start.';
+      setUploadStatus('failed');
+      setUploadError(message);
+      updateStatus('Upload start failed', 'error', message);
+
+      appendMonitorEntry({
+        mode: 'serial',
+        source: activePort,
+        tone: 'error',
+        message,
+      });
+    }
   };
 
   const handleOtaCheck = () => {
     setConnectionMode('ota');
 
-    const activePort = getActiveComPort();
     const parsedPort = Number(otaPort);
-
-    if (!activePort) {
-      updateStatus(
-        'OTA COM port missing',
-        'error',
-        'Select a COM port for OTA flash pairing before checking the target. Use auto-detect or enter one manually.'
-      );
-      return;
-    }
-
-    if (!isValidPortName(activePort)) {
-      updateStatus(
-        'Invalid OTA COM port',
-        'error',
-        'Use a valid COM port format (for example COM3) before running the OTA target check.'
-      );
-      return;
-    }
 
     if (!otaHost.trim()) {
       updateStatus('OTA host missing', 'error', 'Provide a device host or IP address before checking the OTA target.');
@@ -554,12 +724,12 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     updateStatus(
       'OTA target reachable',
       'success',
-      `Validated ${otaHost}:${otaPort} on the ${otaChannel} channel with ${activePort} selected for flash pairing. The target is ready for wireless deployment.`
+      `Validated ${otaHost}:${otaPort} on the ${otaChannel} channel. The target is ready for wireless deployment.`
     );
 
     appendMonitorEntry({
       mode: 'ota',
-      source: `${otaHost}:${otaPort} via ${activePort}`,
+      source: `${otaHost}:${otaPort}`,
       tone: 'success',
       message: `OTA target check passed on ${otaChannel} channel.`,
     });
@@ -568,18 +738,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const handleOtaDeploy = () => {
     setConnectionMode('ota');
 
-    const activePort = getActiveComPort();
     const parsedPort = Number(otaPort);
-
-    if (!activePort) {
-      updateStatus('OTA deployment blocked', 'error', 'Select a COM port for OTA flash pairing before pushing the release.');
-      return;
-    }
-
-    if (!isValidPortName(activePort)) {
-      updateStatus('OTA deployment blocked', 'error', 'The selected OTA COM port is invalid. Use a value like COM3 and retry.');
-      return;
-    }
 
     if (!otaHost.trim()) {
       updateStatus('OTA deployment blocked', 'error', 'Provide a target host or IP address before starting the OTA push.');
@@ -599,12 +758,12 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     updateStatus(
       'OTA deployment queued',
       'warning',
-      `Pushing the ${otaChannel} release to ${otaHost}:${otaPort} with ${activePort} selected for flash pairing. If the target becomes unreachable, rescan and retry with a stable COM link.`
+      `Pushing the ${otaChannel} release to ${otaHost}:${otaPort}. If the target becomes unreachable, check network reachability and retry.`
     );
 
     appendMonitorEntry({
       mode: 'ota',
-      source: `${otaHost}:${otaPort} via ${activePort}`,
+      source: `${otaHost}:${otaPort}`,
       tone: 'warning',
       message: `OTA deployment queued on ${otaChannel} channel.`,
     });
@@ -745,7 +904,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
                     value={firmwarePath}
                     onChange={(event) => setFirmwarePath(event.target.value)}
                     className="border-border/60 bg-background/60"
-                    placeholder="C:/OTA/build/firmware.bin"
+                    placeholder={defaultFirmwarePath}
                   />
                 </div>
               </div>
@@ -758,60 +917,28 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
                   Flash via COM
                 </Button>
               </div>
+
+              {uploadStatus !== 'idle' && (
+                <div className="mt-4 rounded-lg border border-border/60 bg-background/60 p-3">
+                  <div className="mb-2 flex items-center justify-between text-xs">
+                    <span className="font-semibold text-foreground">Upload status: {uploadStatus}</span>
+                    <span className="text-foreground/70">{uploadProgress}%</span>
+                  </div>
+                  <Progress value={uploadProgress} />
+                  {uploadJobId && (
+                    <p className="mt-2 text-[11px] text-foreground/60">Job ID: {uploadJobId}</p>
+                  )}
+                  {uploadError && (
+                    <p className="mt-2 text-xs text-chart-4">{uploadError}</p>
+                  )}
+                </div>
+              )}
             </div>
           </TabsContent>
 
           <TabsContent value="ota" className="mt-5 space-y-5">
             <div className="rounded-lg border border-border/60 bg-muted/15 p-4">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-background/60 px-3 py-2">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-foreground/60">COM selection</p>
-                  <p className="text-sm text-foreground/70">
-                    {isScanningPorts
-                      ? 'Scanning connected COM devices for OTA flash pairing.'
-                      : availablePorts.length > 0
-                        ? `${availablePorts.length} port(s) available for OTA flash pairing.`
-                        : 'No COM device is currently detected. Enter a COM port manually to continue OTA flashing.'}
-                  </p>
-                </div>
-                <Button type="button" variant="outline" className="border-border/60" onClick={() => void scanSerialPorts('manual')} disabled={isScanningPorts}>
-                  {isScanningPorts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                  {isScanningPorts ? 'Scanning' : 'Scan COM Ports'}
-                </Button>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="ota-com-port">
-                    Flash COM Port
-                  </label>
-                  {availablePorts.length > 0 ? (
-                    <Select value={selectedPort} onValueChange={setSerialPort}>
-                      <SelectTrigger id="ota-com-port" className="w-full border-border/60 bg-background/60">
-                        <SelectValue placeholder="Select COM port" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availablePorts.map((port) => (
-                          <SelectItem key={port.path} value={port.path}>
-                            <div className="flex flex-col items-start gap-0.5 text-left">
-                              <span>{port.path}</span>
-                              <span className="text-xs text-muted-foreground">{port.description}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      id="ota-com-port"
-                      value={serialPort}
-                      onChange={(event) => setSerialPort(event.target.value)}
-                      className="border-border/60 bg-background/60"
-                      placeholder="COM3"
-                    />
-                  )}
-                </div>
-
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground" htmlFor="ota-host">
                     Device Host / IP
@@ -972,12 +1099,28 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
 
         <div className="rounded-lg border border-border/60 bg-background/60 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
-              {availablePorts.length > 0 ? `${availablePorts.length} detected` : 'Manual override enabled'}
-            </Badge>
-            <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
-              {selectedPort || 'No active COM port'}
-            </Badge>
+            {connectionMode === 'serial' ? (
+              <>
+                <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
+                  {availablePorts.length > 0 ? `${availablePorts.length} detected` : 'Manual override enabled'}
+                </Badge>
+                <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
+                  {selectedPort || 'No active COM port'}
+                </Badge>
+              </>
+            ) : (
+              <>
+                <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
+                  Target {otaHost || 'unset'}
+                </Badge>
+                <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
+                  Port {otaPort || 'unset'}
+                </Badge>
+                <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
+                  Channel {otaChannel}
+                </Badge>
+              </>
+            )}
             {workflowHint && (
               <Badge variant="outline" className="border-border/60 bg-primary/10 text-primary">
                 Target: {workflowHint.deviceName}

@@ -1,18 +1,21 @@
 'use client';
 
 import React from 'react';
-import { usePathname } from 'next/navigation';
-import { Search, Moon, Sun, ChevronRight, Menu } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Search, Moon, Sun, ChevronRight, Menu, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { apiFetch, clearAuthSession, getStoredAuthUser } from '@/lib/client-auth';
 
 interface TopBarProps {
   onMenuClick: () => void;
 }
 
 export default function TopBar({ onMenuClick }: TopBarProps) {
+  const router = useRouter();
   const pathname = usePathname();
   const [isDark, setIsDark] = React.useState(true);
+  const [currentUserName, setCurrentUserName] = React.useState('Admin');
 
   const breadcrumbs = React.useMemo(() => {
     const parts = pathname.split('/').filter((part) => part && part !== 'dashboard');
@@ -35,6 +38,26 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
     setIsDark(!isDark);
     document.documentElement.classList.toggle('dark');
   };
+
+  React.useEffect(() => {
+    const user = getStoredAuthUser();
+    if (user?.username) {
+      setCurrentUserName(user.username);
+    }
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/api/auth/logout', {
+        method: 'POST',
+      });
+    } finally {
+      clearAuthSession();
+      router.replace('/login');
+    }
+  };
+
+  const initials = currentUserName.slice(0, 2).toUpperCase();
 
   return (
     <div className="sticky top-0 z-40 border-b border-border bg-card/95 glass backdrop-blur">
@@ -90,11 +113,16 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
             )}
           </Button>
 
+          <Button variant="outline" size="sm" className="border-border/50" onClick={handleLogout}>
+            <LogOut className="mr-2 h-4 w-4" />
+            Logout
+          </Button>
+
           <div className="flex items-center gap-2 border-l border-border pl-2 sm:pl-4">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-primary text-xs font-bold text-accent-foreground">
-              AD
+              {initials || 'AD'}
             </div>
-            <span className="hidden text-sm font-medium sm:inline">Admin</span>
+            <span className="hidden text-sm font-medium sm:inline">{currentUserName}</span>
           </div>
         </div>
       </div>

@@ -93,7 +93,6 @@ The app uses the Next.js App Router. The `(dashboard)` folder is a route group, 
 - `lib/api-response.ts` - API response helpers
 - `lib/error-handler.ts` - error normalization and handling utilities
 - `lib/logger.ts` - application logging helper
-- `lib/mock-data.ts` - local mock datasets
 - `lib/types.ts` - shared type definitions
 - `lib/utils.ts` - general utility helpers
 - `lib/validation.ts` - validation helpers and schemas

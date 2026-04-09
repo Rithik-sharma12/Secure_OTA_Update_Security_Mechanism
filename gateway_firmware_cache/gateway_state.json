@@ -1,0 +1,33 @@
+{
+  "createdAt": "2026-04-09T05:03:19+00:00",
+  "updatedAt": "2026-04-09T05:03:19+00:00",
+  "devices": {},
+  "alerts": [],
+  "events": [],
+  "releases": [],
+  "manifest": null,
+  "pipeline": null,
+  "keys": [
+    {
+      "id": "gateway-ed25519-primary",
+      "name": "Gateway Ed25519 Signing Key",
+      "type": "ECDSA",
+      "keySize": 256,
+      "createdAt": "2026-04-09T05:03:19+00:00",
+      "expiresAt": "2031-04-08T05:03:19+00:00",
+      "active": true
+    }
+  ],
+  "certificates": [
+    {
+      "id": "cert-gateway-signing-key",
+      "name": "Gateway Signing Public Key",
+      "issuer": "SentinelOTA Local Signing Authority",
+      "subject": "CN=gateway-ed25519-primary",
+      "validFrom": "2026-04-09T05:03:19+00:00",
+      "validTo": "2031-04-08T05:03:19+00:00",
+      "fingerprint": "8ff52e16756cd50c57e1e60a36e16434760faf321367996c8c90af81be818b27"
+    }
+  ],
+  "deployments": []
+}

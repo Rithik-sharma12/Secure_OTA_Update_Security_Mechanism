@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Terminal as TerminalIcon, Trash2, X } from 'lucide-react';
+import { apiFetch } from '@/lib/client-auth';
 
 interface TerminalCommand {
   id: string;
@@ -14,21 +15,8 @@ interface TerminalCommand {
   timestamp: Date;
 }
 
-const FIXED_BASE_TIME = new Date('2026-04-08T12:00:00Z').getTime();
-const minute = 60 * 1000;
-
-const fixedDate = (offsetMs: number) => new Date(FIXED_BASE_TIME + offsetMs);
-
 export function Terminal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [commands, setCommands] = useState<TerminalCommand[]>([
-    {
-      id: '1',
-      command: 'ota-cli build --target esp32',
-      output: 'Building firmware for ESP32...\nCompiling source files...\n✓ Build complete: 245.3 KB\n✓ Checksum: a1b2c3d4e5f6g7h8',
-      status: 'success',
-      timestamp: fixedDate(-5 * minute),
-    },
-  ]);
+  const [commands, setCommands] = useState<TerminalCommand[]>([]);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -40,8 +28,14 @@ export function Terminal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
     }
   }, [commands]);
 
-  const executeCommand = (cmd: string) => {
+  const executeCommand = async (cmd: string) => {
     if (!cmd.trim()) return;
+
+    if (cmd.trim().toLowerCase() === 'clear') {
+      clearTerminal();
+      setInput('');
+      return;
+    }
 
     const newCommand: TerminalCommand = {
       id: Date.now().toString(),
@@ -55,62 +49,44 @@ export function Terminal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
     setInput('');
     setIsExecuting(true);
 
-    // Simulate command execution
-    setTimeout(() => {
-      const mockOutput = getMockOutput(cmd);
+    try {
+      const response = await apiFetch('/api/runtime/command', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ command: cmd }),
+      });
+
+      const payload = (await response.json()) as { ok?: boolean; output?: string };
+
       setCommands((prev) =>
-        prev.map((c) =>
-          c.id === newCommand.id
+        prev.map((command) =>
+          command.id === newCommand.id
             ? {
-              ...c,
-              output: mockOutput.output,
-              status: mockOutput.status,
-            }
-            : c
+                ...command,
+                output: payload.output || 'Command completed with no output.',
+                status: payload.ok ? 'success' : 'error',
+              }
+            : command
         )
       );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Command execution failed.';
+      setCommands((prev) =>
+        prev.map((command) =>
+          command.id === newCommand.id
+            ? {
+                ...command,
+                output: message,
+                status: 'error',
+              }
+            : command
+        )
+      );
+    } finally {
       setIsExecuting(false);
-    }, 800);
-  };
-
-  const getMockOutput = (cmd: string) => {
-    const responses: Record<string, { output: string; status: 'success' | 'error' }> = {
-      'help': {
-        output: `Available commands:
-  build          Build firmware
-  compile        Compile source code
-  deploy         Deploy to devices
-  status         Show device status
-  logs           View device logs
-  config         Show configuration
-  version        Display version
-  clear          Clear terminal
-  help           Show this help`,
-        status: 'success',
-      },
-      'build': {
-        output: 'Compiling firmware...\n✓ Source files compiled\n✓ Linking...\n✓ Build complete\nOutput: firmware.bin (312 KB)',
-        status: 'success',
-      },
-      'status': {
-        output: 'Device Status:\n✓ ESP32-Dev-01: Online (v2.4.0)\n✓ ESP8266-Test-01: Online (v2.3.1)\n✗ ATmega-Prod-01: Offline\n✓ STM32-Beta-01: Online (v2.5.0-rc1)',
-        status: 'success',
-      },
-      'version': {
-        output: 'OTA IDE v2.4.0\nBuild: a1b2c3d4e5f6\nRelease: Stable',
-        status: 'success',
-      },
-      'clear': {
-        output: '',
-        status: 'success',
-      },
-    };
-
-    const base = cmd.split(' ')[0].toLowerCase();
-    return responses[base] || {
-      output: `Command not recognized: ${cmd}\nType 'help' for available commands`,
-      status: 'error',
-    };
+    }
   };
 
   const clearTerminal = () => {

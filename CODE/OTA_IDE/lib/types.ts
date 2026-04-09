@@ -56,12 +56,12 @@ export interface Release {
 }
 
 // Pipeline Types
-export type PipelineStage = 'build' | 'test' | 'deploy' | 'verify';
+export type PipelineStageName = 'build' | 'test' | 'deploy' | 'verify';
 export type StageStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
 
 export interface PipelineStage {
   id: string;
-  name: PipelineStage;
+  name: PipelineStageName;
   status: StageStatus;
   startTime?: Date;
   endTime?: Date;

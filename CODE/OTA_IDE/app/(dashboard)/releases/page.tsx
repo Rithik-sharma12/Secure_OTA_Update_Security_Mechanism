@@ -5,8 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Download, Plus, Archive, Eye } from 'lucide-react';
-import { mockReleases } from '@/lib/mock-data';
 import { formatNumber, formatUtcDate } from '@/lib/formatters';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -22,6 +22,9 @@ function getStatusColor(status: string) {
 }
 
 export default function ReleasesPage() {
+  const { snapshot, isLoading } = useRuntimeSnapshot();
+  const releases = snapshot.releases;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -29,6 +32,9 @@ export default function ReleasesPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Releases</h1>
           <p className="text-foreground/70 mt-1">Firmware release history and management</p>
+          {!snapshot.connection.reachable && snapshot.connection.error && (
+            <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
+          )}
         </div>
         <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
           <Plus className="w-4 h-4 mr-2" />
@@ -38,7 +44,21 @@ export default function ReleasesPage() {
 
       {/* Releases List */}
       <div className="space-y-4">
-        {mockReleases.map((release) => (
+        {isLoading && releases.length === 0 && (
+          <Card className="glass border-border/50">
+            <CardContent className="pt-6 text-sm text-foreground/60">Loading live releases...</CardContent>
+          </Card>
+        )}
+
+        {!isLoading && releases.length === 0 && (
+          <Card className="glass border-border/50">
+            <CardContent className="pt-6 text-sm text-foreground/60">
+              No live releases published yet. Push a gateway manifest to populate this section.
+            </CardContent>
+          </Card>
+        )}
+
+        {releases.map((release) => (
           <Card key={release.id} className="glass border-border/50 hover:border-border/80 transition-colors">
             <CardContent className="pt-6">
               <div className="flex items-start justify-between mb-4">
@@ -151,9 +171,9 @@ export default function ReleasesPage() {
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { label: 'Total Releases', value: mockReleases.length, color: 'bg-chart-2/20 text-chart-2' },
-          { label: 'Published', value: mockReleases.filter(r => r.status === 'published').length, color: 'bg-chart-1/20 text-chart-1' },
-          { label: 'Total Downloads', value: formatNumber(mockReleases.reduce((sum, r) => sum + r.downloadCount, 0)), color: 'bg-primary/20 text-primary' },
+          { label: 'Total Releases', value: releases.length, color: 'bg-chart-2/20 text-chart-2' },
+          { label: 'Published', value: releases.filter(r => r.status === 'published').length, color: 'bg-chart-1/20 text-chart-1' },
+          { label: 'Total Downloads', value: formatNumber(releases.reduce((sum, r) => sum + r.downloadCount, 0)), color: 'bg-primary/20 text-primary' },
         ].map((stat) => (
           <Card key={stat.label} className="glass border-border/50">
             <CardContent className="pt-6">

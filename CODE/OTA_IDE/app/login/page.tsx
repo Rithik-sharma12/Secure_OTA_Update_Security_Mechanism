@@ -1,0 +1,117 @@
+'use client';
+
+import React from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { persistAuthSession, getStoredAuthToken, type StoredAuthUser } from '@/lib/client-auth';
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [username, setUsername] = React.useState('admin');
+  const [password, setPassword] = React.useState('admin123');
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const token = getStoredAuthToken();
+    if (token) {
+      router.replace('/dashboard');
+    }
+  }, [router]);
+
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        token?: string;
+        user?: StoredAuthUser;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.ok || !payload.token || !payload.user) {
+        setErrorMessage(payload.error || 'Login failed. Please verify credentials.');
+        return;
+      }
+
+      persistAuthSession(payload.token, payload.user);
+      router.replace('/dashboard');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to login right now.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-svh bg-background px-4 py-10">
+      <div className="mx-auto flex min-h-[80vh] w-full max-w-md items-center">
+        <Card className="w-full glass border-border/50">
+          <CardHeader>
+            <CardTitle className="text-2xl">Secure OTA Login</CardTitle>
+            <CardDescription>
+              Authenticate to access device flashing, serial monitor uploads, and protected runtime controls.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="space-y-4" onSubmit={handleLogin}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground" htmlFor="username">
+                  Username
+                </label>
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  autoComplete="username"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground" htmlFor="password">
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+
+              {errorMessage && (
+                <p className="rounded-md border border-chart-4/40 bg-chart-4/10 px-3 py-2 text-sm text-chart-4">
+                  {errorMessage}
+                </p>
+              )}
+
+              <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isSubmitting}>
+                {isSubmitting ? 'Signing in...' : 'Sign In'}
+              </Button>
+
+              <p className="text-xs text-foreground/60">
+                Local access mode is enabled. Default login is admin / admin123. Set OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD in env to change it.
+              </p>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

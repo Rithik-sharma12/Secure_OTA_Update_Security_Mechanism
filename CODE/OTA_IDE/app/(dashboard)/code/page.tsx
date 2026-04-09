@@ -584,7 +584,7 @@ export default function CodePage() {
         </CardHeader>
         {terminalOpen && (
           <CardContent>
-            <Terminal />
+            <Terminal isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
           </CardContent>
         )}
       </Card>

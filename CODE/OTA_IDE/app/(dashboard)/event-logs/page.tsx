@@ -13,8 +13,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Search, Download, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
-import { mockEvents } from '@/lib/mock-data';
 import { formatUtcDateTime } from '@/lib/formatters';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 
 function getSeverityIcon(severity: string) {
   switch (severity) {
@@ -50,8 +50,9 @@ export default function EventLogsPage() {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [selectedSeverity, setSelectedSeverity] = React.useState('all');
   const [selectedType, setSelectedType] = React.useState('all');
+  const { snapshot, isLoading } = useRuntimeSnapshot();
 
-  const filteredEvents = mockEvents.filter(event => {
+  const filteredEvents = snapshot.events.filter(event => {
     const matchesSearch = event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       event.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       event.deviceId?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -62,8 +63,8 @@ export default function EventLogsPage() {
     return matchesSearch && matchesSeverity && matchesType;
   });
 
-  const eventTypes = Array.from(new Set(mockEvents.map(e => e.type)));
-  const severities = Array.from(new Set(mockEvents.map(e => e.severity)));
+  const eventTypes = Array.from(new Set(snapshot.events.map(e => e.type)));
+  const severities = Array.from(new Set(snapshot.events.map(e => e.severity)));
 
   return (
     <div className="space-y-6">
@@ -72,6 +73,9 @@ export default function EventLogsPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Event Logs</h1>
           <p className="text-foreground/70 mt-1">System events and device activities</p>
+          {!snapshot.connection.reachable && snapshot.connection.error && (
+            <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
+          )}
         </div>
         <Button variant="outline" className="border-border">
           <Download className="w-4 h-4 mr-2" />
@@ -131,7 +135,9 @@ export default function EventLogsPage() {
       <Card className="glass border-border/50">
         <CardHeader>
           <CardTitle>Event Timeline</CardTitle>
-          <CardDescription>{filteredEvents.length} event(s) found</CardDescription>
+          <CardDescription>
+            {isLoading ? 'Loading live events...' : `${filteredEvents.length} event(s) found`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -187,8 +193,8 @@ export default function EventLogsPage() {
             ) : (
               <div className="text-center py-12">
                 <AlertCircle className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
-                <p className="text-foreground/50 mb-2">No events found</p>
-                <p className="text-sm text-foreground/40">Try adjusting your filters</p>
+                <p className="text-foreground/50 mb-2">No live events found</p>
+                <p className="text-sm text-foreground/40">Device heartbeats and gateway alerts will appear here.</p>
               </div>
             )}
           </div>
@@ -198,10 +204,10 @@ export default function EventLogsPage() {
       {/* Event Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Events', value: mockEvents.length, color: 'bg-chart-2/20 text-chart-2' },
-          { label: 'Errors', value: mockEvents.filter(e => e.severity === 'error').length, color: 'bg-chart-4/20 text-chart-4' },
-          { label: 'Warnings', value: mockEvents.filter(e => e.severity === 'warning').length, color: 'bg-chart-3/20 text-chart-3' },
-          { label: 'Success', value: mockEvents.filter(e => e.severity === 'success').length, color: 'bg-chart-1/20 text-chart-1' },
+          { label: 'Total Events', value: snapshot.events.length, color: 'bg-chart-2/20 text-chart-2' },
+          { label: 'Errors', value: snapshot.events.filter(e => e.severity === 'error').length, color: 'bg-chart-4/20 text-chart-4' },
+          { label: 'Warnings', value: snapshot.events.filter(e => e.severity === 'warning').length, color: 'bg-chart-3/20 text-chart-3' },
+          { label: 'Success', value: snapshot.events.filter(e => e.severity === 'success').length, color: 'bg-chart-1/20 text-chart-1' },
         ].map((stat) => (
           <Card key={stat.label} className="glass border-border/50">
             <CardContent className="pt-6">

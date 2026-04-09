@@ -21,15 +21,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
 import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard';
-import { mockDevices } from '@/lib/mock-data';
-
-const timeFormatter = new Intl.DateTimeFormat('en-US', {
-  timeZone: 'UTC',
-  hour: 'numeric',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: true,
-});
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { formatUtcTime } from '@/lib/formatters';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -62,6 +55,7 @@ function getHealthColor(health: string) {
 export default function DevicesPage() {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [workflowHint, setWorkflowHint] = React.useState<{ deviceName: string; mode: 'serial' | 'ota' } | null>(null);
+  const { snapshot, isLoading } = useRuntimeSnapshot();
 
   const scrollToConnectionPanel = () => {
     document.getElementById('device-connection-panel')?.scrollIntoView({
@@ -75,7 +69,7 @@ export default function DevicesPage() {
     scrollToConnectionPanel();
   };
   
-  const filteredDevices = mockDevices.filter(device =>
+  const filteredDevices = snapshot.devices.filter(device =>
     device.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     device.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
     device.type.toLowerCase().includes(searchTerm.toLowerCase())
@@ -88,6 +82,9 @@ export default function DevicesPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Devices</h1>
           <p className="text-foreground/70 mt-1">Manage and monitor your device fleet, COM sessions, and OTA updates</p>
+          {!snapshot.connection.reachable && snapshot.connection.error && (
+            <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
+          )}
         </div>
         <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={scrollToConnectionPanel}>
           Connect Device
@@ -118,7 +115,9 @@ export default function DevicesPage() {
       <Card className="glass border-border/50">
         <CardHeader>
           <CardTitle>Device Inventory</CardTitle>
-          <CardDescription>{filteredDevices.length} device(s) found</CardDescription>
+          <CardDescription>
+            {isLoading ? 'Loading live devices...' : `${filteredDevices.length} device(s) found`}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -169,7 +168,7 @@ export default function DevicesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-foreground/80 text-sm">
-                        {timeFormatter.format(device.lastSync)}
+                        {formatUtcTime(device.lastSync)}
                       </TableCell>
                       <TableCell className="text-foreground/80 text-sm">
                         {device.uptime}h
@@ -211,6 +210,11 @@ export default function DevicesPage() {
                 })}
               </TableBody>
             </Table>
+            {!isLoading && filteredDevices.length === 0 && (
+              <p className="py-6 text-center text-sm text-foreground/50">
+                No live devices reported yet. Start heartbeat publishing to populate this table.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -218,10 +222,10 @@ export default function DevicesPage() {
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Devices', value: mockDevices.length, color: 'bg-chart-2/20 text-chart-2' },
-          { label: 'Online', value: mockDevices.filter(d => d.status === 'online').length, color: 'bg-chart-1/20 text-chart-1' },
-          { label: 'Offline', value: mockDevices.filter(d => d.status === 'offline').length, color: 'bg-chart-4/20 text-chart-4' },
-          { label: 'Updates Needed', value: mockDevices.filter(d => d.firmwareVersion !== d.latestVersion).length, color: 'bg-chart-3/20 text-chart-3' },
+          { label: 'Total Devices', value: snapshot.devices.length, color: 'bg-chart-2/20 text-chart-2' },
+          { label: 'Online', value: snapshot.devices.filter(d => d.status === 'online').length, color: 'bg-chart-1/20 text-chart-1' },
+          { label: 'Offline', value: snapshot.devices.filter(d => d.status === 'offline' || d.status === 'error').length, color: 'bg-chart-4/20 text-chart-4' },
+          { label: 'Updates Needed', value: snapshot.devices.filter(d => d.firmwareVersion !== d.latestVersion).length, color: 'bg-chart-3/20 text-chart-3' },
         ].map((stat) => (
           <Card key={stat.label} className="glass border-border/50">
             <CardContent className="pt-6">

@@ -7,38 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatNumber, formatUtcDate, formatUtcTime } from '@/lib/formatters';
-import { 
-  getOnlineDevices, 
-  getOfflineDevices, 
-  mockDevices, 
-  mockReleases,
-  mockEvents,
-  getDevicesNeedingUpdate
-} from '@/lib/mock-data';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 
-// Mock metrics data
-const metricsData = [
-  { name: 'Mon', successful: 12, failed: 2 },
-  { name: 'Tue', successful: 19, failed: 1 },
-  { name: 'Wed', successful: 14, failed: 3 },
-  { name: 'Thu', successful: 22, failed: 1 },
-  { name: 'Fri', successful: 18, failed: 2 },
-  { name: 'Sat', successful: 15, failed: 1 },
-  { name: 'Sun', successful: 16, failed: 2 },
-];
-
-const deviceStatusData = [
-  { name: 'Online', value: getOnlineDevices().length, color: '#4CAF50' },
-  { name: 'Offline', value: getOfflineDevices().length, color: '#F44336' },
-  { name: 'Updating', value: mockDevices.filter(d => d.status === 'updating').length, color: '#FF9800' },
-];
-
-const healthData = [
-  { name: 'Excellent', value: mockDevices.filter(d => d.health === 'excellent').length },
-  { name: 'Good', value: mockDevices.filter(d => d.health === 'good').length },
-  { name: 'Fair', value: mockDevices.filter(d => d.health === 'fair').length },
-  { name: 'Poor', value: mockDevices.filter(d => d.health === 'poor').length },
-];
+const weekLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function MetricCard({
   title,
@@ -77,19 +48,55 @@ function MetricCard({
 }
 
 export default function DashboardPage() {
-  const onlineCount = getOnlineDevices().length;
-  const offlineCount = getOfflineDevices().length;
-  const updatingCount = mockDevices.filter(d => d.status === 'updating').length;
-  const needsUpdateCount = getDevicesNeedingUpdate().length;
-  const recentEvents = mockEvents.slice(0, 5);
-  const latestRelease = mockReleases[0];
+  const { snapshot, isLoading } = useRuntimeSnapshot();
+
+  const onlineCount = snapshot.devices.filter((device) => device.status === 'online').length;
+  const offlineCount = snapshot.devices.filter((device) => device.status === 'offline' || device.status === 'error').length;
+  const updatingCount = snapshot.devices.filter((device) => device.status === 'updating').length;
+  const needsUpdateCount = snapshot.devices.filter((device) => device.firmwareVersion !== device.latestVersion).length;
+  const recentEvents = snapshot.events.slice(0, 5);
+  const latestRelease = snapshot.releases[0];
+
+  const metricsData = React.useMemo(() => {
+    const counts = weekLabels.map((label) => ({ name: label, successful: 0, failed: 0 }));
+
+    snapshot.events.forEach((event) => {
+      const eventDay = event.timestamp.getDay();
+      const row = counts.find((item) => item.name === weekLabels[eventDay]);
+      if (!row) {
+        return;
+      }
+
+      if (event.severity === 'success') {
+        row.successful += 1;
+      } else if (event.severity === 'error' || event.severity === 'warning') {
+        row.failed += 1;
+      }
+    });
+
+    return counts;
+  }, [snapshot.events]);
+
+  const deviceStatusData = React.useMemo(
+    () => [
+      { name: 'Online', value: onlineCount, color: '#4CAF50' },
+      { name: 'Offline', value: offlineCount, color: '#F44336' },
+      { name: 'Updating', value: updatingCount, color: '#FF9800' },
+    ],
+    [offlineCount, onlineCount, updatingCount]
+  );
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-foreground/70 mt-1">Welcome to OTA IDE Control Center</p>
+        <p className="text-foreground/70 mt-1">
+          {isLoading ? 'Loading live gateway telemetry...' : 'Live telemetry from edge gateway and OTA runtime.'}
+        </p>
+        {!snapshot.connection.reachable && snapshot.connection.error && (
+          <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
+        )}
       </div>
 
       {/* Key Metrics */}

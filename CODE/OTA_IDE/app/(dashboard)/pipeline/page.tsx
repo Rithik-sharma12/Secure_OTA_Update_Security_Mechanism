@@ -4,8 +4,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, AlertCircle, Clock, Play, Pause, StopCircle, ChevronDown } from 'lucide-react';
-import { mockPipeline } from '@/lib/mock-data';
 import { formatUtcDateTime } from '@/lib/formatters';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 
 function getStageStatusIcon(status: string) {
   switch (status) {
@@ -38,6 +38,9 @@ function getStageStatusColor(status: string) {
 }
 
 export default function PipelinePage() {
+  const { snapshot, isLoading } = useRuntimeSnapshot();
+  const livePipeline = snapshot.pipeline;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -45,6 +48,9 @@ export default function PipelinePage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Deployment Pipeline</h1>
           <p className="text-foreground/70 mt-1">CI/CD workflow and deployment status</p>
+          {!snapshot.connection.reachable && snapshot.connection.error && (
+            <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
+          )}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="border-border">
@@ -63,18 +69,30 @@ export default function PipelinePage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Build #{mockPipeline.id.split('-')[1]}</CardTitle>
-              <CardDescription>Release v2.4.0 deployment</CardDescription>
+              <CardTitle>
+                {livePipeline ? `Build #${livePipeline.id.split('-')[1] || livePipeline.id}` : 'No active pipeline'}
+              </CardTitle>
+              <CardDescription>
+                {isLoading
+                  ? 'Loading live pipeline telemetry...'
+                  : livePipeline
+                    ? `Release ${livePipeline.releaseId}`
+                    : 'No deployment stage is currently running.'}
+              </CardDescription>
             </div>
             <Badge variant="outline" className="bg-chart-3/20 text-chart-3 capitalize">
-              {mockPipeline.status}
+              {livePipeline?.status || 'idle'}
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
           {/* Pipeline Stages */}
+          {!livePipeline && (
+            <p className="text-sm text-foreground/60">Pipeline stage telemetry will appear here once deployment starts.</p>
+          )}
+
           <div className="space-y-4">
-            {mockPipeline.stages.map((stage, index) => (
+            {livePipeline?.stages.map((stage, index) => (
               <div key={stage.id}>
                 {/* Stage Header */}
                 <div className="flex items-center gap-4 mb-2">
@@ -123,7 +141,7 @@ export default function PipelinePage() {
                 )}
 
                 {/* Divider */}
-                {index < mockPipeline.stages.length - 1 && (
+                {index < livePipeline.stages.length - 1 && (
                   <div className="flex items-center gap-2 my-4">
                     <div className="flex-1 h-px bg-border/50" />
                     <ChevronDown className="w-4 h-4 text-muted-foreground" />
@@ -139,10 +157,24 @@ export default function PipelinePage() {
       {/* Pipeline Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Started', value: formatUtcDateTime(mockPipeline.createdAt), icon: '📅' },
-          { label: 'Duration', value: mockPipeline.stages.reduce((sum, s) => sum + (s.duration || 0), 0) / 60 + 'm', icon: '⏱️' },
-          { label: 'Completed Stages', value: mockPipeline.stages.filter(s => s.status === 'success').length + '/' + mockPipeline.stages.length, icon: '✓' },
-          { label: 'Status', value: mockPipeline.status.charAt(0).toUpperCase() + mockPipeline.status.slice(1), icon: '🔄' },
+          { label: 'Started', value: livePipeline ? formatUtcDateTime(livePipeline.createdAt) : 'n/a', icon: '📅' },
+          {
+            label: 'Duration',
+            value: livePipeline ? `${(livePipeline.stages.reduce((sum, s) => sum + (s.duration || 0), 0) / 60).toFixed(1)}m` : 'n/a',
+            icon: '⏱️'
+          },
+          {
+            label: 'Completed Stages',
+            value: livePipeline
+              ? `${livePipeline.stages.filter(s => s.status === 'success').length}/${livePipeline.stages.length}`
+              : '0/0',
+            icon: '✓'
+          },
+          {
+            label: 'Status',
+            value: livePipeline ? livePipeline.status.charAt(0).toUpperCase() + livePipeline.status.slice(1) : 'Idle',
+            icon: '🔄'
+          },
         ].map((stat) => (
           <Card key={stat.label} className="glass border-border/50">
             <CardContent className="pt-6">

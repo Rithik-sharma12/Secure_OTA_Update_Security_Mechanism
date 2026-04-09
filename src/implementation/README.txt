@@ -1,53 +1,79 @@
 # Secure Heterogeneous OTA Implementation Guide
 
-This folder contains a fully functional simulation of the **Secure Heterogeneous OTA Update Mechanism**.
+This folder contains the backend runtime used by OTA IDE for live OTA telemetry, release state, and deployment simulation.
 
 ## Files
-1.  **`server.py`**: Acts as the GitHub Releases server + Security Dashboard.
-2.  **`device_simulator.py`**: Simulates an IoT device (ESP32, STM32, etc.) running the ASH and LG-OTA algorithms.
+1. `edge_gateway.py` - Primary backend service for OTA runtime APIs.
+2. `device_simulator.py` - Simulates IoT devices sending heartbeat and consuming firmware manifest/download APIs.
+3. `server.py` - Legacy standalone OTA server prototype.
+4. `integration_smoke_test.py` - End-to-end integration checker for backend + frontend + auth middleware.
 
-## How to Run the Demo
+## Backend Deployment
 
-### Step 1: Install Dependencies
-Open a terminal in the `src/implementation` folder:
+### Step 1: Create Virtual Environment (Recommended Location)
+Create the virtual environment inside this folder at `src/implementation/.venv`:
+
+```powershell
+Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\src\implementation
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### Step 2: Install Dependencies
+
 ```powershell
 pip install -r requirements.txt
 ```
 
-### Step 2: Start the Server (Dashboard)
-Open Terminal 1:
-```powershell
-python src/server.py
-```
-*   This starts the Dashboard at `http://localhost:5000/dashboard`
-*   It serves firmware updates.
+### Step 3: Start the OTA Gateway Backend (FastAPI)
 
-### Step 3: Start IoT Devices
-Open Terminal 2 (Simulate an ESP32):
+FastAPI native command:
+
 ```powershell
-python src/device_simulator.py ESP32
+uvicorn edge_gateway:app --host 0.0.0.0 --port 5000
 ```
 
-Open Terminal 3 (Simulate an STM32):
+Or run the script directly:
+
 ```powershell
-python src/device_simulator.py STM32
+python edge_gateway.py
 ```
 
-Open Terminal 4 (Simulate an ATTACKED device):
+The backend runs at `http://localhost:5000` and exposes:
+
+- `GET /healthz`
+- `GET /api/dashboard`
+- `POST /api/heartbeat`
+- `GET /releases/latest/manifest`
+- `GET /releases/download/<filename>`
+- `POST /api/releases`
+- `POST /api/deployments`
+- `POST /api/pipeline/run`
+
+### Step 4: Start Device Simulators (Optional)
+
 ```powershell
-# This device will have issues verifying hashes effectively in a real scenario, 
-# or you can manually modify the code to fail checks to see the ASH score drop.
-python src/device_simulator.py FAULTY_SENSOR
+python device_simulator.py ESP32
+python device_simulator.py STM32F103
 ```
 
-### Step 4: Interact
-1.  Go to `http://localhost:5000/dashboard`.
-2.  You will see your devices listed with their **ASH Score**.
-3.  Use the form at the bottom to "Release New Firmware" (e.g., v2.0.0).
-4.  Watch the terminals as devices detect the update, verify the hash, and install it.
-5.  Watch the Dashboard as versions update and ASH scores increase (rewarding success).
+## Full Integration Test (Frontend + Backend + API + Middleware)
 
-## Key Features Implemented
-*   **Heterogeneity:** You can spawn devices with different names/types.
-*   **ASH (Anomaly-Scored Heartbeat):** The score logic is in `device_simulator.py`.
-*   **TCV Pipeline:** The `check_for_updates` function implements the tiered checks (Manifest -> Hash -> Signature).
+Make sure OTA IDE is running on `http://localhost:3000`, then run:
+
+```powershell
+python integration_smoke_test.py
+```
+
+The script validates:
+
+1. Backend health and release creation.
+2. Heartbeat ingestion and dashboard payload.
+3. Manifest publication and firmware metadata.
+4. Frontend auth login and session middleware.
+5. Authorized runtime snapshot integration between frontend API and backend gateway.
+
+## Security Notes
+
+- Set `OTA_GATEWAY_API_KEY` to protect write APIs (`/api/releases`, `/api/deployments`, `/api/pipeline/run`, `/api/trigger_sync`).
+- Set `EDGE_GATEWAY_API_KEY` in OTA IDE environment to match when gateway write/read key enforcement is enabled.

@@ -1,9 +1,18 @@
+import base64
 import requests
 import time
 import hashlib
 import random
 import sys
 import json
+
+try:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    CRYPTO_AVAILABLE = True
+except Exception:
+    CRYPTO_AVAILABLE = False
 
 # Configuration
 SERVER_URL = "http://localhost:5000"
@@ -68,6 +77,37 @@ class SentinelDevice:
             # print("Server unreachable...")
             pass
 
+    def verify_signature(self, firmware_data: bytes, manifest: dict):
+        signature = str(manifest.get('signature', '')).strip()
+        if not signature:
+            self.log("!!! ALERT: Missing firmware signature in manifest.")
+            return False
+
+        if not CRYPTO_AVAILABLE:
+            self.log("Signature present. cryptography package not available, skipping cryptographic verification.")
+            return True
+
+        try:
+            key_response = requests.get(f"{SERVER_URL}/releases/latest/public-key", timeout=2)
+            if key_response.status_code != 200:
+                self.log(f"!!! ALERT: Unable to fetch signing public key (status {key_response.status_code}).")
+                return False
+
+            key_payload = key_response.json()
+            public_key_pem = str(key_payload.get('publicKeyPem', '')).encode('utf-8')
+            public_key = serialization.load_pem_public_key(public_key_pem)
+
+            if not isinstance(public_key, Ed25519PublicKey):
+                self.log("!!! ALERT: Unsupported signing key type received from gateway.")
+                return False
+
+            public_key.verify(base64.b64decode(signature), firmware_data)
+            self.log("Signature Verified (Ed25519).")
+            return True
+        except Exception as error:
+            self.log(f"!!! ALERT: Signature verification failed ({error}).")
+            return False
+
     def check_for_updates(self):
         if self.quarantined:
             self.log("Skipping update check (Quarantined)")
@@ -84,7 +124,7 @@ class SentinelDevice:
             manifest = resp.json()
             remote_version = manifest['version']
             
-            # 2. Semantic Version Check (Simple String Compare for demo)
+            # 2. Semantic Version Check
             if remote_version == self.current_version:
                 # self.log("Already up to date.")
                 return 
@@ -114,14 +154,11 @@ class SentinelDevice:
             
             self.log(f"Hash Verified ({computed_hash[:8]}...).")
 
-            # 5. Mock Signature Verification
-            # In real scenario: ed25519.verify(manifest['signature'], firmware_data, pub_key)
-            if manifest['signature'] == "mock_ed25519_signature_placeholder":
-                self.log("Signature Verified.")
-            else:
-                 self.log("!!! ALERT: Invalid Signature!")
-                 self.update_ash(-50)
-                 return
+            # 5. Signature Verification
+            if not self.verify_signature(firmware_data, manifest):
+                self.update_ash(-50)
+                self.status = "Healthy"
+                return
 
             # 6. Install (Simulated)
             self.log(f"Installing v{remote_version}...")
@@ -150,7 +187,7 @@ if __name__ == "__main__":
     
     device = SentinelDevice(dev_id, DEVICE_TYPE)
     
-    # Introduce random fault scenario for demo purposes
+    # Optional fault scenario for resilience testing
     if "FAULTY" in DEVICE_TYPE:
         # Start a faulty device to show ASH decreasing
         print("SIMULATING FAULTY NETWORK/ATTACK SCENARIO")

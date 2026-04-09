@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { getOnlineDevices, getOfflineDevices } from '@/lib/mock-data';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import {
   Sheet,
   SheetContent,
@@ -99,8 +99,9 @@ function NavigationContent({
   onCollapseToggle?: () => void;
 }) {
   const pathname = usePathname();
-  const onlineCount = getOnlineDevices().length;
-  const offlineCount = getOfflineDevices().length;
+  const { snapshot } = useRuntimeSnapshot(5000);
+  const onlineCount = snapshot.devices.filter((device) => device.status === 'online').length;
+  const offlineCount = snapshot.devices.filter((device) => device.status === 'offline' || device.status === 'error').length;
 
   const isActive = (href: string) => {
     return pathname === href || pathname.startsWith(href + '/');
