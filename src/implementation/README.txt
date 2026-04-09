@@ -50,6 +50,11 @@ The backend runs at `http://localhost:5000` and exposes:
 - `POST /api/deployments`
 - `POST /api/pipeline/run`
 
+Before running write APIs in production, set:
+
+- `OTA_GATEWAY_API_KEY` (gateway write/auth key)
+- `OTA_GATEWAY_RELEASE_ARTIFACT` (absolute path to a real `.bin` firmware artifact, for release creation without explicit `sourceFilePath`)
+
 ### Step 4: Start Device Simulators (Optional)
 
 ```powershell
@@ -62,6 +67,9 @@ python device_simulator.py STM32F103
 Make sure OTA IDE is running on `http://localhost:3000`, then run:
 
 ```powershell
+set OTA_TEST_ADMIN_USERNAME=<your-admin-username>
+set OTA_TEST_ADMIN_PASSWORD=<your-admin-password>
+set OTA_TEST_FIRMWARE_PATH=C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code\.pio\build\esp32dev\firmware.bin
 python integration_smoke_test.py
 ```
 

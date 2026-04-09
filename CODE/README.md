@@ -120,7 +120,7 @@ The app uses the Next.js App Router. The `(dashboard)` folder is a route group, 
 
 ## Related Documentation
 
-- `../OTA_IDE_DEV.md`
-- `../OTA_IDE_ARCH.md`
-- `../OTA_IDE_Details_Task.md`
-- `../OTA_README.md`
+- `docs/ota-ide/OTA_IDE_DEV.md`
+- `docs/ota-ide/OTA_IDE_ARCH.md`
+- `docs/ota-ide/OTA_IDE_Details_Task.md`
+- `docs/ota-ide/OTA_README.md`

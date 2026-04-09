@@ -9,8 +9,8 @@ import { persistAuthSession, getStoredAuthToken, type StoredAuthUser } from '@/l
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = React.useState('admin');
-  const [password, setPassword] = React.useState('admin123');
+  const [username, setUsername] = React.useState('');
+  const [password, setPassword] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
@@ -77,6 +77,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                   autoComplete="username"
+                  placeholder="Enter admin username"
                   required
                 />
               </div>
@@ -91,6 +92,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
+                  placeholder="Enter admin password"
                   required
                 />
               </div>
@@ -106,7 +108,7 @@ export default function LoginPage() {
               </Button>
 
               <p className="text-xs text-foreground/60">
-                Local access mode is enabled. Default login is admin / admin123. Set OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD in env to change it.
+                Use credentials configured by OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD. No default login is seeded in production mode.
               </p>
             </form>
           </CardContent>

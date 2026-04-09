@@ -311,10 +311,9 @@ void sendHeartbeat() {
   doc["current_version"] = FIRMWARE_VERSION;
   doc["ash_score"] = state.healthScore;
   doc["status"] = state.inQuarantine ? "Quarantined" : "Healthy";
-  doc["cpuUsage"] = 20;
   doc["memoryUsage"] = 100 - (ESP.getFreeHeap() * 100 / ESP.getHeapSize());
   doc["uptime"] = millis() / 1000;
-  doc["location"] = "Field";
+  doc["location"] = DEVICE_HOSTNAME;
   doc["signalStrength"] = WiFi.RSSI();
 
   JsonArray logs = doc["logs"].to<JsonArray>();
@@ -349,13 +348,11 @@ bool performHttpUpdate(const String &url) {
 }
 
 bool isSecureOtaConfigured() {
-  const bool hasAesKey =
-    strlen(FIRMWARE_ENC_KEY) == 32 &&
-    strstr(FIRMWARE_ENC_KEY, "your_32_byte_firmware_enc_key_here") == nullptr;
+  const bool hasAesKey = strlen(FIRMWARE_ENC_KEY) == 32;
 
   const bool hasPubKey =
-    strstr(FIRMWARE_PUB_KEY, "BEGIN PUBLIC KEY") != nullptr &&
-    strstr(FIRMWARE_PUB_KEY, "your_public_key_here") == nullptr;
+    strstr(FIRMWARE_PUB_KEY, "-----BEGIN PUBLIC KEY-----") != nullptr &&
+    strstr(FIRMWARE_PUB_KEY, "-----END PUBLIC KEY-----") != nullptr;
 
   return hasAesKey && hasPubKey;
 }

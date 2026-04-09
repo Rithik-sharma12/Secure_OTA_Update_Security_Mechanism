@@ -105,14 +105,16 @@ interface DeviceConnectionCardProps {
 }
 
 export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: DeviceConnectionCardProps) {
-  const defaultFirmwarePath = 'C:/Users/Rithik Sharma/Desktop/OTA_IOT/src/firmware.ino';
+  const defaultFirmwarePath = (process.env.NEXT_PUBLIC_OTA_DEFAULT_FIRMWARE_PATH || '').trim();
+  const firmwarePathPlaceholder = 'C:/path/to/OTA_IOT/CODE/frimware_code/esp32_ota_main/esp32_ota_main.ino';
+  const defaultOtaHost = (process.env.NEXT_PUBLIC_OTA_DEFAULT_HOST || '').trim();
   const [connectionMode, setConnectionMode] = React.useState<ConnectionMode>('serial');
   const [availablePorts, setAvailablePorts] = React.useState<DetectedSerialPort[]>([]);
   const [serialPort, setSerialPort] = React.useState('');
   const [baudRate, setBaudRate] = React.useState('115200');
   const [boardType, setBoardType] = React.useState('ESP32');
   const [firmwarePath, setFirmwarePath] = React.useState(defaultFirmwarePath);
-  const [otaHost, setOtaHost] = React.useState('192.168.1.120');
+  const [otaHost, setOtaHost] = React.useState(defaultOtaHost);
   const [otaPort, setOtaPort] = React.useState('3232');
   const [otaToken, setOtaToken] = React.useState('');
   const [otaChannel, setOtaChannel] = React.useState('stable');
@@ -904,7 +906,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
                     value={firmwarePath}
                     onChange={(event) => setFirmwarePath(event.target.value)}
                     className="border-border/60 bg-background/60"
-                    placeholder={defaultFirmwarePath}
+                    placeholder={firmwarePathPlaceholder}
                   />
                 </div>
               </div>
@@ -948,7 +950,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
                     value={otaHost}
                     onChange={(event) => setOtaHost(event.target.value)}
                     className="border-border/60 bg-background/60"
-                    placeholder="192.168.1.120"
+                    placeholder="Enter ESP32 OTA host/IP"
                   />
                 </div>
 

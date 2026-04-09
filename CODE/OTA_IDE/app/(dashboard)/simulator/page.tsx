@@ -64,7 +64,7 @@ export default function SimulatorPage() {
               <div className="text-foreground/60">[2024-04-08 12:45:24] Firmware v2.4.0 loaded</div>
               <div className="text-foreground/60">[2024-04-08 12:45:25] Bootloader verified - Checksum OK</div>
               <div className="text-foreground/60">[2024-04-08 12:45:26] Network stack initialized</div>
-              <div className="text-chart-1">[2024-04-08 12:45:27] [INFO] Connected to WiFi SSID: OTA_TEST</div>
+              <div className="text-chart-1">[2024-04-08 12:45:27] [INFO] Connected to WiFi SSID: Redmi Note 12 5G</div>
               <div className="text-chart-1">[2024-04-08 12:45:28] [INFO] Syncing with server...</div>
               <div className="text-foreground/60">[2024-04-08 12:45:30] Device ready for commands</div>
               <div className="text-chart-1">[2024-04-08 13:20:15] [INFO] Update available: v2.5.0</div>

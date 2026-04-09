@@ -1,0 +1,9 @@
+# PlatformIO build output
+.pio/
+
+# Local secure OTA test material (never commit private keys)
+secure-test-keys/
+release-assets/
+
+# Python cache
+__pycache__/

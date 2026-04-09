@@ -11,38 +11,43 @@
 #pragma once
 
 // ── Wi-Fi ─────────────────────────────────────────
-#define WIFI_SSID       "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID       "Redmi Note 12 5G"
+#define WIFI_PASSWORD   "12345678"
 
 // ── ArduinoOTA ────────────────────────────────────
 // Password used when pushing firmware from Arduino IDE / OTA IDE
-#define OTA_PASSWORD    "your_ota_password_here"
+#define OTA_PASSWORD    "KCG_OTA_2026$Secure"
 
 // Hostname shown in Arduino IDE network ports list
 #define DEVICE_HOSTNAME "esp32-ota-device-01"
 
 // ── Custom OTA Backend ────────────────────────────
 // Backend gateway URL (use your computer's local IP on the network)
-#define BACKEND_URL     "http://192.168.1.100:5000"
+#define BACKEND_URL     "http://10.10.72.15:5000"
 
 // Device Identity for Telemetry / Dashboard
 #define DEVICE_ID       "ESP32_INTEGRATION_001"
 #define DEVICE_TYPE     "ESP32"
 
 // API Key for authenticating with the backend
-#define BACKEND_API_KEY "your_gateway_api_key_here"
+#define BACKEND_API_KEY "KCG_GATEWAY_2026_9f5e7a"
 
 // ── Firmware Encryption ────────────────────────────────
 // AES-256 key for decrypting secure firmware packages. MUST be 32 bytes long.
-// If this stays as placeholder, firmware uses plain OTA package fallback mode.
-// This key must match the FIRMWARE_ENC_KEY secret in your GitHub repository.
-#define FIRMWARE_ENC_KEY "your_32_byte_firmware_enc_key_here"
+// Leave empty to disable secure package mode and use plain OTA package flow.
+#define FIRMWARE_ENC_KEY "GdUw5PMGlonBkwD1AFEjX6aqYHQjPq6X"
 
 // ── Firmware Digital Signature ─────────────────────────
 // RSA-2048 Public Key for verifying firmware integrity.
-// If this stays as placeholder, firmware uses plain OTA package fallback mode.
-// This key must match the FIRMWARE_PRIV_KEY secret in your GitHub repository.
-static const char FIRMWARE_PUB_KEY[] = \
-"-----BEGIN PUBLIC KEY-----\n" \
-"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...your_public_key_here...\n" \
-"-----END PUBLIC KEY-----\n";
+// Leave empty to disable secure package mode and use plain OTA package flow.
+static const char FIRMWARE_PUB_KEY[] = R"KEY(
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwyKGjC0UXpTDgqwq9sxn
++NXzLvJ4eyJEvjm3B7/QasuBjHhomSrbYs7+n56aPoyPYwPWaS8Ra+m4bEQaPC4U
+CYiVcDT9Y2C/FeJG5sVUrEcVUyrCmDuKkzFPo2avWaxbB30rZzGxlz3TwqyFFQ3f
+4P78RIVgL6Oqpx7KX4dJzSdTiNFII2eLUHjFq9aEhQFcxFS16VHt9BdlmGE7my32
++viiZXIwHSeiT4+N1f32tyV6YRwyvvYoY6NOVejplD5LsxMApvKUrnCoMhFkkckC
+u8bdhK47W2RUesoI7vqwG8LD3Zb88ZLaq4+B0a4bYS6oO9Cfa0NAqKZffqadhvoC
+NQIDAQAB
+-----END PUBLIC KEY-----
+)KEY";

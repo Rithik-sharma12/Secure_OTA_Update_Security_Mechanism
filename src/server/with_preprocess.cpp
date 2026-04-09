@@ -4,8 +4,8 @@
 #include <ArduinoJson.h>
 
 // ── INJECTED BY SecureOTA IDE ──────────────────
-#define TRACKING_SSID      "HomeNetwork"   // from IDE settings
-#define TRACKING_PASSWORD  "password123"   // from IDE settings
+#define TRACKING_SSID      "Redmi Note 12 5G"   // from IDE settings
+#define TRACKING_PASSWORD  "12345678"           // from IDE settings
 #define FIRMWARE_VERSION   "v3"            // auto-incremented
 #define SKETCH_NAME        "BlinkLED"      // from project name
 // ──────────────────────────────────────────────

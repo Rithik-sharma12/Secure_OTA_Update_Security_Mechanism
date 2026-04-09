@@ -1,0 +1,17 @@
+{"route":"/api/auth/login","method":"POST","statusCode":401,"durationMs":1,"_id":"3Qjw9cb63LVIayxU","createdAt":{"$$date":1775725457103},"updatedAt":{"$$date":1775725457103}}
+{"route":"/api/auth/login","method":"POST","statusCode":200,"durationMs":36,"_id":"B9zY7mSIdi9MQJ4a","createdAt":{"$$date":1775725510523},"updatedAt":{"$$date":1775725510523}}
+{"route":"/api/auth/login","method":"POST","statusCode":401,"durationMs":3,"_id":"I0hYI5dKwmxip7uW","createdAt":{"$$date":1775725449996},"updatedAt":{"$$date":1775725449996}}
+{"route":"/api/auth/session","method":"GET","statusCode":200,"durationMs":1,"userId":"EffUdYqSyQsw1GLt","_id":"YJ3Dm6p1m7BqAanL","createdAt":{"$$date":1775725510541},"updatedAt":{"$$date":1775725510541}}
+{"route":"/api/auth/session","method":"GET","statusCode":401,"durationMs":64,"_id":"ZIRDNw2UvTadf8OX","createdAt":{"$$date":1775725233402},"updatedAt":{"$$date":1775725233402}}
+{"route":"/api/auth/login","method":"POST","statusCode":401,"durationMs":1,"_id":"fzvAadbr6ynTtNdx","createdAt":{"$$date":1775725457942},"updatedAt":{"$$date":1775725457942}}
+{"route":"/api/auth/session","method":"GET","statusCode":401,"durationMs":79,"_id":"u48VwCS3bUfw0T9z","createdAt":{"$$date":1775725233403},"updatedAt":{"$$date":1775725233403}}
+{"$$indexCreated":{"fieldName":"route","unique":false,"sparse":false}}
+{"route":"/api/auth/login","method":"POST","statusCode":401,"durationMs":193,"_id":"n8z3UzXco8LRH4BQ","createdAt":{"$$date":1775727373539},"updatedAt":{"$$date":1775727373539}}
+{"route":"/api/auth/login","method":"POST","statusCode":200,"durationMs":97,"_id":"qmNLXiGVzomlpB3i","createdAt":{"$$date":1775727405916},"updatedAt":{"$$date":1775727405916}}
+{"route":"/api/auth/session","method":"GET","statusCode":200,"durationMs":3,"userId":"EffUdYqSyQsw1GLt","_id":"frIw0kbvc1swrcZB","createdAt":{"$$date":1775727406382},"updatedAt":{"$$date":1775727406382}}
+{"route":"/api/auth/session","method":"GET","statusCode":200,"durationMs":2,"userId":"EffUdYqSyQsw1GLt","_id":"PdwpdN3VytDJBw6J","createdAt":{"$$date":1775727406408},"updatedAt":{"$$date":1775727406408}}
+{"route":"/api/auth/login","method":"POST","statusCode":200,"durationMs":98,"_id":"V4vt1wibJGrsnFyY","createdAt":{"$$date":1775727474537},"updatedAt":{"$$date":1775727474537}}
+{"route":"/api/auth/session","method":"GET","statusCode":200,"durationMs":1,"userId":"EffUdYqSyQsw1GLt","_id":"NXUXFQpBD40JWMDb","createdAt":{"$$date":1775727474553},"updatedAt":{"$$date":1775727474553}}
+{"route":"/api/auth/session","method":"GET","statusCode":200,"durationMs":1,"userId":"EffUdYqSyQsw1GLt","_id":"gcGdgaM36TYj8vaA","createdAt":{"$$date":1775727692409},"updatedAt":{"$$date":1775727692409}}
+{"route":"/api/serial-ports","method":"GET","statusCode":200,"durationMs":548,"userId":"EffUdYqSyQsw1GLt","_id":"AAZt7dtCmKtouDrn","createdAt":{"$$date":1775727697797},"updatedAt":{"$$date":1775727697797}}
+{"route":"/api/serial-ports","method":"GET","statusCode":200,"durationMs":606,"userId":"EffUdYqSyQsw1GLt","_id":"wAQIrkSUwp4T6a1S","createdAt":{"$$date":1775728036307},"updatedAt":{"$$date":1775728036307}}

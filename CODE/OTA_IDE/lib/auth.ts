@@ -8,6 +8,16 @@ import {
 } from '@/lib/local-database';
 
 const SESSION_TTL_HOURS = Number(process.env.OTA_SESSION_TTL_HOURS || 24);
+const DISALLOWED_BOOTSTRAP_USERNAMES = new Set(['admin', 'administrator', 'root']);
+const DISALLOWED_BOOTSTRAP_PASSWORDS = new Set([
+  'admin',
+  'admin123',
+  'password',
+  'password123',
+  'change-this-password',
+  '123456',
+  '12345678',
+]);
 
 export interface PublicUser {
   id: string;
@@ -64,6 +74,25 @@ function parseBearerToken(request: Request) {
   return token.trim();
 }
 
+function readBootstrapCredentials() {
+  const username = (process.env.OTA_ADMIN_USERNAME || '').trim();
+  const password = (process.env.OTA_ADMIN_PASSWORD || '').trim();
+
+  if (!username || !password) {
+    throw new Error('Missing OTA admin bootstrap credentials. Set OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD before startup.');
+  }
+
+  if (DISALLOWED_BOOTSTRAP_USERNAMES.has(username.toLowerCase())) {
+    throw new Error('OTA_ADMIN_USERNAME uses a default/demo value. Set a unique production username.');
+  }
+
+  if (password.length < 12 || DISALLOWED_BOOTSTRAP_PASSWORDS.has(password.toLowerCase())) {
+    throw new Error('OTA_ADMIN_PASSWORD must be at least 12 characters and not a default/demo value.');
+  }
+
+  return { username, password };
+}
+
 export async function ensureDefaultAdminUser() {
   await initializeLocalDatabase();
 
@@ -72,8 +101,7 @@ export async function ensureDefaultAdminUser() {
     return;
   }
 
-  const username = (process.env.OTA_ADMIN_USERNAME || 'admin').trim();
-  const password = (process.env.OTA_ADMIN_PASSWORD || 'admin123').trim();
+  const { username, password } = readBootstrapCredentials();
 
   await usersStore.insert({
     username,
