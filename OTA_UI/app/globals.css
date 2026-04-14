@@ -37,6 +37,9 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --neo-glow: oklch(0.78 0.18 20 / 0.34);
+  --neo-border: oklch(0.82 0.2 20 / 0.74);
+  --neo-hover-text: #fff6ef;
 }
 
 .dark {
@@ -72,6 +75,9 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+  --neo-glow: oklch(0.74 0.2 24 / 0.42);
+  --neo-border: oklch(0.84 0.2 24 / 0.82);
+  --neo-hover-text: #fffaf5;
 }
 
 @theme inline {
@@ -121,5 +127,40 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .neo-hover {
+    @apply transition-all duration-200;
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  .neo-hover:hover {
+    transform: translateY(-1px);
+    filter: saturate(1.12) brightness(1.06);
+    box-shadow: 0 0 0 1px var(--neo-border), 0 0 24px var(--neo-glow);
+  }
+
+  .neo-hover:hover,
+  .neo-hover:focus-visible {
+    color: var(--neo-hover-text) !important;
+    text-shadow: 0 0 10px var(--neo-glow);
+  }
+
+  .neo-hover:hover svg,
+  .neo-hover:focus-visible svg {
+    color: var(--neo-hover-text) !important;
+    stroke: currentColor;
+    filter: drop-shadow(0 0 6px var(--neo-glow));
+  }
+
+  .neo-hover:focus-visible {
+    box-shadow: 0 0 0 1px var(--neo-border), 0 0 18px var(--neo-glow);
+  }
+
+  .neo-hover:active {
+    transform: translateY(0);
+    box-shadow: 0 0 0 1px var(--neo-border), 0 0 14px var(--neo-glow);
   }
 }

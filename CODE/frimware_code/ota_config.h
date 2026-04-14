@@ -23,7 +23,7 @@
 
 // ── Custom OTA Backend ────────────────────────────
 // Backend gateway URL (use your computer's local IP on the network)
-#define BACKEND_URL     "http://10.10.72.15:5000"
+#define BACKEND_URL     "http://10.161.249.69:5000"
 
 // Device Identity for Telemetry / Dashboard
 #define DEVICE_ID       "ESP32_INTEGRATION_001"

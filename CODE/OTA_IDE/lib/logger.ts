@@ -137,7 +137,7 @@ export class PerformanceMonitor {
     }
 
     const duration = performance.now() - startTime;
-    this.marks.delete(label);
+    this.marks.delete(label); // Clear the mark after ending
 
     logger.debug('Performance', `${label} took ${duration.toFixed(2)}ms`);
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useRouter } from 'next/navigation';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, TrendingDown, AlertCircle, CheckCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,6 +49,7 @@ function MetricCard({
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { snapshot, isLoading } = useRuntimeSnapshot();
 
   const onlineCount = snapshot.devices.filter((device) => device.status === 'online').length;
@@ -208,7 +210,7 @@ export default function DashboardPage() {
               <CardTitle>Recent Events</CardTitle>
               <CardDescription>Latest system activities</CardDescription>
             </div>
-            <Button variant="outline" size="sm">View All</Button>
+            <Button variant="outline" size="sm" onClick={() => router.push('/event-logs')}>View All</Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
@@ -277,7 +279,7 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 </div>
-                <Button className="w-full mt-2">View Release</Button>
+                <Button className="w-full mt-2" onClick={() => router.push('/releases')}>View Release</Button>
               </>
             )}
           </CardContent>

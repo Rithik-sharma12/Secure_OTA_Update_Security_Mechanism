@@ -1,10 +1,12 @@
 'use client';
 
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Activity, AlertCircle, CheckCircle, Cpu, HardDrive, Zap, Shield } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { executeRuntimeAction } from '@/lib/runtime-actions';
 
 const performanceData = [
   { time: '00:00', verification: 45 },
@@ -17,6 +19,30 @@ const performanceData = [
 ];
 
 export default function TCVEnginePage() {
+  const [autoVerifyOnBoot, setAutoVerifyOnBoot] = React.useState(true);
+  const [strictVerificationMode, setStrictVerificationMode] = React.useState(false);
+  const [isSavingConfig, setIsSavingConfig] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  const handleSaveConfig = async () => {
+    setIsSavingConfig(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('tcv.save-config', {
+        autoVerifyOnBoot,
+        strictVerificationMode,
+      });
+      setActionMessage(response.message || 'TCV configuration saved.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to save TCV configuration.');
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-8">
@@ -28,6 +54,8 @@ export default function TCVEnginePage() {
           <p className="text-foreground/70 mt-1">Trusted Computation Verification - Security monitoring and verification</p>
         </div>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -149,17 +177,31 @@ export default function TCVEnginePage() {
                 <p className="text-sm font-medium text-foreground">Auto-verify on boot</p>
                 <p className="text-xs text-foreground/60">Automatically verify devices on startup</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-5 h-5 rounded cursor-pointer" />
+              <input
+                type="checkbox"
+                checked={autoVerifyOnBoot}
+                onChange={(event) => setAutoVerifyOnBoot(event.target.checked)}
+                className="w-5 h-5 rounded cursor-pointer"
+              />
             </div>
             <div className="p-3 rounded-lg bg-muted/20 border border-border/20 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">Strict verification mode</p>
                 <p className="text-xs text-foreground/60">Require verification for all operations</p>
               </div>
-              <input type="checkbox" className="w-5 h-5 rounded cursor-pointer" />
+              <input
+                type="checkbox"
+                checked={strictVerificationMode}
+                onChange={(event) => setStrictVerificationMode(event.target.checked)}
+                className="w-5 h-5 rounded cursor-pointer"
+              />
             </div>
           </div>
-          <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Button
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            onClick={() => void handleSaveConfig()}
+            disabled={isSavingConfig}
+          >
             Save Configuration
           </Button>
         </CardContent>

@@ -1,16 +1,95 @@
 'use client';
 
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Plus, Lock } from 'lucide-react';
 import { formatUtcDate } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { executeRuntimeAction, fetchRuntimeActionState } from '@/lib/runtime-actions';
+
+type GeneratedKeyRecord = {
+  id: string;
+  name: string;
+  type: 'RSA' | 'ECDSA' | 'AES';
+  keySize: number;
+  createdAt: string;
+  active: boolean;
+  fingerprint: string;
+};
 
 export default function KeyVaultPage() {
   const { snapshot } = useRuntimeSnapshot();
-  const keys = snapshot.keys;
+  const [generatedKeys, setGeneratedKeys] = React.useState<GeneratedKeyRecord[]>([]);
+  const [busyAction, setBusyAction] = React.useState<string | null>(null);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const loadGeneratedKeys = async () => {
+      try {
+        const response = await fetchRuntimeActionState<{ generatedKeys?: GeneratedKeyRecord[] }>();
+        setGeneratedKeys(response.data?.generatedKeys || []);
+      } catch {
+        setGeneratedKeys([]);
+      }
+    };
+
+    void loadGeneratedKeys();
+  }, []);
+
+  const keys = [
+    ...generatedKeys.map((key) => ({
+      ...key,
+      createdAt: new Date(key.createdAt),
+      expiresAt: undefined,
+    })),
+    ...snapshot.keys,
+  ];
   const certificates = snapshot.certificates;
+
+  const handleCreateKey = async () => {
+    setBusyAction('keys.create');
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction<{ key?: GeneratedKeyRecord }>('keys.create', {
+        name: `Vault Key ${new Date().toISOString().slice(0, 10)}`,
+        type: 'RSA',
+      });
+
+      const key = response.data?.key;
+      if (key) {
+        setGeneratedKeys((current) => [key, ...current].slice(0, 100));
+      }
+
+      setActionMessage(response.message || 'Cryptographic key generated.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to create key.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleInspect = async (name: string, recordId: string) => {
+    setBusyAction(recordId);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('keys.inspect', {
+        recordId,
+        name,
+      });
+      setActionMessage(response.message || `Opened ${name}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to inspect selected item.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -22,11 +101,17 @@ export default function KeyVaultPage() {
             <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
           )}
         </div>
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+        <Button
+          className="bg-primary hover:bg-primary/90 text-primary-foreground"
+          onClick={() => void handleCreateKey()}
+          disabled={busyAction === 'keys.create'}
+        >
           <Plus className="w-4 h-4 mr-2" />
-          Add Key
+          {busyAction === 'keys.create' ? 'Generating...' : 'Add Key'}
         </Button>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       {/* Keys Section */}
       <div>
@@ -59,7 +144,13 @@ export default function KeyVaultPage() {
                       </div>
                     </div>
                   </div>
-                  <Button size="sm" variant="outline" className="border-border">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border"
+                    onClick={() => void handleInspect(key.name, key.id)}
+                    disabled={busyAction === key.id}
+                  >
                     View
                   </Button>
                 </div>
@@ -95,7 +186,13 @@ export default function KeyVaultPage() {
                       Fingerprint: {cert.fingerprint}
                     </p>
                   </div>
-                  <Button size="sm" variant="outline" className="border-border flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border flex-shrink-0"
+                    onClick={() => void handleInspect(cert.name, cert.id)}
+                    disabled={busyAction === cert.id}
+                  >
                     View
                   </Button>
                 </div>

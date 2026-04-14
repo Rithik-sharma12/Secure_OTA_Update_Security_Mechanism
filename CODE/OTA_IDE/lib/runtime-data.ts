@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { apiFetch } from '@/lib/client-auth';
+import { apiFetch, clearAuthSession } from '@/lib/client-auth';
 import type {
   Certificate,
   Deployment,
@@ -12,6 +12,7 @@ import type {
   Pipeline,
   Release,
 } from '@/lib/types';
+import { logger, errorTracker } from '@/lib/logger';
 
 type RuntimeConnection = {
   gatewayUrl: string;
@@ -273,14 +274,23 @@ export function useRuntimeSnapshot(pollMs = 5000) {
     try {
       const response = await apiFetch('/api/runtime/snapshot', { cache: 'no-store' });
       if (!response.ok) {
-        throw new Error(`Runtime API returned ${response.status}`);
+        if (response.status === 401) {
+          logger.warn('RuntimeData', 'Authentication required. Redirecting to login.', { status: response.status });
+          // Attempt to clear any client-side session remnants and redirect
+          await clearAuthSession(); // This will also call /api/auth/logout
+          window.location.href = '/login'; // Force a full page reload
+          return; // Stop further processing
+        }
+        const errorMsg = `Runtime API returned ${response.status}`;
+        logger.error('RuntimeData', errorMsg, { status: response.status });
+        throw new Error(errorMsg);
       }
 
       const payload = normalizeSnapshot(await response.json());
       setSnapshot(payload);
       setError(payload.connection.error || null);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : 'Unable to fetch runtime data.';
+      const message = loadError instanceof Error ? loadError.message : `Unable to fetch runtime data: ${String(loadError)}`;
       setError(message);
       setSnapshot((current) => ({
         ...current,
@@ -291,6 +301,8 @@ export function useRuntimeSnapshot(pollMs = 5000) {
           error: message,
         },
       }));
+      logger.error('RuntimeData', 'Error loading runtime snapshot', loadError);
+      errorTracker.track(loadError, 'RuntimeData:LoadSnapshot');
     } finally {
       setIsLoading(false);
     }

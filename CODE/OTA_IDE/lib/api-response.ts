@@ -1,6 +1,7 @@
 /**
  * Standardized API response and error handling
  */
+import { logger, errorTracker } from './logger';
 
 import { OTAError } from './error-handler';
 
@@ -165,7 +166,8 @@ export function handleApiError(
   error: any,
   defaultMessage = 'An error occurred'
 ): Response {
-  console.error('[v0] API Error:', error);
+  logger.error('ApiResponse', 'API Error caught by handleApiError', error);
+  errorTracker.track(error, 'ApiResponse:HandleApiError');
 
   if (error instanceof OTAError) {
     return errorResponse(error, error.statusCode);

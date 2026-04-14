@@ -15,6 +15,7 @@ import {
 import { Search, Download, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { formatUtcDateTime } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { downloadRuntimePayload, executeRuntimeAction, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
 
 function getSeverityIcon(severity: string) {
   switch (severity) {
@@ -50,6 +51,10 @@ export default function EventLogsPage() {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [selectedSeverity, setSelectedSeverity] = React.useState('all');
   const [selectedType, setSelectedType] = React.useState('all');
+  const [selectedEventId, setSelectedEventId] = React.useState<string | null>(null);
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
   const { snapshot, isLoading } = useRuntimeSnapshot();
 
   const filteredEvents = snapshot.events.filter(event => {
@@ -66,6 +71,40 @@ export default function EventLogsPage() {
   const eventTypes = Array.from(new Set(snapshot.events.map(e => e.type)));
   const severities = Array.from(new Set(snapshot.events.map(e => e.severity)));
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction<RuntimeDownloadPayload>('events.export', {
+        events: filteredEvents.map((event) => ({
+          ...event,
+          timestamp: event.timestamp.toISOString(),
+        })),
+      });
+
+      if (response.data) {
+        downloadRuntimePayload(response.data);
+      }
+
+      setActionMessage(response.message || 'Event export is ready.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to export events right now.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleView = (eventId: string) => {
+    setSelectedEventId(eventId);
+    const selected = filteredEvents.find((entry) => entry.id === eventId);
+    if (selected) {
+      setActionMessage(`Viewing ${selected.title}.`);
+      setActionError(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -77,11 +116,13 @@ export default function EventLogsPage() {
             <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
           )}
         </div>
-        <Button variant="outline" className="border-border">
+        <Button variant="outline" className="border-border" onClick={handleExport} disabled={isExporting}>
           <Download className="w-4 h-4 mr-2" />
-          Export
+          {isExporting ? 'Exporting...' : 'Export'}
         </Button>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       {/* Filters */}
       <Card className="glass border-border/50">
@@ -145,7 +186,9 @@ export default function EventLogsPage() {
               filteredEvents.map((event, index) => (
                 <div
                   key={event.id}
-                  className={`p-4 rounded-lg border border-border/50 glass-sm hover:border-border/80 transition-colors ${
+                  className={`p-4 rounded-lg border glass-sm hover:border-border/80 transition-colors ${
+                    selectedEventId === event.id ? 'border-primary/60' : 'border-border/50'
+                  } ${
                     index !== filteredEvents.length - 1 ? 'pb-4' : ''
                   }`}
                 >
@@ -184,6 +227,7 @@ export default function EventLogsPage() {
                       variant="ghost"
                       size="sm"
                       className="flex-shrink-0"
+                      onClick={() => handleView(event.id)}
                     >
                       View
                     </Button>

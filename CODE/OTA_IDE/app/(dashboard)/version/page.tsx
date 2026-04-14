@@ -1,11 +1,131 @@
 'use client';
 
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tag, GitBranch, Copy, Check, Download, AlertCircle } from 'lucide-react';
+import { Tag, GitBranch, Copy, Download, AlertCircle } from 'lucide-react';
+import { formatNumber, formatUtcDate } from '@/lib/formatters';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { downloadRuntimePayload, executeRuntimeAction, fetchRuntimeActionState, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
+
+type RuntimeTagRecord = {
+  version: string;
+  notes: string;
+  createdAt: string;
+};
+
+const commitHash = 'abc123def456';
 
 export default function VersionPage() {
+  const { snapshot } = useRuntimeSnapshot();
+  const [runtimeTags, setRuntimeTags] = React.useState<RuntimeTagRecord[]>([]);
+  const [versionInput, setVersionInput] = React.useState('v2.5.0');
+  const [releaseNotes, setReleaseNotes] = React.useState('');
+  const [selectedVersion, setSelectedVersion] = React.useState<string | null>(null);
+  const [busyAction, setBusyAction] = React.useState<string | null>(null);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const loadTags = async () => {
+      try {
+        const response = await fetchRuntimeActionState<{ tags?: RuntimeTagRecord[] }>();
+        setRuntimeTags(response.data?.tags || []);
+      } catch {
+        setRuntimeTags([]);
+      }
+    };
+
+    void loadTags();
+  }, []);
+
+  const currentRelease = snapshot.releases[0];
+
+  const history = [
+    ...snapshot.releases.map((release) => ({
+      version: release.version,
+      date: formatUtcDate(release.releaseDate),
+      status: release.status === 'published' ? 'stable' : release.status,
+      downloads: formatNumber(release.downloadCount),
+      changes: release.changelog ? release.changelog.split('\n').length : 0,
+      releaseId: release.id,
+      notes: release.changelog,
+      assetName: release.assets[0]?.name,
+    })),
+    ...runtimeTags.map((tag) => ({
+      version: tag.version.replace(/^v/, ''),
+      date: formatUtcDate(new Date(tag.createdAt)),
+      status: 'tagged',
+      downloads: '0',
+      changes: tag.notes ? tag.notes.split('\n').length : 0,
+      releaseId: tag.version,
+      notes: tag.notes,
+      assetName: undefined,
+    })),
+  ];
+
+  const handleCopyCommit = async () => {
+    try {
+      await navigator.clipboard.writeText(commitHash);
+      setActionError(null);
+      setActionMessage('Commit hash copied to clipboard.');
+    } catch {
+      setActionError('Clipboard permission denied.');
+    }
+  };
+
+  const handleDownload = async (assetName?: string) => {
+    setBusyAction('download');
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction<RuntimeDownloadPayload>('releases.download', {
+        fileName: assetName,
+      });
+      if (response.data) {
+        downloadRuntimePayload(response.data);
+      }
+      setActionMessage(response.message || 'Release download prepared.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to download release asset.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleCreateTag = async () => {
+    setBusyAction('create-tag');
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('version.create-tag', {
+        version: versionInput,
+        notes: releaseNotes,
+      });
+
+      const normalized = versionInput.startsWith('v') ? versionInput : `v${versionInput}`;
+      setRuntimeTags((current) => [{
+        version: normalized,
+        notes: releaseNotes,
+        createdAt: new Date().toISOString(),
+      }, ...current]);
+      setActionMessage(response.message || `Release tag ${normalized} created.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to create release tag.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleViewNotes = (version: string, notes: string) => {
+    setSelectedVersion(version);
+    setActionError(null);
+    setActionMessage(notes ? `Notes for ${version}: ${notes.slice(0, 140)}` : `No notes available for ${version}.`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-8">
@@ -17,8 +137,9 @@ export default function VersionPage() {
           <p className="text-foreground/70 mt-1">Release versioning, tagging, and deployment history</p>
         </div>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
-      {/* Current Version Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="glass border-border/50 hover:border-primary/50 transition-all md:col-span-2">
           <CardHeader>
@@ -27,22 +148,22 @@ export default function VersionPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex items-baseline gap-4">
-              <div className="text-5xl font-bold text-primary">2.4.0</div>
+              <div className="text-5xl font-bold text-primary">{currentRelease?.version || '2.4.0'}</div>
               <Badge className="bg-chart-1/20 text-chart-1 text-base px-3 py-1">Latest</Badge>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 rounded-lg bg-muted/20 border border-border/20">
                 <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Released</p>
-                <p className="font-semibold text-foreground">March 15, 2024</p>
+                <p className="font-semibold text-foreground">{currentRelease ? formatUtcDate(currentRelease.releaseDate) : 'n/a'}</p>
               </div>
               <div className="p-3 rounded-lg bg-muted/20 border border-border/20">
                 <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Build Hash</p>
-                <p className="font-mono text-sm text-foreground">a1b2c3d4</p>
+                <p className="font-mono text-sm text-foreground">{commitHash.slice(0, 8)}</p>
               </div>
             </div>
             <div className="p-4 rounded-lg bg-chart-1/5 border border-chart-1/20">
               <p className="text-sm text-foreground/80">
-                <span className="font-semibold">New in v2.4.0:</span> Improved performance, security patches, and device compatibility enhancements.
+                <span className="font-semibold">Latest release notes:</span> {currentRelease?.description || 'Improved performance, security patches, and compatibility enhancements.'}
               </p>
             </div>
           </CardContent>
@@ -65,8 +186,8 @@ export default function VersionPage() {
               <div>
                 <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Commit</p>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-mono text-foreground/80">abc123def456</span>
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0">
+                  <span className="text-sm font-mono text-foreground/80">{commitHash}</span>
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => void handleCopyCommit()}>
                     <Copy className="w-3 h-3" />
                   </Button>
                 </div>
@@ -80,7 +201,6 @@ export default function VersionPage() {
         </Card>
       </div>
 
-      {/* Version History */}
       <Card className="glass border-border/50 hover:border-border/80 transition-all">
         <CardHeader>
           <CardTitle>Release History</CardTitle>
@@ -88,42 +208,55 @@ export default function VersionPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {[
-              { version: '2.4.0', date: 'Mar 15, 2024', status: 'latest', downloads: '1.2K', changes: 15 },
-              { version: '2.3.1', date: 'Feb 20, 2024', status: 'stable', downloads: '847', changes: 4 },
-              { version: '2.3.0', date: 'Feb 1, 2024', status: 'stable', downloads: '2.1K', changes: 12 },
-              { version: '2.2.0', date: 'Jan 10, 2024', status: 'deprecated', downloads: '3.4K', changes: 8 },
-            ].map((v) => (
-              <div key={v.version} className="p-4 rounded-lg border border-border/50 hover:border-border/80 hover:bg-muted/20 transition-all group">
+            {history.map((entry) => (
+              <div
+                key={`${entry.version}-${entry.releaseId}`}
+                className={`p-4 rounded-lg border border-border/50 hover:border-border/80 hover:bg-muted/20 transition-all group ${
+                  selectedVersion === entry.version ? 'ring-1 ring-primary/40' : ''
+                }`}
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4 flex-1">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <Tag className="w-4 h-4 text-muted-foreground" />
-                        <p className="font-bold text-foreground">v{v.version}</p>
+                        <p className="font-bold text-foreground">v{entry.version.replace(/^v/, '')}</p>
                         <Badge variant="outline" className={`text-xs ${
-                          v.status === 'latest' ? 'bg-chart-1/20 text-chart-1' : 
-                          v.status === 'stable' ? 'bg-primary/20 text-primary' :
-                          'bg-muted text-muted-foreground'
+                          entry.status === 'latest'
+                            ? 'bg-chart-1/20 text-chart-1'
+                            : entry.status === 'stable' || entry.status === 'published'
+                              ? 'bg-primary/20 text-primary'
+                              : 'bg-muted text-muted-foreground'
                         }`}>
-                          {v.status}
+                          {entry.status}
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-xs text-foreground/50">
-                        <span>{v.date}</span>
-                        <span className="text-foreground/30">•</span>
-                        <span>{v.changes} changes</span>
-                        <span className="text-foreground/30">•</span>
-                        <span>{v.downloads} downloads</span>
+                        <span>{entry.date}</span>
+                        <span className="text-foreground/30">|</span>
+                        <span>{entry.changes} changes</span>
+                        <span className="text-foreground/30">|</span>
+                        <span>{entry.downloads} downloads</span>
                       </div>
                     </div>
                   </div>
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button size="sm" variant="outline" className="border-border">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-border"
+                      onClick={() => void handleDownload(entry.assetName)}
+                      disabled={busyAction === 'download'}
+                    >
                       <Download className="w-3 h-3 mr-1" />
                       Download
                     </Button>
-                    <Button size="sm" variant="outline" className="border-border">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-border"
+                      onClick={() => handleViewNotes(entry.version, entry.notes)}
+                    >
                       View Notes
                     </Button>
                   </div>
@@ -134,7 +267,6 @@ export default function VersionPage() {
         </CardContent>
       </Card>
 
-      {/* Create New Tag */}
       <Card className="glass border-border/50 hover:border-border/80 transition-all">
         <CardHeader>
           <CardTitle>Create New Release Tag</CardTitle>
@@ -144,35 +276,43 @@ export default function VersionPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">Version Number</label>
-              <input 
+              <input
+                value={versionInput}
+                onChange={(event) => setVersionInput(event.target.value)}
                 placeholder="e.g., v2.5.0"
                 className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground placeholder-foreground/40 focus:outline-none focus:border-primary/50"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">Release Date</label>
-              <input 
+              <input
                 type="date"
                 className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground focus:outline-none focus:border-primary/50"
+                defaultValue={new Date().toISOString().slice(0, 10)}
               />
             </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">Release Notes</label>
-            <textarea 
+            <textarea
+              value={releaseNotes}
+              onChange={(event) => setReleaseNotes(event.target.value)}
               placeholder="Document new features, improvements, and bug fixes..."
               className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground placeholder-foreground/40 resize-none focus:outline-none focus:border-primary/50"
               rows={4}
             />
           </div>
-          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground w-full">
+          <Button
+            className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
+            onClick={() => void handleCreateTag()}
+            disabled={busyAction === 'create-tag'}
+          >
             <Tag className="w-4 h-4 mr-2" />
-            Create Release Tag
+            {busyAction === 'create-tag' ? 'Creating...' : 'Create Release Tag'}
           </Button>
         </CardContent>
       </Card>
 
-      {/* Compatibility Info */}
       <Card className="glass border-border/50">
         <CardHeader>
           <div className="flex items-center gap-2">

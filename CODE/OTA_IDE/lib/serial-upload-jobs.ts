@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { uploadsStore, uploadLogsStore, type UploadRecord } from '@/lib/local-database';
+import { logger, errorTracker } from '@/lib/logger';
 
 export type UploadJobStatus = 'queued' | 'compiling' | 'uploading' | 'success' | 'failed';
 
@@ -197,7 +198,7 @@ async function runProcess(
   stage: 'compile' | 'upload',
   command: string,
   args: string[],
-  cwd: string
+  cwd: string,
 ) {
   await appendUploadLog(jobId, 'info', `Running: ${command} ${args.join(' ')}`);
 
@@ -206,7 +207,7 @@ async function runProcess(
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-    });
+    }) as ChildProcessWithoutNullStreams;
 
     let stdErrBuffer = '';
 
@@ -231,10 +232,16 @@ async function runProcess(
     child.stderr.on('data', (chunk) => consumeChunk(chunk, 'error'));
 
     child.on('error', (error) => {
+      logger.error('SerialUploadJobs', `Process spawn error for command "${command}"`, error, { jobId, stage });
+      errorTracker.track(error, `SerialUploadJobs:ProcessSpawn:${stage}`);
       reject(error);
     });
 
     child.on('close', (code) => {
+      if (code !== 0) {
+        logger.error('SerialUploadJobs', `Process exited with non-zero code ${code} for command "${command}"`, new Error(stdErrBuffer || `${stage} command failed with exit code ${code}`), { jobId, stage, exitCode: code });
+        errorTracker.track(new Error(stdErrBuffer || `${stage} command failed with exit code ${code}`), `SerialUploadJobs:ProcessExit:${stage}`);
+      }
       if (code === 0) {
         resolve();
         return;
@@ -296,6 +303,8 @@ async function runUploadJob(jobId: string, sketchDirectory: string) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Upload failed unexpectedly.';
 
+    logger.error('SerialUploadJobs', `Upload job ${jobId} failed`, error);
+    errorTracker.track(error, `SerialUploadJobs:UploadJob:${jobId}`);
     updateJob(jobId, {
       status: 'failed',
       errorMessage: message,
@@ -339,20 +348,26 @@ export async function startSerialUpload(input: StartUploadInput) {
 
   jobs.set(jobId, snapshot);
 
-  await uploadsStore.insert({
-    jobId,
-    userId: input.userId,
-    filePath: sketch.filePath,
-    fileName: sketch.fileName,
-    fileHash,
-    boardType: input.boardType,
-    fqbn,
-    comPort: input.comPort,
-    baudRate: input.baudRate,
-    status: 'queued',
-    progress: 0,
-    startedAt: snapshot.startedAt,
-  });
+  try {
+    await uploadsStore.insert({
+      jobId,
+      userId: input.userId,
+      filePath: sketch.filePath,
+      fileName: sketch.fileName,
+      fileHash,
+      boardType: input.boardType,
+      fqbn,
+      comPort: input.comPort,
+      baudRate: input.baudRate,
+      status: 'queued',
+      progress: 0,
+      startedAt: snapshot.startedAt,
+    });
+  } catch (dbError: unknown) {
+    const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+    logger.error('SerialUploadJobs', `Failed to insert initial upload record for job ${jobId}: ${errorMessage}`, dbError);
+    errorTracker.track(dbError, `SerialUploadJobs:DBInsert:Initial`);
+  }
 
   await appendUploadLog(jobId, 'info', 'Upload job created and queued.');
 
@@ -367,20 +382,39 @@ export async function getUploadJobSnapshot(jobId: string, sinceSequence = 0) {
     return {
       ...activeJob,
       logs: activeJob.logs.filter((entry) => entry.sequence > sinceSequence),
-      lastSequence: activeJob.logs[activeJob.logs.length - 1]?.sequence || 0,
+      lastSequence: activeJob.logs[activeJob.logs.length - 1]?.sequence || 0, // This will be handled by nedb-promises
     };
   }
 
-  const persistedJob = await uploadsStore.findOne({ jobId });
+  let persistedJob: UploadRecord | null = null;
+  try {
+    persistedJob = await uploadsStore.findOne({ jobId });
+  } catch (dbError: unknown) {
+    const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+    logger.error('SerialUploadJobs', `Failed to find persisted job ${jobId}: ${errorMessage}`, dbError);
+    errorTracker.track(dbError, `SerialUploadJobs:DBFind:Job`);
+    return null; // Cannot proceed without job record
+  }
+
   if (!persistedJob) {
     return null;
   }
 
-  const logs = await uploadLogsStore
-    .find({ jobId, sequence: { $gt: sinceSequence } })
-    .sort({ sequence: 1 });
+  let logs: UploadLogRecord[] = [];
+  try {
+    logs = await uploadLogsStore.find({ jobId, sequence: { $gt: sinceSequence } }).sort({ sequence: 1 });
+  } catch (dbError: unknown) {
+    logger.error('SerialUploadJobs', `Failed to find logs for job ${jobId}: ${dbError instanceof Error ? dbError.message : String(dbError)}`, dbError);
+    errorTracker.track(dbError, `SerialUploadJobs:DBFind:Logs`);
+  }
 
-  const lastLog = await uploadLogsStore.findOne({ jobId }).sort({ sequence: -1 });
+  let lastLog: UploadLogRecord | null = null;
+  try {
+    lastLog = await uploadLogsStore.findOne({ jobId }).sort({ sequence: -1 });
+  } catch (dbError: unknown) {
+    logger.error('SerialUploadJobs', `Failed to find last log for job ${jobId}: ${dbError instanceof Error ? dbError.message : String(dbError)}`, dbError);
+    errorTracker.track(dbError, `SerialUploadJobs:DBFind:LastLog`);
+  }
 
   return {
     jobId,

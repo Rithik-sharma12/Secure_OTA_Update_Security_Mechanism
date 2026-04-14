@@ -3,9 +3,10 @@
 import React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Search, Moon, Sun, ChevronRight, Menu, LogOut } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { apiFetch, clearAuthSession, getStoredAuthUser } from '@/lib/client-auth';
+import { clearAuthSession, getStoredAuthUser } from '@/lib/client-auth';
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -14,7 +15,8 @@ interface TopBarProps {
 export default function TopBar({ onMenuClick }: TopBarProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const [isDark, setIsDark] = React.useState(true);
+  const { resolvedTheme, setTheme } = useTheme();
+  const [isMounted, setIsMounted] = React.useState(false);
   const [currentUserName, setCurrentUserName] = React.useState('Admin');
 
   const breadcrumbs = React.useMemo(() => {
@@ -34,12 +36,15 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
 
   const currentPageTitle = breadcrumbs[breadcrumbs.length - 1]?.label ?? 'OTA IDE';
 
+  const isDark = resolvedTheme !== 'light';
+
   const toggleTheme = () => {
-    setIsDark(!isDark);
-    document.documentElement.classList.toggle('dark');
+    setTheme(isDark ? 'light' : 'dark');
   };
 
   React.useEffect(() => {
+    setIsMounted(true);
+
     const user = getStoredAuthUser();
     if (user?.username) {
       setCurrentUserName(user.username);
@@ -48,11 +53,8 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
 
   const handleLogout = async () => {
     try {
-      await apiFetch('/api/auth/logout', {
-        method: 'POST',
-      });
+      await clearAuthSession();
     } finally {
-      clearAuthSession();
       router.replace('/login');
     }
   };
@@ -105,9 +107,11 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
             size="icon"
             onClick={toggleTheme}
             className="rounded-lg"
+            aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
           >
-            {isDark ? (
-              <Sun className="w-4 h-4 text-accent" />
+            {isMounted && isDark ? (
+              <Sun className="w-4 h-4" />
             ) : (
               <Moon className="w-4 h-4" />
             )}

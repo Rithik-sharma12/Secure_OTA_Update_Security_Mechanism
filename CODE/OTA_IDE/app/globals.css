@@ -38,6 +38,9 @@
   --sidebar-accent-foreground: #190019;
   --sidebar-border: #2b124c;
   --sidebar-ring: #854f6c;
+  --neo-glow: rgba(223, 182, 178, 0.28);
+  --neo-border: rgba(223, 182, 178, 0.62);
+  --neo-hover-text: #fff6ef;
   /* Glass morphism */
   --glass-bg: rgba(25, 0, 25, 0.7);
   --glass-border: rgba(133, 79, 108, 0.2);
@@ -76,6 +79,9 @@
   --sidebar-accent-foreground: #190019;
   --sidebar-border: #2b124c;
   --sidebar-ring: #854f6c;
+  --neo-glow: rgba(223, 182, 178, 0.36);
+  --neo-border: rgba(223, 182, 178, 0.74);
+  --neo-hover-text: #fffaf5;
   --glass-bg: rgba(25, 0, 25, 0.7);
   --glass-border: rgba(133, 79, 108, 0.2);
 }
@@ -132,6 +138,39 @@
 
 /* Glassmorphism utilities */
 @layer components {
+  .neo-hover {
+    @apply transition-all duration-200;
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  .neo-hover:hover {
+    transform: translateY(-1px);
+    filter: saturate(1.12) brightness(1.06);
+    box-shadow: 0 0 0 1px var(--neo-border), 0 0 24px var(--neo-glow);
+  }
+
+  .neo-hover:hover,
+  .neo-hover:focus-visible {
+    color: var(--neo-hover-text) !important;
+    text-shadow: 0 0 10px var(--neo-glow);
+  }
+
+  .neo-hover:hover svg,
+  .neo-hover:focus-visible svg {
+    color: var(--neo-hover-text) !important;
+    stroke: currentColor;
+    filter: drop-shadow(0 0 6px var(--neo-glow));
+  }
+
+  .neo-hover:focus-visible {
+    box-shadow: 0 0 0 1px var(--neo-border), 0 0 18px var(--neo-glow);
+  }
+
+  .neo-hover:active {
+    transform: translateY(0);
+    box-shadow: 0 0 0 1px var(--neo-border), 0 0 14px var(--neo-glow);
+  }
+
   .glass {
     @apply bg-[rgba(25,0,25,0.7)] backdrop-blur-md border border-[rgba(133,79,108,0.2)];
   }

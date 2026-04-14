@@ -13,6 +13,17 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Run OTA_IDE Dev Server",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }

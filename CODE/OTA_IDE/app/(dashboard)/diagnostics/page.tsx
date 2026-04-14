@@ -1,10 +1,12 @@
 'use client';
 
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Activity, AlertTriangle, CheckCircle, Zap, HardDrive, Wifi, Bug } from 'lucide-react';
+import { executeRuntimeAction } from '@/lib/runtime-actions';
 
 const diagnosticsData = [
   { metric: 'CPU', value: 45, threshold: 80, status: 'normal', icon: <Zap className="w-4 h-4" /> },
@@ -31,6 +33,27 @@ const systemChecks = [
 ];
 
 export default function DiagnosticsPage() {
+  const [isScanning, setIsScanning] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  const handleRunFullScan = async () => {
+    setIsScanning(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('diagnostics.scan', {
+        scope: 'full-system',
+      });
+      setActionMessage(response.message || 'Full diagnostics scan completed.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to run diagnostics scan.');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -43,11 +66,17 @@ export default function DiagnosticsPage() {
             <p className="text-foreground/70 mt-1">System health and comprehensive performance analysis</p>
           </div>
         </div>
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+        <Button
+          className="bg-primary hover:bg-primary/90 text-primary-foreground"
+          onClick={() => void handleRunFullScan()}
+          disabled={isScanning}
+        >
           <Activity className="w-4 h-4 mr-2" />
-          Run Full Scan
+          {isScanning ? 'Scanning...' : 'Run Full Scan'}
         </Button>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       {/* System Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

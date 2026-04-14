@@ -15,7 +15,7 @@
 #define DEVICE_HOSTNAME "esp32-ota-device-01"
 
 // -- Backend --
-#define BACKEND_URL     "http://10.10.72.15:5000"
+#define BACKEND_URL     "http://10.161.249.69:5000"
 #define DEVICE_ID       "ESP32_INTEGRATION_001"
 #define DEVICE_TYPE     "ESP32"
 #define BACKEND_API_KEY "KCG_GATEWAY_2026_9f5e7a"

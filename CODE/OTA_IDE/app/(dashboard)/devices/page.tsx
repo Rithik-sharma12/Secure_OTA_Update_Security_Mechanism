@@ -23,6 +23,7 @@ import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff } from 
 import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { formatUtcTime } from '@/lib/formatters';
+import { executeRuntimeAction } from '@/lib/runtime-actions';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -55,6 +56,9 @@ function getHealthColor(health: string) {
 export default function DevicesPage() {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [workflowHint, setWorkflowHint] = React.useState<{ deviceName: string; mode: 'serial' | 'ota' } | null>(null);
+  const [busyDeviceId, setBusyDeviceId] = React.useState<string | null>(null);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
   const { snapshot, isLoading } = useRuntimeSnapshot();
 
   const scrollToConnectionPanel = () => {
@@ -67,6 +71,25 @@ export default function DevicesPage() {
   const handleConnectionAction = (deviceName: string, mode: 'serial' | 'ota') => {
     setWorkflowHint({ deviceName, mode });
     scrollToConnectionPanel();
+  };
+
+  const handleDeviceAction = async (deviceId: string, deviceName: string, command: string) => {
+    setBusyDeviceId(deviceId);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('devices.action', {
+        deviceId,
+        deviceName,
+        command,
+      });
+      setActionMessage(response.message || `${command} executed for ${deviceName}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : `Unable to execute ${command}.`);
+    } finally {
+      setBusyDeviceId(null);
+    }
   };
   
   const filteredDevices = snapshot.devices.filter(device =>
@@ -90,6 +113,8 @@ export default function DevicesPage() {
           Connect Device
         </Button>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       <DeviceConnectionCard
         workflowHint={workflowHint}
@@ -181,8 +206,11 @@ export default function DevicesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="bg-card border-border">
-                            <DropdownMenuItem className="text-foreground cursor-pointer">
-                              View Details
+                            <DropdownMenuItem
+                              className="text-foreground cursor-pointer"
+                              onClick={() => void handleDeviceAction(device.id, device.name, 'view-details')}
+                            >
+                              {busyDeviceId === device.id ? 'Processing...' : 'View Details'}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-foreground cursor-pointer"
@@ -196,10 +224,16 @@ export default function DevicesPage() {
                             >
                               Deploy via OTA
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-foreground cursor-pointer">
-                              Restart Device
+                            <DropdownMenuItem
+                              className="text-foreground cursor-pointer"
+                              onClick={() => void handleDeviceAction(device.id, device.name, 'restart')}
+                            >
+                              {busyDeviceId === device.id ? 'Processing...' : 'Restart Device'}
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-chart-4 cursor-pointer">
+                            <DropdownMenuItem
+                              className="text-chart-4 cursor-pointer"
+                              onClick={() => void handleDeviceAction(device.id, device.name, 'remove')}
+                            >
                               Remove Device
                             </DropdownMenuItem>
                           </DropdownMenuContent>

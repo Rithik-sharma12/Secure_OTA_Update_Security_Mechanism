@@ -1,11 +1,13 @@
 'use client';
 
+import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, AlertCircle, Clock, Play, Pause, StopCircle, ChevronDown } from 'lucide-react';
 import { formatUtcDateTime } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { executeRuntimeAction } from '@/lib/runtime-actions';
 
 function getStageStatusIcon(status: string) {
   switch (status) {
@@ -40,6 +42,27 @@ function getStageStatusColor(status: string) {
 export default function PipelinePage() {
   const { snapshot, isLoading } = useRuntimeSnapshot();
   const livePipeline = snapshot.pipeline;
+  const [isRunningAction, setIsRunningAction] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  const handlePipelineAction = async (command: string) => {
+    setIsRunningAction(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('pipeline.control', {
+        command,
+        pipelineId: livePipeline?.id,
+      });
+      setActionMessage(response.message || `Pipeline command '${command}' executed.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to execute pipeline action.');
+    } finally {
+      setIsRunningAction(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -53,16 +76,28 @@ export default function PipelinePage() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="border-border">
+          <Button
+            variant="outline"
+            className="border-border"
+            onClick={() => void handlePipelineAction('pause')}
+            disabled={isRunningAction || !livePipeline}
+          >
             <Pause className="w-4 h-4 mr-2" />
             Pause
           </Button>
-          <Button variant="outline" className="border-border">
+          <Button
+            variant="outline"
+            className="border-border"
+            onClick={() => void handlePipelineAction('cancel')}
+            disabled={isRunningAction || !livePipeline}
+          >
             <StopCircle className="w-4 h-4 mr-2" />
             Cancel
           </Button>
         </div>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       {/* Pipeline Overview */}
       <Card className="glass border-border/50">
@@ -192,14 +227,29 @@ export default function PipelinePage() {
           <CardDescription>Manage this deployment pipeline</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Button variant="outline" className="border-border justify-start">
+          <Button
+            variant="outline"
+            className="border-border justify-start"
+            onClick={() => void handlePipelineAction('resume')}
+            disabled={isRunningAction}
+          >
             <Play className="w-4 h-4 mr-2" />
             Resume Pipeline
           </Button>
-          <Button variant="outline" className="border-border justify-start">
+          <Button
+            variant="outline"
+            className="border-border justify-start"
+            onClick={() => void handlePipelineAction('view-logs')}
+            disabled={isRunningAction}
+          >
             View Logs
           </Button>
-          <Button variant="outline" className="border-border justify-start text-chart-4">
+          <Button
+            variant="outline"
+            className="border-border justify-start text-chart-4"
+            onClick={() => void handlePipelineAction('cancel')}
+            disabled={isRunningAction}
+          >
             Cancel Pipeline
           </Button>
         </CardContent>

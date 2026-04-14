@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node --max-old-space-size=2048 ./node_modules/next/dist/bin/next dev",
+    "build": "node --max-old-space-size=3072 ./node_modules/next/dist/bin/next build",
+    "start": "node --max-old-space-size=1024 ./node_modules/next/dist/bin/next start",
     "lint": "eslint ."
   },
   "dependencies": {
@@ -49,6 +49,7 @@
     "nedb-promises": "^6.2.3",
     "next": "16.2.0",
     "next-themes": "^0.4.6",
+    "node-cron": "^4.2.1",
     "react": "19.2.4",
     "react-day-picker": "9.13.2",
     "react-dom": "19.2.4",

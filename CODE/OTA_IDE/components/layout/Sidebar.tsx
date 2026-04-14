@@ -19,6 +19,8 @@ import {
   Tag,
   Cpu,
   Shield,
+  Info,
+  FlaskConical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -81,9 +83,12 @@ const navSections: NavSection[] = [
     items: [
       { label: 'Settings', href: '/settings', icon: <Settings className="w-4 h-4" /> },
       { label: 'Diagnostics', href: '/diagnostics', icon: <BarChart3 className="w-4 h-4" /> },
+      { label: 'Dead Letter', href: '/dead-letter', icon: <AlertCircle className="w-4 h-4" /> },
       { label: 'Reports', href: '/reports', icon: <BarChart3 className="w-4 h-4" /> },
       { label: 'Simulator', href: '/simulator', icon: <Shield className="w-4 h-4" /> },
+      { label: 'Examples', href: '/examples', icon: <FlaskConical className="w-4 h-4" /> },
       { label: 'Help', href: '/help', icon: <HelpCircle className="w-4 h-4" /> },
+      { label: 'About', href: '/about', icon: <Info className="w-4 h-4" /> },
       { label: 'Version', href: '/version', icon: <Tag className="w-4 h-4" /> },
     ],
   },

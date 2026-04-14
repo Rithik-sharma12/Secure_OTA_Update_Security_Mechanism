@@ -157,6 +157,14 @@ function simpleHash(value: string) {
   return Math.abs(hash).toString(16);
 }
 
+function normalizeGatewayLogSeverity(logLine: string): 'info' | 'warning' | 'error' | 'success' {
+  const normalized = logLine.toLowerCase();
+  if (/(error|failed|fail|panic|quarant|denied|invalid)/.test(normalized)) return 'error';
+  if (/(warn|retry|timeout|degraded|slow)/.test(normalized)) return 'warning';
+  if (/(success|updated|connected|ready|healthy|listening)/.test(normalized)) return 'success';
+  return 'info';
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -215,7 +223,9 @@ export async function GET(request: Request) {
     manifestError = error instanceof Error ? error.message : 'Unable to load firmware manifest.';
   }
 
-  const devices = (dashboard?.devices || []).map((device, index) => {
+  const gatewayDevices = dashboard?.devices || [];
+
+  const devices = gatewayDevices.map((device, index) => {
     const ash = typeof device.ash === 'number' ? device.ash : 0;
     const deviceType = mapDeviceType(device.arch);
     const firmwareVersion = device.fw || 'unknown';
@@ -348,7 +358,57 @@ export async function GET(request: Request) {
     description: message,
   }));
 
-  const events = [...gatewayEvents, ...alertEvents].sort((left, right) => {
+  const deviceHeartbeatEvents = gatewayDevices.map((device, index) => {
+    const deviceId = String(device.id || `unknown-device-${index + 1}`);
+    const ash = typeof device.ash === 'number' ? device.ash : 0;
+    const cpuUsageValue = Number(device.cpuUsage);
+    const memoryUsageValue = Number(device.memoryUsage);
+    const uptimeValue = Number(device.uptime);
+    const cpuUsage = Number.isFinite(cpuUsageValue) ? cpuUsageValue : 0;
+    const memoryUsage = Number.isFinite(memoryUsageValue) ? memoryUsageValue : 0;
+    const uptimeSeconds = Number.isFinite(uptimeValue) ? Math.max(uptimeValue, 0) : 0;
+    const signalStrength = typeof device.signalStrength === 'number' ? device.signalStrength : null;
+    const lastSeenIso = toIsoFromLastSeen(device.last_seen);
+    const statusText = String(device.status || 'Healthy');
+
+    let severity: 'info' | 'warning' | 'error' | 'success' = 'success';
+    if (ash <= 40) severity = 'error';
+    else if (ash <= 60) severity = 'warning';
+
+    const signalSummary = signalStrength === null ? 'n/a' : `${signalStrength} dBm`;
+
+    return {
+      id: `heartbeat-${deviceId}-${simpleHash(`${lastSeenIso}-${ash}-${statusText}-${cpuUsage}-${memoryUsage}-${signalSummary}`)}`,
+      timestamp: lastSeenIso,
+      type: 'info',
+      severity,
+      title: `Device heartbeat - ${deviceId}`,
+      description: `FW ${String(device.fw || 'unknown')} | ASH ${ash}/100 | CPU ${cpuUsage.toFixed(1)}% | MEM ${memoryUsage.toFixed(1)}% | Uptime ${Math.floor(uptimeSeconds)}s | RSSI ${signalSummary}`,
+      deviceId,
+    };
+  });
+
+  const deviceLogEvents = gatewayDevices.flatMap((device, index) => {
+    const deviceId = String(device.id || `unknown-device-${index + 1}`);
+    const logTimestamp = toIsoFromLastSeen(device.last_seen);
+    const logs = Array.isArray(device.logs) ? device.logs : [];
+
+    return logs
+      .slice(-12)
+      .map((entry) => String(entry).trim())
+      .filter((entry) => entry.length > 0)
+      .map((entry, logIndex) => ({
+        id: `device-log-${deviceId}-${simpleHash(`${logTimestamp}-${entry}-${logIndex}`)}`,
+        timestamp: logTimestamp,
+        type: 'info',
+        severity: normalizeGatewayLogSeverity(entry),
+        title: `Device log - ${deviceId}`,
+        description: entry,
+        deviceId,
+      }));
+  });
+
+  const events = [...gatewayEvents, ...alertEvents, ...deviceHeartbeatEvents, ...deviceLogEvents].sort((left, right) => {
     return new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime();
   });
 

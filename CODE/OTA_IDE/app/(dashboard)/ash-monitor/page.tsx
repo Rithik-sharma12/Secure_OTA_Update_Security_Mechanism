@@ -1,12 +1,67 @@
 'use client';
 
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Activity, AlertTriangle, CheckCircle, Zap, AlertCircle, Thermometer, HardDrive, Wifi, Battery } from 'lucide-react';
+import { downloadRuntimePayload, executeRuntimeAction, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
 
 export default function ASHMonitorPage() {
   const systemHealth = 94;
+  const [busyAction, setBusyAction] = React.useState<string | null>(null);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+
+  const handleRunHealthCheck = async () => {
+    setBusyAction('ash.scan');
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('ash.scan', {
+        scope: 'full-health-check',
+      });
+      setActionMessage(response.message || 'ASH health check completed successfully.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to run ASH health check.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleExportReport = async () => {
+    setBusyAction('ash.export');
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const generated = await executeRuntimeAction<{ report?: { id: string } }>('reports.generate', {
+        type: 'ash-monitor',
+        format: 'CSV',
+        notes: 'ASH Monitor export report',
+      });
+
+      const reportId = generated.data?.report?.id;
+      if (!reportId) {
+        throw new Error('Report generation did not return a report id.');
+      }
+
+      const download = await executeRuntimeAction<RuntimeDownloadPayload>('reports.download', {
+        reportId,
+      });
+
+      if (download.data) {
+        downloadRuntimePayload(download.data);
+      }
+
+      setActionMessage(download.message || 'ASH monitor report exported.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to export ASH report.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
   
   return (
     <div className="space-y-6">
@@ -19,6 +74,8 @@ export default function ASHMonitorPage() {
           <p className="text-foreground/70 mt-1">Advanced System Health monitoring and diagnostics</p>
         </div>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       {/* Health Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -186,11 +243,20 @@ export default function ASHMonitorPage() {
 
       {/* Actions */}
       <div className="flex gap-2">
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1">
+        <Button
+          className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1"
+          onClick={() => void handleRunHealthCheck()}
+          disabled={busyAction === 'ash.scan'}
+        >
           <Activity className="w-4 h-4 mr-2" />
-          Run Full Health Check
+          {busyAction === 'ash.scan' ? 'Running...' : 'Run Full Health Check'}
         </Button>
-        <Button variant="outline" className="border-border flex-1">
+        <Button
+          variant="outline"
+          className="border-border flex-1"
+          onClick={() => void handleExportReport()}
+          disabled={busyAction === 'ash.export'}
+        >
           Export Report
         </Button>
       </div>

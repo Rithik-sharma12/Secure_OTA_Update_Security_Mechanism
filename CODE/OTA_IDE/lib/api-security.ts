@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authenticateRequest, ensureDefaultAdminUser, type AuthContext } from '@/lib/auth';
 import { apiLogsStore, initializeLocalDatabase } from '@/lib/local-database';
+import { logger, errorTracker } from '@/lib/logger';
 
 export type SecureApiContext = {
   auth: AuthContext | null;
@@ -50,6 +51,8 @@ export async function withSecureApi(
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : 'Unknown API error';
     statusCode = 500;
+    logger.error('ApiSecurity', `Unhandled error in secure API route ${routeName}`, error);
+    errorTracker.track(error, `ApiSecurity:Unhandled:${routeName}`);
 
     return NextResponse.json(
       {
@@ -62,16 +65,18 @@ export async function withSecureApi(
     const durationMs = Date.now() - startedAt;
 
     try {
-      const route = new URL(request.url).pathname;
+      const route = routeName || new URL(request.url).pathname;
       await apiLogsStore.insert({
-        route: routeName || route,
+        route,
         method: request.method,
         statusCode,
         durationMs,
         userId,
         errorMessage,
       });
-    } catch {
+    } catch (logError: unknown) {
+      logger.error('ApiSecurity', 'Failed to log API request', logError, { routeName, method: request.method, statusCode, durationMs, userId, errorMessage });
+      errorTracker.track(logError, 'ApiSecurity:LogApiRequest');
       // Logging failures should never break API responses.
     }
   }

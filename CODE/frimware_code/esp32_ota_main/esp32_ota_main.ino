@@ -29,7 +29,7 @@
 #define HEALTH_MAX       100
 
 #define BACKEND_CHECK_INTERVAL_MS (15UL * 60UL * 1000UL)
-#define HEARTBEAT_INTERVAL_MS     (60UL * 1000UL)
+#define HEARTBEAT_INTERVAL_MS     (15UL * 1000UL)
 #define ARDUINO_OTA_PORT          3232
 
 #define LED_STATUS 2
@@ -88,10 +88,9 @@ void setup() {
   loadHealth();
   setupWiFi();
 
-  if (!state.inQuarantine) {
-    setupArduinoOTA();
-  } else {
-    Serial.println("[OTA] Device in quarantine. ArduinoOTA disabled.");
+  setupArduinoOTA();
+  if (state.inQuarantine) {
+    Serial.println("[OTA] Device in quarantine. OTA recovery mode enabled.");
     blinkLED(5, 180);
   }
 
@@ -100,9 +99,7 @@ void setup() {
 }
 
 void loop() {
-  if (!state.inQuarantine) {
-    ArduinoOTA.handle();
-  }
+  ArduinoOTA.handle();
 
   if (isBtnHeld(3000)) {
     Serial.println("[OTA] Manual backend OTA trigger from button");
@@ -295,6 +292,14 @@ void sendHeartbeat() {
     return;
   }
 
+  const unsigned long uptimeSeconds = millis() / 1000UL;
+  const int freeHeap = ESP.getFreeHeap();
+  const int heapSize = ESP.getHeapSize();
+  const int memoryUsedPct =
+    (heapSize > 0)
+      ? static_cast<int>(100 - ((static_cast<long>(freeHeap) * 100L) / heapSize))
+      : 0;
+
   HTTPClient http;
   if (!http.begin(String(BACKEND_URL) + "/api/heartbeat")) {
     return;
@@ -311,13 +316,15 @@ void sendHeartbeat() {
   doc["current_version"] = FIRMWARE_VERSION;
   doc["ash_score"] = state.healthScore;
   doc["status"] = state.inQuarantine ? "Quarantined" : "Healthy";
-  doc["memoryUsage"] = 100 - (ESP.getFreeHeap() * 100 / ESP.getHeapSize());
-  doc["uptime"] = millis() / 1000;
+  doc["memoryUsage"] = memoryUsedPct;
+  doc["uptime"] = uptimeSeconds;
   doc["location"] = DEVICE_HOSTNAME;
   doc["signalStrength"] = WiFi.RSSI();
 
   JsonArray logs = doc["logs"].to<JsonArray>();
-  logs.add("Heartbeat payload sent from firmware");
+  logs.add(String("[HB] device=") + DEVICE_ID + " fw=" + FIRMWARE_VERSION + " ash=" + state.healthScore);
+  logs.add(String("[NET] ip=") + WiFi.localIP().toString() + " rssi=" + WiFi.RSSI() + "dBm");
+  logs.add(String("[SYS] uptime=") + uptimeSeconds + "s freeHeap=" + freeHeap + "B mem=" + memoryUsedPct + "% status=" + (state.inQuarantine ? "Quarantined" : "Healthy"));
 
   String payload;
   serializeJson(doc, payload);

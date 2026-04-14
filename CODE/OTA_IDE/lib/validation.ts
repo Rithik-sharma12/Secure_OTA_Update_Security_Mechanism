@@ -1,6 +1,7 @@
 /**
  * Comprehensive validation utilities for OTA IDE
  */
+import { logger, errorTracker } from './logger';
 
 import { ValidationError } from './error-handler';
 
@@ -61,7 +62,8 @@ export function validateJSON(json: string): boolean {
   try {
     JSON.parse(json);
     return true;
-  } catch {
+  } catch (error: unknown) {
+    logger.debug('Validation', 'Invalid JSON string', error);
     return false;
   }
 }

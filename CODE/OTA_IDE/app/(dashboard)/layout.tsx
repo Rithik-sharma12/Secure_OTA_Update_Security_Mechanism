@@ -8,7 +8,7 @@ import StatusBar from '@/components/layout/StatusBar';
 import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { ErrorFallback } from '@/components/error/ErrorFallback';
 import { logger } from '@/lib/logger';
-import { clearAuthSession, getStoredAuthToken } from '@/lib/client-auth';
+import { apiFetch, clearAuthSession, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
 
 function DashboardShell({
   children,
@@ -21,34 +21,37 @@ function DashboardShell({
   const [isCheckingAuth, setIsCheckingAuth] = React.useState(true);
 
   React.useEffect(() => {
-    const token = getStoredAuthToken();
-    if (!token) {
-      router.replace('/login');
-      return;
-    }
+    let isMounted = true;
 
     const validateSession = async () => {
       try {
-        const response = await fetch('/api/auth/session', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        const response = await apiFetch('/api/auth/session');
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          user?: StoredAuthUser;
+        };
 
-        if (!response.ok) {
-          clearAuthSession();
+        if (!response.ok || !payload.ok || !payload.user) {
+          await clearAuthSession();
           router.replace('/login');
           return;
         }
 
-        setIsCheckingAuth(false);
+        persistAuthSession(payload.user);
+        if (isMounted) {
+          setIsCheckingAuth(false);
+        }
       } catch {
-        clearAuthSession();
+        await clearAuthSession();
         router.replace('/login');
       }
     };
 
     void validateSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   if (isCheckingAuth) {

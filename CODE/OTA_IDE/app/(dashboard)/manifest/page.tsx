@@ -1,14 +1,21 @@
 'use client';
 
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Save, Copy, RefreshCw } from 'lucide-react';
 import { formatUtcDate } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { executeRuntimeAction } from '@/lib/runtime-actions';
 
 export default function ManifestPage() {
   const { snapshot, isLoading } = useRuntimeSnapshot();
+  const [manifestDraft, setManifestDraft] = React.useState('');
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isResetting, setIsResetting] = React.useState(false);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
 
   const serializableManifest = snapshot.manifest
     ? {
@@ -24,6 +31,53 @@ export default function ManifestPage() {
     ? JSON.stringify(serializableManifest, null, 2)
     : '{\n  "message": "No live manifest available."\n}';
 
+  React.useEffect(() => {
+    setManifestDraft(manifestJson);
+  }, [manifestJson]);
+
+  const handleSaveManifest = async () => {
+    setIsSaving(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('manifest.save', {
+        manifestJson: manifestDraft,
+      });
+      setActionMessage(response.message || 'Manifest saved successfully.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Failed to save manifest.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleResetManifest = async () => {
+    setIsResetting(true);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('manifest.reset');
+      setManifestDraft(manifestJson);
+      setActionMessage(response.message || 'Manifest reset to gateway default.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Failed to reset manifest.');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(manifestDraft);
+      setActionError(null);
+      setActionMessage('Manifest copied to clipboard.');
+    } catch {
+      setActionError('Clipboard permission denied.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -35,16 +89,27 @@ export default function ManifestPage() {
           )}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="border-border">
+          <Button
+            variant="outline"
+            className="border-border"
+            onClick={handleResetManifest}
+            disabled={isResetting}
+          >
             <RefreshCw className="w-4 h-4 mr-2" />
-            Reset
+            {isResetting ? 'Resetting...' : 'Reset'}
           </Button>
-          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Button
+            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            onClick={handleSaveManifest}
+            disabled={isSaving}
+          >
             <Save className="w-4 h-4 mr-2" />
-            Save
+            {isSaving ? 'Saving...' : 'Save'}
           </Button>
         </div>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       <Card className="glass border-border/50">
         <CardHeader>
@@ -59,16 +124,18 @@ export default function ManifestPage() {
                     : 'No live manifest published'}
               </CardDescription>
             </div>
-            <Button size="sm" variant="outline" className="border-border">
+            <Button size="sm" variant="outline" className="border-border" onClick={handleCopy}>
               <Copy className="w-4 h-4 mr-2" />
               Copy
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          <pre className="bg-muted/30 rounded-lg p-4 overflow-x-auto text-sm text-foreground/80 font-mono max-h-96 overflow-y-auto">
-            {manifestJson}
-          </pre>
+          <textarea
+            value={manifestDraft}
+            onChange={(event) => setManifestDraft(event.target.value)}
+            className="w-full bg-muted/30 rounded-lg p-4 text-sm text-foreground/80 font-mono max-h-96 min-h-72 overflow-y-auto border border-border/40 focus:outline-none focus:border-primary/60"
+          />
         </CardContent>
       </Card>
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { persistAuthSession, getStoredAuthToken, type StoredAuthUser } from '@/lib/client-auth';
+import { apiFetch, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,10 +15,34 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    const token = getStoredAuthToken();
-    if (token) {
-      router.replace('/dashboard');
-    }
+    let isMounted = true;
+
+    const validateSession = async () => {
+      try {
+        const response = await apiFetch('/api/auth/session');
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          user?: StoredAuthUser;
+        };
+
+        if (payload.ok && payload.user && isMounted) {
+          persistAuthSession(payload.user);
+          router.replace('/dashboard');
+        }
+      } catch {
+        // Ignore session check errors on the login page.
+      }
+    };
+
+    void validateSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -36,18 +60,25 @@ export default function LoginPage() {
       });
 
       const payload = (await response.json()) as {
-        ok?: boolean;
-        token?: string;
-        user?: StoredAuthUser;
-        error?: string;
+        success?: boolean;
+        data?: {
+          user?: StoredAuthUser;
+        };
+        error?: string | { message?: string };
       };
 
-      if (!response.ok || !payload.ok || !payload.token || !payload.user) {
-        setErrorMessage(payload.error || 'Login failed. Please verify credentials.');
+      const user = payload.data?.user;
+      const apiError =
+        typeof payload.error === 'string'
+          ? payload.error
+          : payload.error?.message;
+
+      if (!response.ok || !payload.success || !user) {
+        setErrorMessage(apiError || 'Login failed. Please verify credentials.');
         return;
       }
 
-      persistAuthSession(payload.token, payload.user);
+      persistAuthSession(user);
       router.replace('/dashboard');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to login right now.');

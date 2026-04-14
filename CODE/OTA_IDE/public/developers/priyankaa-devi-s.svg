@@ -1,0 +1,17 @@
+<svg width="720" height="720" viewBox="0 0 720 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="40" x2="640" y2="680" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C2D12"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="card" x1="120" y1="120" x2="600" y2="600" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#F8FAFC" stop-opacity="0.08"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="720" fill="url(#bg)"/>
+  <rect x="84" y="84" width="552" height="552" rx="56" fill="url(#card)" stroke="#F8FAFC" stroke-opacity="0.22"/>
+  <circle cx="360" cy="300" r="132" fill="#F8FAFC" fill-opacity="0.86"/>
+  <path d="M160 560C196 452 274 392 360 392C446 392 524 452 560 560" fill="#F8FAFC" fill-opacity="0.86"/>
+  <text x="360" y="668" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700" fill="#F8FAFC">PD</text>
+</svg>

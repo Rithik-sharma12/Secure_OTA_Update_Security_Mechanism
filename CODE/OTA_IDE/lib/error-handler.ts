@@ -2,6 +2,8 @@
  * Comprehensive error handling utility for OTA IDE
  */
 
+import { logger, errorTracker } from './logger';
+
 export class OTAError extends Error {
   constructor(
     message: string,
@@ -63,7 +65,8 @@ export function safeJsonParse<T = any>(json: string, fallback?: T): T {
   try {
     return JSON.parse(json);
   } catch (error) {
-    console.error('[v0] JSON parse error:', error);
+    logger.error('ErrorHandler', 'JSON parse error', error, { originalJson: json.slice(0, 100) });
+    errorTracker.track(error, 'ErrorHandler:JsonParse');
     if (fallback !== undefined) return fallback;
     throw new ValidationError('Invalid JSON format', { originalJson: json.slice(0, 100) });
   }
@@ -76,7 +79,8 @@ export function safeJsonStringify(obj: any, fallback = '{}'): string {
   try {
     return JSON.stringify(obj);
   } catch (error) {
-    console.error('[v0] JSON stringify error:', error);
+    logger.error('ErrorHandler', 'JSON stringify error', error);
+    errorTracker.track(error, 'ErrorHandler:JsonStringify');
     return fallback;
   }
 }
@@ -91,7 +95,8 @@ export function asyncHandler<T extends any[], R>(
     try {
       return await fn(...args);
     } catch (error) {
-      console.error('[v0] Async handler error:', error);
+      logger.error('ErrorHandler', 'Async handler error', error);
+      errorTracker.track(error, 'ErrorHandler:AsyncHandler');
       throw error instanceof OTAError ? error : new OTAError(
         error instanceof Error ? error.message : 'Unknown error occurred',
         'ASYNC_ERROR',
@@ -124,7 +129,7 @@ export async function withRetry<T>(
       lastError = error;
       
       if (attempt < options.maxRetries && options.shouldRetry(error)) {
-        console.warn(`[v0] Retry attempt ${attempt + 1}/${options.maxRetries} after ${delay}ms`);
+        logger.warn('ErrorHandler', `Retry attempt ${attempt + 1}/${options.maxRetries} after ${delay}ms`, { attempt: attempt + 1, maxRetries: options.maxRetries, delay });
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= options.backoffMultiplier;
       } else {
@@ -162,7 +167,7 @@ export function logError(error: any, context?: string) {
   };
 
   if (process.env.NODE_ENV === 'development') {
-    console.error('[v0] Error logged:', errorObj);
+    logger.error('ErrorHandler', 'Error logged (development)', errorObj);
   }
 
   // In production, could send to logging service

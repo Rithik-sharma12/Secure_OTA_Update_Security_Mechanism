@@ -5,8 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Download, Plus, Archive, Eye } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { formatNumber, formatUtcDate } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { downloadRuntimePayload, executeRuntimeAction, fetchRuntimeActionState, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -22,8 +24,82 @@ function getStatusColor(status: string) {
 }
 
 export default function ReleasesPage() {
+  const router = useRouter();
   const { snapshot, isLoading } = useRuntimeSnapshot();
+  const [archivedReleaseIds, setArchivedReleaseIds] = React.useState<string[]>([]);
+  const [selectedReleaseId, setSelectedReleaseId] = React.useState<string | null>(null);
+  const [busyReleaseId, setBusyReleaseId] = React.useState<string | null>(null);
+  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
   const releases = snapshot.releases;
+
+  React.useEffect(() => {
+    const loadState = async () => {
+      try {
+        const response = await fetchRuntimeActionState<{ archivedReleaseIds?: string[] }>();
+        setArchivedReleaseIds(response.data?.archivedReleaseIds || []);
+      } catch {
+        setArchivedReleaseIds([]);
+      }
+    };
+
+    void loadState();
+  }, []);
+
+  const getReleaseStatus = (releaseId: string, fallbackStatus: string) => {
+    if (archivedReleaseIds.includes(releaseId)) {
+      return 'archived';
+    }
+
+    return fallbackStatus;
+  };
+
+  const handleDownload = async (releaseId: string, fileName?: string) => {
+    setBusyReleaseId(releaseId);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction<RuntimeDownloadPayload>('releases.download', {
+        fileName,
+      });
+
+      if (response.data) {
+        downloadRuntimePayload(response.data);
+      }
+
+      setActionMessage(response.message || 'Firmware download is ready.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Failed to download release asset.');
+    } finally {
+      setBusyReleaseId(null);
+    }
+  };
+
+  const handleArchive = async (releaseId: string) => {
+    setBusyReleaseId(releaseId);
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const response = await executeRuntimeAction('releases.archive', { releaseId });
+      setArchivedReleaseIds((current) => (current.includes(releaseId) ? current : [...current, releaseId]));
+      setActionMessage(response.message || `Release ${releaseId} archived.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to archive release.');
+    } finally {
+      setBusyReleaseId(null);
+    }
+  };
+
+  const handleView = (releaseId: string) => {
+    setSelectedReleaseId(releaseId);
+    setActionError(null);
+    setActionMessage(`Selected release ${releaseId} for detailed inspection.`);
+  };
+
+  const publishedCount = releases.filter((release) => getReleaseStatus(release.id, release.status) === 'published').length;
+  const totalDownloads = releases.reduce((sum, release) => sum + release.downloadCount, 0);
 
   return (
     <div className="space-y-6">
@@ -36,11 +112,16 @@ export default function ReleasesPage() {
             <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
           )}
         </div>
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
+        <Button
+          className="bg-primary hover:bg-primary/90 text-primary-foreground"
+          onClick={() => router.push('/version')}
+        >
           <Plus className="w-4 h-4 mr-2" />
           New Release
         </Button>
       </div>
+      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
+      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
       {/* Releases List */}
       <div className="space-y-4">
@@ -58,8 +139,16 @@ export default function ReleasesPage() {
           </Card>
         )}
 
-        {releases.map((release) => (
-          <Card key={release.id} className="glass border-border/50 hover:border-border/80 transition-colors">
+        {releases.map((release) => {
+          const status = getReleaseStatus(release.id, release.status);
+          const isBusy = busyReleaseId === release.id;
+          return (
+          <Card
+            key={release.id}
+            className={`glass border-border/50 hover:border-border/80 transition-colors ${
+              selectedReleaseId === release.id ? 'ring-1 ring-primary/40' : ''
+            }`}
+          >
             <CardContent className="pt-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
@@ -69,9 +158,9 @@ export default function ReleasesPage() {
                     </h3>
                     <Badge
                       variant="outline"
-                      className={`capitalize text-xs ${getStatusColor(release.status)}`}
+                      className={`capitalize text-xs ${getStatusColor(status)}`}
                     >
-                      {release.status}
+                      {status}
                     </Badge>
                   </div>
                   <p className="text-foreground/70 mb-3">{release.description}</p>
@@ -125,16 +214,32 @@ export default function ReleasesPage() {
 
                 {/* Action Buttons */}
                 <div className="flex-shrink-0 ml-4 flex flex-col gap-2">
-                  <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                  <Button
+                    size="sm"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                    onClick={() => void handleDownload(release.id)}
+                    disabled={isBusy}
+                  >
                     <Download className="w-4 h-4 mr-1" />
-                    Download
+                    {isBusy ? 'Working...' : 'Download'}
                   </Button>
-                  <Button size="sm" variant="outline" className="border-border">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border"
+                    onClick={() => handleView(release.id)}
+                  >
                     <Eye className="w-4 h-4 mr-1" />
                     View
                   </Button>
-                  {release.status === 'published' && (
-                    <Button size="sm" variant="outline" className="border-border">
+                  {status === 'published' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-border"
+                      onClick={() => void handleArchive(release.id)}
+                      disabled={isBusy}
+                    >
                       <Archive className="w-4 h-4 mr-1" />
                       Archive
                     </Button>
@@ -155,7 +260,13 @@ export default function ReleasesPage() {
                             {(asset.size / 1024).toFixed(2)} KB • SHA256: {asset.checksum.substring(0, 8)}...
                           </p>
                         </div>
-                        <Button size="sm" variant="ghost" className="h-7">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7"
+                          onClick={() => void handleDownload(release.id, asset.name)}
+                          disabled={isBusy}
+                        >
                           <Download className="w-3 h-3" />
                         </Button>
                       </div>
@@ -165,15 +276,16 @@ export default function ReleasesPage() {
               )}
             </CardContent>
           </Card>
-        ))}
+        );
+        })}
       </div>
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { label: 'Total Releases', value: releases.length, color: 'bg-chart-2/20 text-chart-2' },
-          { label: 'Published', value: releases.filter(r => r.status === 'published').length, color: 'bg-chart-1/20 text-chart-1' },
-          { label: 'Total Downloads', value: formatNumber(releases.reduce((sum, r) => sum + r.downloadCount, 0)), color: 'bg-primary/20 text-primary' },
+          { label: 'Published', value: publishedCount, color: 'bg-chart-1/20 text-chart-1' },
+          { label: 'Total Downloads', value: formatNumber(totalDownloads), color: 'bg-primary/20 text-primary' },
         ].map((stat) => (
           <Card key={stat.label} className="glass border-border/50">
             <CardContent className="pt-6">
