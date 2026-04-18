@@ -99,6 +99,10 @@ function isValidPortName(value: string) {
   return /^COM\d+$/i.test(normalized) || /^\\\\\.\\COM\d+$/i.test(normalized) || /^\/dev\/.+/.test(normalized);
 }
 
+function normalizeComPortName(value: string) {
+  return value.trim().replace(/^\\\\\.\\/, '').toUpperCase();
+}
+
 interface DeviceConnectionCardProps {
   workflowHint?: WorkflowHint | null;
   onWorkflowHandled?: () => void;
@@ -134,6 +138,8 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const [uploadStatus, setUploadStatus] = React.useState<UploadJobStatus | 'idle'>('idle');
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const [isCheckingOta, setIsCheckingOta] = React.useState(false);
+  const [lastOtaCheckAt, setLastOtaCheckAt] = React.useState<Date | null>(null);
   const scanningRef = React.useRef(false);
   const monitorIntervalRef = React.useRef<number | null>(null);
   const uploadPollingRef = React.useRef<number | null>(null);
@@ -141,11 +147,22 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const uploadSourceRef = React.useRef('');
   const monitorLogRef = React.useRef<HTMLDivElement | null>(null);
   const seenMonitorEventIdsRef = React.useRef<Set<string>>(new Set());
+  const previousDetectedPortsRef = React.useRef<string[]>([]);
 
   const getActiveComPort = React.useCallback(
     () => serialPort.trim() || availablePorts[0]?.path || '',
     [availablePorts, serialPort]
   );
+
+  const selectedPort = getActiveComPort();
+  const isSelectedPortConnected = React.useMemo(() => {
+    if (!selectedPort) {
+      return false;
+    }
+
+    const target = normalizeComPortName(selectedPort);
+    return availablePorts.some((port) => normalizeComPortName(port.path) === target);
+  }, [availablePorts, selectedPort]);
 
   const appendMonitorEntry = React.useCallback((entry: Omit<MonitorEntry, 'id' | 'timestamp'> & { timestamp?: Date }) => {
     setMonitorEntries((current) => {
@@ -194,6 +211,16 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
 
     if (activeMode === 'serial' && !activePort) {
       updateStatus('Monitor blocked', 'error', 'Select a COM port before starting the device monitor.');
+      return;
+    }
+
+    if (activeMode === 'serial' && availablePorts.length === 0) {
+      updateStatus('Monitor blocked', 'error', 'No connected USB serial COM port detected. Connect the device and rescan before monitoring.');
+      return;
+    }
+
+    if (activeMode === 'serial' && !isSelectedPortConnected) {
+      updateStatus('Monitor blocked', 'error', `Selected port ${activePort} is not currently connected. Choose a detected COM port and retry.`);
       return;
     }
 
@@ -428,6 +455,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       }
 
       const payload = await response.json() as {
+        supported?: boolean;
         ports?: Array<{
           path: string;
           manufacturer?: string | null;
@@ -454,9 +482,36 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       setAvailablePorts(ports);
       setLastPortScan(new Date());
 
+      const previousPorts = new Set(previousDetectedPortsRef.current.map((value) => normalizeComPortName(value)));
+      const currentPorts = new Set(ports.map((port) => normalizeComPortName(port.path)));
+      const connectedNow = Array.from(currentPorts).filter((value) => !previousPorts.has(value));
+      const disconnectedNow = Array.from(previousPorts).filter((value) => !currentPorts.has(value));
+      previousDetectedPortsRef.current = ports.map((port) => port.path);
+
+      if (reason !== 'mount') {
+        connectedNow.forEach((portPath) => {
+          appendMonitorEntry({
+            mode: 'serial',
+            source: portPath,
+            tone: 'success',
+            message: `Connected serial device detected on ${portPath}.`,
+          });
+        });
+
+        disconnectedNow.forEach((portPath) => {
+          appendMonitorEntry({
+            mode: 'serial',
+            source: portPath,
+            tone: 'warning',
+            message: `Serial device on ${portPath} disconnected.`,
+          });
+        });
+      }
+
       if (ports.length > 0) {
         setSerialPort((current) => {
-          if (current && ports.some((port) => port.path === current)) {
+          const normalizedCurrent = normalizeComPortName(current || '');
+          if (normalizedCurrent && ports.some((port) => normalizeComPortName(port.path) === normalizedCurrent)) {
             return current;
           }
 
@@ -469,17 +524,22 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
           `${ports.map((port) => port.path).join(', ')} detected on this machine. The list updates automatically when devices connect or disconnect.`
         );
       } else {
-        setSerialPort((current) => current.trim());
+        setSerialPort('');
         updateStatus(
           'No COM port detected',
           'warning',
-          'No connected COM ports were found. Check the USB cable, device power, Windows drivers, or enter a COM port manually.'
+          payload.supported === false
+            ? 'Automatic COM detection is unavailable on this host. Use a Windows host for real COM auto-detection.'
+            : 'No connected USB serial COM devices were found. Check cable, drivers, board power, and rescan.'
         );
       }
 
       return ports;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown serial detection error';
+      setAvailablePorts([]);
+      setSerialPort('');
+      previousDetectedPortsRef.current = [];
       setPortScanError(message);
       updateStatus(
         'COM scan failed',
@@ -493,7 +553,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       scanningRef.current = false;
       setIsScanningPorts(false);
     }
-  }, [updateStatus]);
+  }, [appendMonitorEntry, updateStatus]);
 
   const handleModeChange = (value: string) => {
     const nextMode = value as ConnectionMode;
@@ -554,11 +614,29 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
 
     const activePort = getActiveComPort();
 
+    if (availablePorts.length === 0) {
+      updateStatus(
+        'COM port missing',
+        'error',
+        'No connected USB serial COM port detected. Connect the device and run Scan COM Ports.'
+      );
+      return;
+    }
+
     if (!activePort) {
       updateStatus(
         'COM port missing',
         'error',
-        'No COM port is selected. Use auto-detect or type the port manually before opening a serial session.'
+        'No COM port is selected. Select one of the detected ports before opening a serial session.'
+      );
+      return;
+    }
+
+    if (!isSelectedPortConnected) {
+      updateStatus(
+        'COM port disconnected',
+        'error',
+        `Selected port ${activePort} is not connected. Choose a detected COM port and retry.`
       );
       return;
     }
@@ -600,11 +678,29 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
 
     const activePort = getActiveComPort();
 
+    if (availablePorts.length === 0) {
+      updateStatus(
+        'Flash blocked',
+        'error',
+        'No connected USB serial COM port detected. Connect the device, rescan, then retry flashing.'
+      );
+      return;
+    }
+
     if (!activePort) {
       updateStatus(
         'Flash blocked',
         'error',
-        'No COM port is available. Run auto-detect, verify the cable, or enter a manual port name.'
+        'No COM port is available. Select one of the detected COM ports and retry.'
+      );
+      return;
+    }
+
+    if (!isSelectedPortConnected) {
+      updateStatus(
+        'Flash blocked',
+        'error',
+        `Selected port ${activePort} is not connected. Choose a detected COM port and retry.`
       );
       return;
     }
@@ -708,47 +804,115 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     }
   };
 
-  const handleOtaCheck = () => {
-    setConnectionMode('ota');
-
+  const performOtaCheck = React.useCallback(async () => {
     const parsedPort = Number(otaPort);
+    const host = otaHost.trim();
 
-    if (!otaHost.trim()) {
+    if (!host) {
       updateStatus('OTA host missing', 'error', 'Provide a device host or IP address before checking the OTA target.');
-      return;
+      return null;
     }
 
     if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
       updateStatus('Invalid OTA port', 'error', 'OTA port must be a number between 1 and 65535.');
-      return;
+      return null;
     }
 
-    updateStatus(
-      'OTA target reachable',
-      'success',
-      `Validated ${otaHost}:${otaPort} on the ${otaChannel} channel. The target is ready for wireless deployment.`
-    );
+    setIsCheckingOta(true);
 
-    appendMonitorEntry({
-      mode: 'ota',
-      source: `${otaHost}:${otaPort}`,
-      tone: 'success',
-      message: `OTA target check passed on ${otaChannel} channel.`,
-    });
+    try {
+      const response = await apiFetch('/api/ota/check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          host,
+          port: parsedPort,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        reachable?: boolean;
+        latencyMs?: number;
+        error?: string;
+        latestVersion?: string | null;
+        checkedAt?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || 'Unable to validate OTA target.');
+      }
+
+      const reachable = Boolean(payload.reachable);
+      const latency = typeof payload.latencyMs === 'number' ? payload.latencyMs : null;
+      const latestVersion = payload.latestVersion || null;
+
+      if (payload.checkedAt) {
+        setLastOtaCheckAt(new Date(payload.checkedAt));
+      } else {
+        setLastOtaCheckAt(new Date());
+      }
+
+      if (reachable) {
+        updateStatus(
+          'OTA target reachable',
+          'success',
+          `${host}:${parsedPort} is reachable${latency !== null ? ` (${latency} ms)` : ''}. ${latestVersion ? `Latest gateway release: ${latestVersion}.` : 'No gateway manifest version detected yet.'}`
+        );
+
+        appendMonitorEntry({
+          mode: 'ota',
+          source: `${host}:${parsedPort}`,
+          tone: 'success',
+          message: `OTA target check passed${latency !== null ? ` in ${latency} ms` : ''}${latestVersion ? ` (latest ${latestVersion})` : ''}.`,
+        });
+      } else {
+        const errorMessage = payload.error || 'Target did not accept a TCP connection.';
+        updateStatus('OTA target unreachable', 'error', `${host}:${parsedPort} is unreachable. ${errorMessage}`);
+
+        appendMonitorEntry({
+          mode: 'ota',
+          source: `${host}:${parsedPort}`,
+          tone: 'error',
+          message: `OTA target unreachable: ${errorMessage}`,
+        });
+      }
+
+      return {
+        host,
+        port: parsedPort,
+        reachable,
+        latencyMs: latency,
+        latestVersion,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to validate OTA target.';
+      updateStatus('OTA check failed', 'error', message);
+      appendMonitorEntry({
+        mode: 'ota',
+        source: `${host || 'host'}:${Number.isInteger(parsedPort) ? parsedPort : otaPort}`,
+        tone: 'error',
+        message,
+      });
+      return null;
+    } finally {
+      setIsCheckingOta(false);
+    }
+  }, [appendMonitorEntry, otaHost, otaPort, updateStatus]);
+
+  const handleOtaCheck = async () => {
+    setConnectionMode('ota');
+    await performOtaCheck();
   };
 
-  const handleOtaDeploy = () => {
+  const handleOtaDeploy = async () => {
     setConnectionMode('ota');
 
-    const parsedPort = Number(otaPort);
-
-    if (!otaHost.trim()) {
-      updateStatus('OTA deployment blocked', 'error', 'Provide a target host or IP address before starting the OTA push.');
-      return;
-    }
-
-    if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
-      updateStatus('OTA deployment blocked', 'error', 'OTA port must be between 1 and 65535.');
+    const check = await performOtaCheck();
+    if (!check?.reachable) {
+      updateStatus('OTA deployment blocked', 'error', 'Target is unreachable. Run Check OTA Target and confirm connectivity before deploying.');
       return;
     }
 
@@ -760,18 +924,16 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     updateStatus(
       'OTA deployment queued',
       'warning',
-      `Pushing the ${otaChannel} release to ${otaHost}:${otaPort}. If the target becomes unreachable, check network reachability and retry.`
+      `Pushing the ${otaChannel} release to ${check.host}:${check.port}. Reachability validated${check.latestVersion ? ` with latest release ${check.latestVersion}` : ''}.`
     );
 
     appendMonitorEntry({
       mode: 'ota',
-      source: `${otaHost}:${otaPort}`,
+      source: `${check.host}:${check.port}`,
       tone: 'warning',
       message: `OTA deployment queued on ${otaChannel} channel.`,
     });
   };
-
-  const selectedPort = getActiveComPort();
 
   return (
     <Card id="device-connection-panel" className="glass border-border/50">
@@ -820,7 +982,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
                       ? 'Scanning the local machine for connected COM devices.'
                       : availablePorts.length > 0
                         ? `${availablePorts.length} port(s) detected and ready.`
-                        : 'No COM device is currently detected on this machine.'}
+                        : 'No connected USB serial device detected on this machine.'}
                   </p>
                 </div>
                 <Button type="button" variant="outline" className="border-border/60" onClick={() => void scanSerialPorts('manual')} disabled={isScanningPorts}>
@@ -856,7 +1018,8 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
                       value={serialPort}
                       onChange={(event) => setSerialPort(event.target.value)}
                       className="border-border/60 bg-background/60"
-                      placeholder="COM3"
+                      placeholder="No detected COM ports"
+                      disabled
                     />
                   )}
                 </div>
@@ -1001,10 +1164,11 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" className="border-border/60" onClick={handleOtaCheck}>
-                  Check OTA Target
+                <Button type="button" variant="outline" className="border-border/60" onClick={() => void handleOtaCheck()} disabled={isCheckingOta}>
+                  {isCheckingOta ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {isCheckingOta ? 'Checking OTA' : 'Check OTA Target'}
                 </Button>
-                <Button type="button" className="bg-primary hover:bg-primary/90" onClick={handleOtaDeploy}>
+                <Button type="button" className="bg-primary hover:bg-primary/90" onClick={() => void handleOtaDeploy()} disabled={isCheckingOta}>
                   Push OTA Update
                 </Button>
               </div>
@@ -1023,6 +1187,11 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
               {lastPortScan && (
                 <p className="text-xs text-foreground/50">
                   Last scan: {formatUtcTime(lastPortScan)}
+                </p>
+              )}
+              {lastOtaCheckAt && connectionMode === 'ota' && (
+                <p className="text-xs text-foreground/50">
+                  Last OTA check: {formatUtcTime(lastOtaCheckAt)}
                 </p>
               )}
             </div>
@@ -1104,10 +1273,13 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
             {connectionMode === 'serial' ? (
               <>
                 <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
-                  {availablePorts.length > 0 ? `${availablePorts.length} detected` : 'Manual override enabled'}
+                  {availablePorts.length > 0 ? `${availablePorts.length} detected` : 'No connected device'}
                 </Badge>
                 <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
                   {selectedPort || 'No active COM port'}
+                </Badge>
+                <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
+                  {isSelectedPortConnected ? 'Connected' : 'Disconnected'}
                 </Badge>
               </>
             ) : (
@@ -1134,7 +1306,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
         <div className="flex items-start gap-2 text-xs text-foreground/50">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 text-chart-3" />
           <p>
-            COM detection is automatic through the local Next.js API route. If the device is not listed, check the cable, drivers, power, or enter the COM port manually.
+            COM detection uses real connected USB serial devices from the local host. If your board is not listed, check cable, drivers, board power, and rescan.
           </p>
         </div>
       </CardContent>

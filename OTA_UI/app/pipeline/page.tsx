@@ -43,7 +43,7 @@ export default function PipelinePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Release Tag</p>
-            <p className="text-2xl font-bold text-slate-900 dark:text-white font-mono">v2024.02.15</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white font-mono">0</p>
           </div>
           <div>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Total Duration</p>
@@ -54,8 +54,8 @@ export default function PipelinePage() {
           <div>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Status</p>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
-              <p className="text-lg font-semibold text-slate-900 dark:text-white">In Progress</p>
+              <div className="w-3 h-3 bg-slate-400 rounded-full" />
+              <p className="text-lg font-semibold text-slate-900 dark:text-white">0</p>
             </div>
           </div>
         </div>
@@ -135,35 +135,8 @@ export default function PipelinePage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
             <div>
-              <p className="font-medium text-slate-900 dark:text-white">firmware-atmega.bin</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">32.3 KB • SHA256: abc123...</p>
-            </div>
-            <button className="px-3 py-1 text-sm rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white transition-colors">
-              Download
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-            <div>
-              <p className="font-medium text-slate-900 dark:text-white">firmware-esp32.bin</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">64.0 KB • SHA256: def456...</p>
-            </div>
-            <button className="px-3 py-1 text-sm rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white transition-colors">
-              Download
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-            <div>
-              <p className="font-medium text-slate-900 dark:text-white">firmware-stm32.bin</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">98.3 KB • SHA256: ghi789...</p>
-            </div>
-            <button className="px-3 py-1 text-sm rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white transition-colors">
-              Download
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-            <div>
-              <p className="font-medium text-slate-900 dark:text-white">firmware-nrf52.bin</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">120.0 KB • SHA256: jkl012...</p>
+              <p className="font-medium text-slate-900 dark:text-white">0</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">0</p>
             </div>
             <button className="px-3 py-1 text-sm rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white transition-colors">
               Download

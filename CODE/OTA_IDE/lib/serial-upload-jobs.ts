@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { uploadsStore, uploadLogsStore, type UploadRecord } from '@/lib/local-database';
+import { spawn } from 'node:child_process';
+import { uploadsStore, uploadLogsStore, type UploadRecord, type UploadLogRecord } from '@/lib/local-database';
 import { logger, errorTracker } from '@/lib/logger';
+import { detectConnectedSerialPorts, isConnectedComPort, normalizeComPortName } from '@/lib/serial-port-detection';
 
 export type UploadJobStatus = 'queued' | 'compiling' | 'uploading' | 'success' | 'failed';
 
@@ -207,7 +208,7 @@ async function runProcess(
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
-    }) as ChildProcessWithoutNullStreams;
+    });
 
     let stdErrBuffer = '';
 
@@ -328,6 +329,23 @@ export async function startSerialUpload(input: StartUploadInput) {
     throw new Error('Invalid COM port format. Use values like COM3.');
   }
 
+  const requestedPort = normalizeComPortName(input.comPort);
+  const detection = detectConnectedSerialPorts();
+  if (detection.supported) {
+    if (detection.error) {
+      throw new Error(`Unable to validate connected COM ports: ${detection.error}`);
+    }
+
+    if (!isConnectedComPort(requestedPort, detection.ports)) {
+      const availablePorts = detection.ports.map((port) => port.path).join(', ');
+      throw new Error(
+        availablePorts
+          ? `Requested port ${requestedPort} is not connected. Select one of: ${availablePorts}.`
+          : `Requested port ${requestedPort} is not connected. No USB serial COM ports are currently detected.`
+      );
+    }
+  }
+
   const fqbn = resolveFqbn(input.boardType);
   const fileHash = await hashFile(sketch.filePath);
   const jobId = crypto.randomUUID();
@@ -342,7 +360,7 @@ export async function startSerialUpload(input: StartUploadInput) {
     fileName: sketch.fileName,
     boardType: input.boardType,
     fqbn,
-    comPort: input.comPort,
+    comPort: requestedPort,
     baudRate: input.baudRate,
   };
 
@@ -357,7 +375,7 @@ export async function startSerialUpload(input: StartUploadInput) {
       fileHash,
       boardType: input.boardType,
       fqbn,
-      comPort: input.comPort,
+      comPort: requestedPort,
       baudRate: input.baudRate,
       status: 'queued',
       progress: 0,

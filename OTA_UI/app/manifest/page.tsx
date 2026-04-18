@@ -46,6 +46,8 @@ export default function ManifestPage() {
       message: 'Rollout strategy must be defined',
     },
   ]
+  const passedValidations = validations.filter(v => v.passed).length
+  const allValidationsPassed = passedValidations === validations.length
 
   return (
     <div className="space-y-6">
@@ -62,9 +64,11 @@ export default function ManifestPage() {
         <div className="flex items-start gap-4">
           <CheckCircle2 className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
-            <h3 className="font-semibold text-green-900 dark:text-green-100 mb-2">Manifest Validation Passed</h3>
+            <h3 className="font-semibold text-green-900 dark:text-green-100 mb-2">
+              {allValidationsPassed ? 'Manifest Validation Passed' : 'Manifest Validation Incomplete'}
+            </h3>
             <p className="text-sm text-green-800 dark:text-green-200">
-              All {validations.filter(v => v.passed).length}/{validations.length} validation checks passed. Ready for deployment.
+              {passedValidations}/{validations.length} validation checks passed.
             </p>
           </div>
         </div>

@@ -9,13 +9,13 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { executeRuntimeAction } from '@/lib/runtime-actions';
 
 const performanceData = [
-  { time: '00:00', verification: 45 },
-  { time: '04:00', verification: 52 },
-  { time: '08:00', verification: 68 },
-  { time: '12:00', verification: 78 },
-  { time: '16:00', verification: 72 },
-  { time: '20:00', verification: 65 },
-  { time: '24:00', verification: 55 },
+  { time: '00:00', verification: 0 },
+  { time: '04:00', verification: 0 },
+  { time: '08:00', verification: 0 },
+  { time: '12:00', verification: 0 },
+  { time: '16:00', verification: 0 },
+  { time: '20:00', verification: 0 },
+  { time: '24:00', verification: 0 },
 ];
 
 export default function TCVEnginePage() {
@@ -60,10 +60,10 @@ export default function TCVEnginePage() {
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Engine Status', value: 'Active', icon: <Activity className="w-5 h-5" />, color: 'bg-chart-1/20 text-chart-1' },
-          { label: 'Uptime', value: '45d 12h', icon: <Zap className="w-5 h-5" />, color: 'bg-primary/20 text-primary' },
-          { label: 'Verified Devices', value: '5', icon: <CheckCircle className="w-5 h-5" />, color: 'bg-chart-1/20 text-chart-1' },
-          { label: 'Verification Rate', value: '99.8%', icon: <Shield className="w-5 h-5" />, color: 'bg-accent/20 text-accent' },
+          { label: 'Engine Status', value: '0', icon: <Activity className="w-5 h-5" />, color: 'bg-chart-1/20 text-chart-1' },
+          { label: 'Uptime', value: '0', icon: <Zap className="w-5 h-5" />, color: 'bg-primary/20 text-primary' },
+          { label: 'Verified Devices', value: '0', icon: <CheckCircle className="w-5 h-5" />, color: 'bg-chart-1/20 text-chart-1' },
+          { label: 'Verification Rate', value: '0%', icon: <Shield className="w-5 h-5" />, color: 'bg-accent/20 text-accent' },
         ].map((stat) => (
           <Card key={stat.label} className="glass border-border/50 hover:border-border/80 transition-all">
             <CardContent className="pt-6">
@@ -110,8 +110,8 @@ export default function TCVEnginePage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {[
-            { name: 'CPU Usage', value: '12%', max: 80, icon: <Cpu className="w-4 h-4" /> },
-            { name: 'Memory Usage', value: '34%', max: 85, icon: <HardDrive className="w-4 h-4" /> },
+            { name: 'CPU Usage', value: '0', max: 80, icon: <Cpu className="w-4 h-4" /> },
+            { name: 'Memory Usage', value: '0', max: 85, icon: <HardDrive className="w-4 h-4" /> },
             { name: 'Verification Queue', value: '0', status: 'Clear', icon: <Activity className="w-4 h-4" /> },
           ].map((metric) => (
             <div key={metric.name} className="p-4 rounded-lg border border-border/20 bg-muted/20 hover:border-border/40 transition-colors">
@@ -144,11 +144,7 @@ export default function TCVEnginePage() {
         <CardContent>
           <div className="space-y-2">
             {[
-              { device: 'ESP32-Dev-01', status: 'verified', lastCheck: '2 minutes ago' },
-              { device: 'ESP32-Dev-02', status: 'verified', lastCheck: '5 minutes ago' },
-              { device: 'STM32-Test-01', status: 'verified', lastCheck: '1 minute ago' },
-              { device: 'ATmega-Prod-01', status: 'pending', lastCheck: 'In progress' },
-              { device: 'ESP8266-Beta-01', status: 'verified', lastCheck: '10 seconds ago' },
+              { device: '0', status: '0', lastCheck: '0' },
             ].map((item) => (
               <div key={item.device} className="p-3 rounded-lg bg-muted/20 border border-border/20 flex items-center justify-between hover:border-border/40 transition-colors">
                 <div>

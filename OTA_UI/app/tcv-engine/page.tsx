@@ -14,49 +14,44 @@ export default function TCVEnginePage() {
       name: 'Signature Verification',
       description: 'Verify Ed25519 signature against public key',
       icon: Shield,
-      passed: true,
-      details: 'Signature: ed25519_sig_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6\nPublic Key: pk_9z8y7x6w5v4u3t2s1r0q9p8o7n6m5l4k\nVerification: ✓ PASSED',
+      passed: false,
+      details: '0',
     },
     {
       name: 'Checksum Validation',
       description: 'Validate firmware integrity with SHA256',
       icon: Shield,
-      passed: true,
-      details: 'Expected: sha256_abc123def456789...\nComputed: sha256_abc123def456789...\nMatch: ✓ PASSED',
+      passed: false,
+      details: '0',
     },
     {
       name: 'Version Compatibility',
       description: 'Check version gate and upgrade path',
       icon: Shield,
-      passed: true,
-      details: 'Current: v1.2.3\nTarget: v2024.02.15\nPath Valid: ✓ PASSED',
+      passed: false,
+      details: '0',
     },
     {
       name: 'Manifest Validation',
       description: 'Verify manifest structure and content',
       icon: Shield,
-      passed: true,
-      details: 'Architecture: ATmega328P\nFile: firmware-atmega.bin\nSize: 32256 bytes\nValidation: ✓ PASSED',
+      passed: false,
+      details: '0',
     },
     {
       name: 'Security Policy Check',
       description: 'Enforce security policies and restrictions',
       icon: Shield,
-      passed: true,
-      details: 'Min Health: 40 (Device: 78)\nTrusted Publisher: ✓ Yes\nRollout Approved: ✓ Yes',
+      passed: false,
+      details: '0',
     },
   ]
 
   const passedCount = stages.filter(s => s.passed).length
   const passRate = Math.round((passedCount / stages.length) * 100)
 
-  // Mock attack simulation data
   const attackScenarios = [
-    { name: 'Invalid Signature', blocked: true },
-    { name: 'Corrupted Checksum', blocked: true },
-    { name: 'Downgrade Attack', blocked: true },
-    { name: 'Man-in-the-Middle', blocked: true },
-    { name: 'Malicious Manifest', blocked: true },
+    { name: '0', blocked: false },
   ]
 
   return (
@@ -75,9 +70,9 @@ export default function TCVEnginePage() {
           <div className="flex items-start gap-4 flex-1">
             <CheckCircle2 className="w-6 h-6 text-teal-500 flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="font-semibold text-teal-900 dark:text-teal-100 mb-1">All Verification Stages Passed</h3>
+              <h3 className="font-semibold text-teal-900 dark:text-teal-100 mb-1">Verification Data</h3>
               <p className="text-sm text-teal-800 dark:text-teal-200">
-                {passedCount}/{stages.length} security checks completed successfully
+                {passedCount}/{stages.length} checks with valid data
               </p>
             </div>
           </div>
@@ -182,7 +177,7 @@ export default function TCVEnginePage() {
           <div className="mt-4 p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900">
             <p className="text-sm text-blue-900 dark:text-blue-100">
               <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse mr-2" />
-              Simulation running... Injecting test vectors
+              0
             </p>
           </div>
         )}

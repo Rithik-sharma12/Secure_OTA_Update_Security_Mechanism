@@ -8,7 +8,7 @@ import { Activity, AlertTriangle, CheckCircle, Zap, AlertCircle, Thermometer, Ha
 import { downloadRuntimePayload, executeRuntimeAction, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
 
 export default function ASHMonitorPage() {
-  const systemHealth = 94;
+  const systemHealth = 0;
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -82,7 +82,7 @@ export default function ASHMonitorPage() {
         {[
           { 
             label: 'Overall Health', 
-            value: '94%', 
+            value: '0%', 
             color: 'text-chart-1',
             icon: <CheckCircle className="w-5 h-5" />,
             bgColor: 'bg-chart-1/20'
@@ -96,7 +96,7 @@ export default function ASHMonitorPage() {
           },
           { 
             label: 'Active Warnings', 
-            value: '1', 
+            value: '0', 
             color: 'text-chart-3',
             icon: <AlertTriangle className="w-5 h-5" />,
             bgColor: 'bg-chart-3/20'
@@ -134,7 +134,7 @@ export default function ASHMonitorPage() {
             </div>
           </div>
           <p className="text-sm text-foreground/70 text-center">
-            All systems operational. 1 non-critical warning detected.
+            0
           </p>
         </CardContent>
       </Card>
@@ -149,38 +149,38 @@ export default function ASHMonitorPage() {
           {[
             { 
               component: 'Storage', 
-              health: 83, 
-              status: 'healthy',
+              health: 0, 
+              status: 'warning',
               icon: <HardDrive className="w-4 h-4" />,
-              details: '2.8 GB / 3.2 GB used'
+              details: '0'
             },
             { 
               component: 'Network', 
-              health: 98, 
-              status: 'healthy',
+              health: 0, 
+              status: 'warning',
               icon: <Wifi className="w-4 h-4" />,
-              details: 'Connected - 45ms latency'
+              details: '0'
             },
             { 
               component: 'Processor', 
-              health: 87, 
-              status: 'healthy',
+              health: 0, 
+              status: 'warning',
               icon: <Zap className="w-4 h-4" />,
-              details: 'Temp: 52°C, Load: 34%'
+              details: '0'
             },
             { 
               component: 'Memory', 
-              health: 92, 
-              status: 'healthy',
+              health: 0, 
+              status: 'warning',
               icon: <Activity className="w-4 h-4" />,
-              details: '6.2 GB / 8.0 GB available'
+              details: '0'
             },
             { 
               component: 'Power', 
-              health: 78, 
+              health: 0, 
               status: 'warning',
               icon: <Battery className="w-4 h-4" />,
-              details: 'Battery: 62%, Discharging'
+              details: '0'
             },
           ].map((item) => (
             <div key={item.component} className="p-4 rounded-lg border border-border/20 bg-muted/20 hover:border-border/40 transition-colors">
@@ -220,10 +220,7 @@ export default function ASHMonitorPage() {
         <CardContent>
           <div className="space-y-2">
             {[
-              { severity: 'warning', message: 'Battery level low (62%) - Consider charging soon', time: '5 minutes ago' },
-              { severity: 'info', message: 'Storage usage at 87% capacity', time: '22 minutes ago' },
-              { severity: 'success', message: 'All health checks passed', time: '1 hour ago' },
-              { severity: 'info', message: 'Network latency: 45ms', time: '2 hours ago' },
+              { severity: 'info', message: '0', time: '0' },
             ].map((event, i) => (
               <div key={i} className="p-3 rounded-lg border border-border/20 bg-muted/10 flex items-start gap-3">
                 <div className="mt-1">

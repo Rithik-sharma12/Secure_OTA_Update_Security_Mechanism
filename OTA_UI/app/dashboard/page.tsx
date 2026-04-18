@@ -8,6 +8,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 export default function DashboardPage() {
   const stats = useStatistics()
+  const uptimePercent = stats.totalDevices > 0
+    ? Math.round((stats.onlineDevices / stats.totalDevices) * 100)
+    : 0
 
   // Architecture distribution data
   const architectureData = [
@@ -62,12 +65,12 @@ export default function DashboardPage() {
           description="Across all architectures"
           icon={<Zap className="w-5 h-5" />}
           colorClass="text-blue-600 dark:text-blue-400"
-          trend={{ value: 2, direction: 'up' }}
+          trend={{ value: 0, direction: 'up' }}
         />
         <MetricCard
           title="Online Devices"
           value={stats.onlineDevices}
-          description={`${Math.round((stats.onlineDevices / stats.totalDevices) * 100)}% uptime`}
+          description={`${uptimePercent}% uptime`}
           icon={<CheckCircle2 className="w-5 h-5" />}
           colorClass="text-green-600 dark:text-green-400"
         />

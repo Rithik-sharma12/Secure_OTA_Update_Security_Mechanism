@@ -7,8 +7,8 @@
 #pragma once
 
 // -- Wi-Fi --
-#define WIFI_SSID       "Redmi Note 12 5G"
-#define WIFI_PASSWORD   "12345678"
+#define WIFI_SSID       "KCG_EXAM"
+#define WIFI_PASSWORD   "Kcg$@0504"
 
 // -- ArduinoOTA --
 #define OTA_PASSWORD    "KCG_OTA_2026$Secure"

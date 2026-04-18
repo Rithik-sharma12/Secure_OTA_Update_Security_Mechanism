@@ -22,8 +22,8 @@
 
 #include "ota_config.h"
 
-#define FIRMWARE_VERSION    "2.4.0"
-#define FIRMWARE_VERSION_N  20400  // major*10000 + minor*100 + patch
+#define FIRMWARE_VERSION    "2.4.1"
+#define FIRMWARE_VERSION_N  20401  // major*10000 + minor*100 + patch
 
 #define HEALTH_QUARANTINE 40
 #define HEALTH_MAX       100

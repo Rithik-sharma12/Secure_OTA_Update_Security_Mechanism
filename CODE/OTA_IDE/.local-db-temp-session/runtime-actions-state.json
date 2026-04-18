@@ -1,0 +1,25 @@
+{
+  "updatedAt": "2026-04-13T05:46:25.625Z",
+  "settings": {
+    "autoUpdateFirmware": true,
+    "emailNotifications": true,
+    "twoFactorAuth": false,
+    "deviceTelemetry": true,
+    "apiEndpoint": "https://api.ota-ide.example.com/v1",
+    "requestTimeoutSec": 30,
+    "cacheSizeMb": 500
+  },
+  "archivedReleaseIds": [],
+  "reports": [],
+  "simulator": {
+    "name": "Virtual ESP32 Device",
+    "deviceType": "ESP32",
+    "firmwareVersion": "v2.4.0",
+    "status": "running",
+    "startedAt": "2026-04-13T05:46:25.615Z",
+    "updatedAt": "2026-04-13T05:46:25.615Z"
+  },
+  "tags": [],
+  "generatedKeys": [],
+  "actionLog": []
+}

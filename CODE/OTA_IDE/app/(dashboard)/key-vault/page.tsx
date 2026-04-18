@@ -1,12 +1,11 @@
 'use client';
 
 import React from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Plus, Lock } from 'lucide-react';
 import { formatUtcDate } from '@/lib/formatters';
-import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { executeRuntimeAction, fetchRuntimeActionState } from '@/lib/runtime-actions';
 
 type GeneratedKeyRecord = {
@@ -19,35 +18,75 @@ type GeneratedKeyRecord = {
   fingerprint: string;
 };
 
+type KeyVaultEntry = {
+  id: string;
+  name: string;
+  type: 'RSA' | 'ECDSA' | 'AES';
+  keySize: number;
+  createdAt: Date;
+  expiresAt?: Date;
+  active: boolean;
+  fingerprint?: string;
+};
+
+function getLocalDateTag(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export default function KeyVaultPage() {
-  const { snapshot } = useRuntimeSnapshot();
   const [generatedKeys, setGeneratedKeys] = React.useState<GeneratedKeyRecord[]>([]);
+  const [selectedKeyId, setSelectedKeyId] = React.useState<string | null>(null);
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    const loadGeneratedKeys = async () => {
-      try {
-        const response = await fetchRuntimeActionState<{ generatedKeys?: GeneratedKeyRecord[] }>();
-        setGeneratedKeys(response.data?.generatedKeys || []);
-      } catch {
-        setGeneratedKeys([]);
-      }
-    };
-
-    void loadGeneratedKeys();
+  const loadGeneratedKeys = React.useCallback(async () => {
+    try {
+      const response = await fetchRuntimeActionState<{ generatedKeys?: GeneratedKeyRecord[] }>();
+      setGeneratedKeys(response.data?.generatedKeys || []);
+    } catch {
+      setGeneratedKeys([]);
+    }
   }, []);
 
-  const keys = [
-    ...generatedKeys.map((key) => ({
-      ...key,
-      createdAt: new Date(key.createdAt),
-      expiresAt: undefined,
-    })),
-    ...snapshot.keys,
-  ];
-  const certificates = snapshot.certificates;
+  React.useEffect(() => {
+    void loadGeneratedKeys();
+  }, [loadGeneratedKeys]);
+
+  const keys = React.useMemo<KeyVaultEntry[]>(() => (
+    generatedKeys.map((key, index) => {
+      const parsedCreatedAt = new Date(key.createdAt);
+
+      return {
+        id: key.id || `runtime-key-${index + 1}`,
+        name: key.name,
+        type: key.type,
+        keySize: key.keySize,
+        createdAt: Number.isNaN(parsedCreatedAt.getTime()) ? new Date(0) : parsedCreatedAt,
+        expiresAt: undefined,
+        active: key.active,
+        fingerprint: key.fingerprint,
+      };
+    })
+  ), [generatedKeys]);
+  const selectedKey = React.useMemo(
+    () => keys.find((key) => key.id === selectedKeyId) || null,
+    [keys, selectedKeyId]
+  );
+
+  React.useEffect(() => {
+    if (keys.length === 0) {
+      setSelectedKeyId(null);
+      return;
+    }
+
+    if (!selectedKeyId || !keys.some((key) => key.id === selectedKeyId)) {
+      setSelectedKeyId(keys[0].id);
+    }
+  }, [keys, selectedKeyId]);
 
   const handleCreateKey = async () => {
     setBusyAction('keys.create');
@@ -56,13 +95,16 @@ export default function KeyVaultPage() {
 
     try {
       const response = await executeRuntimeAction<{ key?: GeneratedKeyRecord }>('keys.create', {
-        name: `Vault Key ${new Date().toISOString().slice(0, 10)}`,
+        name: `Vault Key ${getLocalDateTag(new Date())}`,
         type: 'RSA',
       });
 
       const key = response.data?.key;
       if (key) {
-        setGeneratedKeys((current) => [key, ...current].slice(0, 100));
+        await loadGeneratedKeys();
+        if (key.id) {
+          setSelectedKeyId(key.id);
+        }
       }
 
       setActionMessage(response.message || 'Cryptographic key generated.');
@@ -73,19 +115,20 @@ export default function KeyVaultPage() {
     }
   };
 
-  const handleInspect = async (name: string, recordId: string) => {
-    setBusyAction(recordId);
+  const handleInspectKey = async (key: KeyVaultEntry) => {
+    setSelectedKeyId(key.id);
+    setBusyAction(key.id);
     setActionError(null);
     setActionMessage(null);
 
     try {
       const response = await executeRuntimeAction('keys.inspect', {
-        recordId,
-        name,
+        recordId: key.id,
+        name: key.name,
       });
-      setActionMessage(response.message || `Opened ${name}.`);
+      setActionMessage(response.message || `Opened ${key.name}.`);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to inspect selected item.');
+      setActionError(error instanceof Error ? error.message : 'Unable to inspect selected key.');
     } finally {
       setBusyAction(null);
     }
@@ -96,10 +139,7 @@ export default function KeyVaultPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Key Vault</h1>
-          <p className="text-foreground/70 mt-1">Manage cryptographic keys and certificates</p>
-          {!snapshot.connection.reachable && snapshot.connection.error && (
-            <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
-          )}
+          <p className="text-foreground/70 mt-1">Manage cryptographic keys</p>
         </div>
         <Button
           className="bg-primary hover:bg-primary/90 text-primary-foreground"
@@ -112,6 +152,21 @@ export default function KeyVaultPage() {
       </div>
       {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
       {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="glass border-border/50">
+          <CardContent className="pt-6">
+            <p className="text-sm text-foreground/60">Total Keys</p>
+            <p className="text-2xl font-semibold text-foreground">{keys.length}</p>
+          </CardContent>
+        </Card>
+        <Card className="glass border-border/50">
+          <CardContent className="pt-6">
+            <p className="text-sm text-foreground/60">Active Keys</p>
+            <p className="text-2xl font-semibold text-foreground">{keys.filter((key) => key.active).length}</p>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Keys Section */}
       <div>
@@ -148,7 +203,7 @@ export default function KeyVaultPage() {
                     size="sm"
                     variant="outline"
                     className="border-border"
-                    onClick={() => void handleInspect(key.name, key.id)}
+                    onClick={() => void handleInspectKey(key)}
                     disabled={busyAction === key.id}
                   >
                     View
@@ -160,53 +215,35 @@ export default function KeyVaultPage() {
           {keys.length === 0 && (
             <Card className="glass border-border/50">
               <CardContent className="pt-6 text-sm text-foreground/60">
-                No live key records detected. Connect your key service to publish runtime key metadata.
+                No key records found. Use Add Key to generate the first key.
               </CardContent>
             </Card>
           )}
         </div>
       </div>
 
-      {/* Certificates Section */}
+      {/* Selected Key Details */}
       <div>
-        <h2 className="text-xl font-semibold text-foreground mb-4">Certificates</h2>
-        <div className="grid grid-cols-1 gap-4">
-          {certificates.map((cert) => (
-            <Card key={cert.id} className="glass border-border/50">
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-foreground">{cert.name}</h3>
-                    <p className="text-sm text-foreground/60 mt-1">Issued by: {cert.issuer}</p>
-                    <p className="text-sm text-foreground/60">Subject: {cert.subject}</p>
-                    <div className="flex gap-6 mt-3 text-xs text-foreground/60">
-                      <span>Valid: {formatUtcDate(cert.validFrom)} - {formatUtcDate(cert.validTo)}</span>
-                    </div>
-                    <p className="text-xs text-foreground/50 mt-2 font-mono break-all">
-                      Fingerprint: {cert.fingerprint}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-border flex-shrink-0"
-                    onClick={() => void handleInspect(cert.name, cert.id)}
-                    disabled={busyAction === cert.id}
-                  >
-                    View
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          {certificates.length === 0 && (
-            <Card className="glass border-border/50">
-              <CardContent className="pt-6 text-sm text-foreground/60">
-                No live certificates detected. Runtime certificate data will appear when your PKI integration is active.
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        <h2 className="text-xl font-semibold text-foreground mb-4">Selected Key Details</h2>
+        <Card className="glass border-border/50">
+          <CardContent className="pt-6">
+            {selectedKey ? (
+              <div className="space-y-2 text-sm text-foreground/80">
+                <p><span className="text-foreground/60">Name:</span> {selectedKey.name}</p>
+                <p><span className="text-foreground/60">Type:</span> {selectedKey.type}</p>
+                <p><span className="text-foreground/60">Key Size:</span> {selectedKey.keySize} bit</p>
+                <p><span className="text-foreground/60">Created:</span> {formatUtcDate(selectedKey.createdAt)}</p>
+                <p><span className="text-foreground/60">Status:</span> {selectedKey.active ? 'Active' : 'Inactive'}</p>
+                <p className="break-all">
+                  <span className="text-foreground/60">Fingerprint:</span>{' '}
+                  {selectedKey.fingerprint || 'Unavailable'}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-foreground/60">No key selected.</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

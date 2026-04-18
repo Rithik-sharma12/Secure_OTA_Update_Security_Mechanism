@@ -415,3 +415,53 @@ git push origin main
 git pull --rebase origin main
 git push origin main
 ```
+
+## 17. Docker Container Deployment
+
+Secure_OTA can be containerized for college systems and deployed in two modes:
+
+- Build locally from source with `docker compose`.
+- Pull prebuilt images from Docker Hub and run with `docker compose -f docker-compose.hub.yml`.
+
+### 17.1 Prepare environment file
+
+```powershell
+Copy-Item .env.docker.example .env.docker
+```
+
+Update at least:
+
+- `OTA_ADMIN_PASSWORD`
+- `OTA_GATEWAY_API_KEY`
+- `DOCKERHUB_USER` (for Docker Hub pull mode)
+
+If password contains `#`, keep it quoted.
+
+### 17.2 Run from local source build
+
+```powershell
+docker compose --env-file .env.docker up -d --build
+docker compose ps
+```
+
+### 17.3 Run by pulling from Docker Hub
+
+```powershell
+docker compose -f docker-compose.hub.yml --env-file .env.docker pull
+docker compose -f docker-compose.hub.yml --env-file .env.docker up -d
+docker compose -f docker-compose.hub.yml --env-file .env.docker ps
+```
+
+### 17.4 Publish images to Docker Hub
+
+```powershell
+docker login
+docker build -t <dockerhub-user>/secure-ota-gateway:latest ./src/implementation
+docker push <dockerhub-user>/secure-ota-gateway:latest
+docker build -t <dockerhub-user>/secure-ota-ide:latest ./CODE/OTA_IDE
+docker push <dockerhub-user>/secure-ota-ide:latest
+```
+
+### 17.5 Detailed guide
+
+See `docs/guides/DOCKER_DEPLOYMENT.md` for full steps, update workflows, and operational notes.

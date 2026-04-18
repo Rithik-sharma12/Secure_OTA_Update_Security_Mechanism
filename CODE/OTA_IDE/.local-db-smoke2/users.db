@@ -1,0 +1,2 @@
+{"username":"rithik_ota_smoke2","passwordHash":"24ca0357eb33bfe228e6da64e1d6b0ef:e5a512b3d3f33c3985070dea055cbe2cd7ecabf2547a561f028081bcfaff8d61e3c457ec120f2c18290b777ce620664eeb9bc6ee722f18611e4bb387cbe12434","role":"admin","isActive":true,"_id":"HTAjIt2c7tXX1LaQ","createdAt":{"$$date":1776059915159},"updatedAt":{"$$date":1776060188403},"lastLoginAt":"2026-04-13T06:03:08.403Z"}
+{"$$indexCreated":{"fieldName":"username","unique":true,"sparse":false}}

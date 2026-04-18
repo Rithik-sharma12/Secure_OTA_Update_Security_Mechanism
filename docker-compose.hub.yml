@@ -1,0 +1,56 @@
+name: secure_ota
+
+services:
+  gateway:
+    image: ${DOCKERHUB_USER}/secure-ota-gateway:${IMAGE_TAG:-latest}
+    container_name: secure_ota_gateway
+    restart: unless-stopped
+    environment:
+      OTA_GATEWAY_HOST: 0.0.0.0
+      OTA_GATEWAY_PORT: 5000
+      OTA_GATEWAY_API_KEY: ${OTA_GATEWAY_API_KEY:-}
+      OTA_GATEWAY_PUBLIC_URL: ${OTA_GATEWAY_PUBLIC_URL:-http://localhost:5000}
+      OTA_GATEWAY_SIGNING_KEY_ID: ${OTA_GATEWAY_SIGNING_KEY_ID:-gateway-ed25519-primary}
+      OTA_GATEWAY_RELEASE_ARTIFACT: ${OTA_GATEWAY_RELEASE_ARTIFACT:-}
+      OTA_GATEWAY_CACHE_DIR: /app/gateway_firmware_cache
+      OTA_GATEWAY_KEYS_DIR: /app/gateway_keys
+    ports:
+      - "5000:5000"
+    volumes:
+      - gateway_cache:/app/gateway_firmware_cache
+      - gateway_keys:/app/gateway_keys
+
+  ota_ide:
+    image: ${DOCKERHUB_USER}/secure-ota-ide:${IMAGE_TAG:-latest}
+    container_name: secure_ota_ide
+    restart: unless-stopped
+    depends_on:
+      - gateway
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      OTA_ADMIN_USERNAME: ${OTA_ADMIN_USERNAME:-secure-ota-admin}
+      OTA_ADMIN_PASSWORD: ${OTA_ADMIN_PASSWORD:-Secure_OTA_College_2026}
+      OTA_SESSION_TTL_HOURS: ${OTA_SESSION_TTL_HOURS:-24}
+      OTA_LOCAL_DB_DIR: /app/.local-db
+      EDGE_GATEWAY_URL: http://gateway:5000
+      EDGE_GATEWAY_API_KEY: ${OTA_GATEWAY_API_KEY:-}
+      OTA_RUNTIME_COMMANDS_ENABLED: ${OTA_RUNTIME_COMMANDS_ENABLED:-false}
+      OTA_RUNTIME_COMMAND_TOKEN: ${OTA_RUNTIME_COMMAND_TOKEN:-}
+      OTA_RUNTIME_COMMAND_ALLOWLIST: ${OTA_RUNTIME_COMMAND_ALLOWLIST:-echo,dir,ls,pwd,whoami,node,python,py}
+      OTA_RUNTIME_COMMAND_CWD: /app
+      ARDUINO_CLI_PATH: arduino-cli
+      OTA_UPLOAD_MAX_LOGS: 1000
+      OTA_FQBN_ESP32: esp32:esp32:esp32
+      OTA_FQBN_ESP8266: esp8266:esp8266:generic
+      OTA_FQBN_ATMEGA328P: arduino:avr:uno
+      OTA_FQBN_STM32F103: STMicroelectronics:stm32:GenF1
+    ports:
+      - "3000:3000"
+    volumes:
+      - ota_ide_db:/app/.local-db
+
+volumes:
+  gateway_cache:
+  gateway_keys:
+  ota_ide_db:

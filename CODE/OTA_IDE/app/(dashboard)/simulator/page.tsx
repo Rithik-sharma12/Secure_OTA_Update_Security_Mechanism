@@ -17,35 +17,24 @@ type RuntimeSimulator = {
 };
 
 const defaultSimulator: RuntimeSimulator = {
-  name: 'Virtual ESP32 Device',
-  deviceType: 'ESP32',
-  firmwareVersion: 'v2.4.0',
-  status: 'running',
-  startedAt: new Date().toISOString(),
+  name: '0',
+  deviceType: '0',
+  firmwareVersion: '0',
+  status: 'stopped',
+  startedAt: null,
   updatedAt: new Date().toISOString(),
 };
 
 function formatUptime(startedAt: string | null) {
-  if (!startedAt) {
-    return '0m';
-  }
-
-  const durationMs = Date.now() - new Date(startedAt).getTime();
-  if (durationMs <= 0) {
-    return '0m';
-  }
-
-  const minutes = Math.floor(durationMs / (1000 * 60));
-  const hours = Math.floor(minutes / 60);
-  const remMinutes = minutes % 60;
-  return `${hours}h ${remMinutes}m`;
+  void startedAt;
+  return '0';
 }
 
 export default function SimulatorPage() {
   const [simulator, setSimulator] = React.useState<RuntimeSimulator>(defaultSimulator);
-  const [simulationName, setSimulationName] = React.useState('Virtual ESP32 Device');
-  const [deviceType, setDeviceType] = React.useState('ESP32');
-  const [firmwareVersion, setFirmwareVersion] = React.useState('v2.4.0');
+  const [simulationName, setSimulationName] = React.useState('0');
+  const [deviceType, setDeviceType] = React.useState('0');
+  const [firmwareVersion, setFirmwareVersion] = React.useState('0');
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -85,8 +74,8 @@ export default function SimulatorPage() {
           name: simulationName,
           deviceType,
           firmwareVersion,
-          status: 'running',
-          startedAt: new Date().toISOString(),
+          status: 'stopped',
+          startedAt: null,
           updatedAt: new Date().toISOString(),
         }));
       }
@@ -136,10 +125,10 @@ export default function SimulatorPage() {
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
-              { label: 'CPU Usage', value: simulator.status === 'stopped' ? '0%' : '45%', icon: <Cpu className="w-4 h-4" />, color: 'text-primary' },
-              { label: 'Memory', value: simulator.status === 'stopped' ? '0%' : '62%', icon: <Thermometer className="w-4 h-4" />, color: 'text-accent' },
-              { label: 'Temperature', value: simulator.status === 'stopped' ? '--' : '52C', icon: <Thermometer className="w-4 h-4" />, color: 'text-chart-1' },
-              { label: 'Network', value: simulator.status === 'running' ? 'Connected' : 'Paused', icon: <Wifi className="w-4 h-4" />, color: 'text-chart-1' },
+              { label: 'CPU Usage', value: '0%', icon: <Cpu className="w-4 h-4" />, color: 'text-primary' },
+              { label: 'Memory', value: '0%', icon: <Thermometer className="w-4 h-4" />, color: 'text-accent' },
+              { label: 'Temperature', value: '0', icon: <Thermometer className="w-4 h-4" />, color: 'text-chart-1' },
+              { label: 'Network', value: '0', icon: <Wifi className="w-4 h-4" />, color: 'text-chart-1' },
             ].map((metric) => (
               <div key={metric.label} className="p-3 rounded-lg bg-muted/20 border border-border/20">
                 <div className="flex items-center justify-between mb-2">
@@ -216,6 +205,7 @@ export default function SimulatorPage() {
                   onChange={(event) => setDeviceType(event.target.value)}
                   className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground focus:outline-none focus:border-primary/50"
                 >
+                  <option>0</option>
                   <option>ESP32</option>
                   <option>ESP8266</option>
                   <option>ATmega328P</option>
@@ -229,6 +219,7 @@ export default function SimulatorPage() {
                   onChange={(event) => setFirmwareVersion(event.target.value)}
                   className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground focus:outline-none focus:border-primary/50"
                 >
+                  <option>0</option>
                   <option>v2.4.0</option>
                   <option>v2.3.1</option>
                   <option>v2.2.0</option>

@@ -1,0 +1,5 @@
+{"eventId":"smoke-failed-1","type":"OTA_UPLOAD","payload":{"source":"smoke"},"status":"PENDING","attempts":0,"nextRetryAt":{"$$date":1776157857794},"_id":"HIl6IyLDDpzlO4ww","createdAt":{"$$date":1776060065475},"updatedAt":{"$$date":1776157857794}}
+{"eventId":"smoke-failed-3","type":"OTA_UPLOAD","payload":{"source":"api-smoke"},"status":"PENDING","attempts":0,"nextRetryAt":{"$$date":1776060189376},"_id":"hzXSX6XJXTWZ61H9","createdAt":{"$$date":1776060189172},"updatedAt":{"$$date":1776060189376}}
+{"$$indexCreated":{"fieldName":"status","unique":false,"sparse":false}}
+{"$$indexCreated":{"fieldName":"eventId","unique":true,"sparse":false}}
+{"$$indexCreated":{"fieldName":"nextRetryAt","unique":false,"sparse":false}}

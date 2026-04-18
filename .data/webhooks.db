@@ -1,0 +1,1 @@
+{"eventId":"smoke-failed-2","type":"OTA_UPLOAD","payload":{"source":"smoke-root"},"status":"FAILED","attempts":3,"failedAt":{"$$date":1776060145129},"nextRetryAt":{"$$date":1776060145129},"error":"Simulated smoke root failure","_id":"achSi4pX6Wwx0MWX","createdAt":{"$$date":1776060145131},"updatedAt":{"$$date":1776060145131}}

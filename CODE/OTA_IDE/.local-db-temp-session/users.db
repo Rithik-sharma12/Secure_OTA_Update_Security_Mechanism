@@ -1,0 +1,2 @@
+{"username":"rithik_ota","passwordHash":"4ec66f6f301ec583993718cdac3a1597:ce4f943cdce97f8b7433fc9928e46ce79669b7a801d7eb60124ea63f8d59af34331e20475611fa4a07f28f6ef9fad165a2101fe203584655ad9087b0304520ea","role":"admin","isActive":true,"_id":"CfBHO4hG8KGueKTr","createdAt":{"$$date":1776055442466},"updatedAt":{"$$date":1776058466368},"lastLoginAt":"2026-04-13T05:34:26.367Z"}
+{"$$indexCreated":{"fieldName":"username","unique":true,"sparse":false}}

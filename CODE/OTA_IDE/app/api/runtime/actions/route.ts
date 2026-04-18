@@ -415,9 +415,9 @@ export async function POST(request: Request) {
       }
 
       if (action === 'simulator.launch') {
-        const name = String(actionPayload.name || '').trim() || 'Virtual device';
-        const deviceType = String(actionPayload.deviceType || 'ESP32');
-        const firmwareVersion = String(actionPayload.firmwareVersion || 'v2.4.0');
+        const name = String(actionPayload.name || '').trim() || '0';
+        const deviceType = String(actionPayload.deviceType || '0');
+        const firmwareVersion = String(actionPayload.firmwareVersion || '0');
 
         await updateRuntimeActionsState((state) => ({
           ...state,
@@ -425,8 +425,8 @@ export async function POST(request: Request) {
             name,
             deviceType,
             firmwareVersion,
-            status: 'running',
-            startedAt: new Date().toISOString(),
+            status: 'stopped',
+            startedAt: null,
             updatedAt: new Date().toISOString(),
           },
           actionLog: [
@@ -439,7 +439,7 @@ export async function POST(request: Request) {
           name,
           deviceType,
           firmwareVersion,
-          status: 'running',
+          status: 'stopped',
         });
       }
 
@@ -519,7 +519,31 @@ export async function POST(request: Request) {
         return actionResponse('Key generated.', { key: generatedKey });
       }
 
-      if (action === 'pipeline.control' || action === 'devices.action' || action === 'diagnostics.scan' || action === 'ash.scan' || action === 'tcv.save-config' || action === 'keys.inspect' || action.startsWith('danger.')) {
+      if (action === 'keys.inspect') {
+        const recordId = String(actionPayload.recordId || '').trim();
+        if (!recordId) {
+          return actionError('recordId is required.');
+        }
+
+        const state = await getRuntimeActionsState();
+        const key = state.generatedKeys.find((item) => item.id === recordId);
+
+        if (!key) {
+          return actionError('Key not found.', 404);
+        }
+
+        await updateRuntimeActionsState((current) => ({
+          ...current,
+          actionLog: [
+            ...current.actionLog.slice(-199),
+            createActionLog(action, `Opened key ${key.name}.`, userId),
+          ],
+        }));
+
+        return actionResponse(`Opened ${key.name}.`, { key });
+      }
+
+      if (action === 'pipeline.control' || action === 'devices.action' || action === 'diagnostics.scan' || action === 'ash.scan' || action === 'tcv.save-config' || action.startsWith('danger.')) {
         const actionSummary = String(actionPayload.command || actionPayload.name || actionPayload.deviceId || actionPayload.scope || 'completed');
 
         await updateRuntimeActionsState((state) => ({
