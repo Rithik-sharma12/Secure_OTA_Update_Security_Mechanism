@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+# Restrict default token permissions for all jobs
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Check formatting (black)
+        run: black --check --diff server/ security/ cli/ tests/
+
+      - name: Check import order (isort)
+        run: isort --check-only --diff server/ security/ cli/ tests/
+
+      - name: Lint (flake8)
+        run: |
+          flake8 server/ security/ cli/ tests/ \
+            --max-line-length=100 \
+            --extend-ignore=E203,W503 \
+            --exclude=__pycache__,.venv
+
+  typecheck:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run mypy
+        run: mypy server/ security/ cli/ --ignore-missing-imports
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Create required directories
+        run: mkdir -p /tmp/ota_test_uploads
+
+      - name: Run tests with coverage
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          JWT_SECRET_KEY: "ci-test-secret-key"
+          FIRMWARE_UPLOAD_DIR: "/tmp/ota_test_uploads"
+        run: |
+          pytest tests/ \
+            --cov=server \
+            --cov=security \
+            --cov=cli \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v \
+            --tb=short
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+
+  security-scan:
+    name: Security Scan (bandit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Run bandit
+        run: |
+          bandit -r server/ security/ cli/ \
+            -c pyproject.toml \
+            -f json \
+            -o bandit-report.json \
+            --exit-zero
+
+      - name: Upload bandit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          tags: secure-ota-server:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

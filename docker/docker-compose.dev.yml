@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    container_name: ota_server_dev
+    depends_on:
+      - db
+      - redis
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://ota:ota_password@db:5432/ota_db"
+      REDIS_URL: "redis://redis:6379/0"
+      ENVIRONMENT: "development"
+      DEBUG: "true"
+      JWT_SECRET_KEY: "dev-secret-key-not-for-production"
+      FIRMWARE_UPLOAD_DIR: "/app/uploads/firmware"
+    volumes:
+      - ..:/app
+    ports:
+      - "8000:8000"
+    networks:
+      - ota_dev
+
+  db:
+    image: postgres:16-alpine
+    container_name: ota_postgres_dev
+    environment:
+      POSTGRES_USER: ota
+      POSTGRES_PASSWORD: ota_password
+      POSTGRES_DB: ota_db
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - ota_dev
+
+  redis:
+    image: redis:7-alpine
+    container_name: ota_redis_dev
+    ports:
+      - "6379:6379"
+    networks:
+      - ota_dev
+
+volumes:
+  postgres_dev_data:
+
+networks:
+  ota_dev:
+    driver: bridge

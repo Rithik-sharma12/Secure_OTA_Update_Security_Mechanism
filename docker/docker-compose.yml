@@ -1,0 +1,115 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: secure-ota-server:latest
+    container_name: ota_server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://ota:ota_password@db:5432/ota_db"
+      REDIS_URL: "redis://redis:6379/0"
+      ENVIRONMENT: "production"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY}"
+      FIRMWARE_UPLOAD_DIR: "/app/uploads/firmware"
+    volumes:
+      - firmware_uploads:/app/uploads/firmware
+      - ota_keys:/app/keys
+      - ota_certs:/app/certs
+    networks:
+      - ota_internal
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: postgres:16-alpine
+    container_name: ota_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ota
+      POSTGRES_PASSWORD: ota_password
+      POSTGRES_DB: ota_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ota_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ota -d ota_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ota_redis
+    restart: unless-stopped
+    command: redis-server --requirepass "${REDIS_PASSWORD:-redis_password}" --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - ota_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "6379"
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ota_nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ota_certs:/etc/nginx/certs:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - ota_internal
+      - ota_external
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  firmware_uploads:
+    driver: local
+  ota_keys:
+    driver: local
+  ota_certs:
+    driver: local
+  nginx_logs:
+    driver: local
+
+networks:
+  ota_internal:
+    driver: bridge
+    internal: true
+  ota_external:
+    driver: bridge

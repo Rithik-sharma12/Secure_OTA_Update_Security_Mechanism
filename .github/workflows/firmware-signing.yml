@@ -1,0 +1,107 @@
+name: Firmware Signing
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_path:
+        description: "Path to the firmware binary (relative to repo root)"
+        required: true
+        type: string
+      version:
+        description: "Firmware semantic version (e.g. 1.2.3)"
+        required: true
+        type: string
+      platform:
+        description: "Target platform (e.g. esp32)"
+        required: true
+        type: string
+        default: "esp32"
+      min_counter:
+        description: "Minimum anti-rollback counter value"
+        required: false
+        default: "0"
+        type: string
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  sign-firmware:
+    name: Sign Firmware Bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # For OIDC-based key retrieval (e.g. Vault, AWS KMS)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verify firmware binary exists
+        run: |
+          if [ ! -f "${{ inputs.firmware_path }}" ]; then
+            echo "ERROR: Firmware binary not found: ${{ inputs.firmware_path }}"
+            exit 1
+          fi
+
+      - name: Build firmware bundle
+        run: |
+          python -m cli.ota_cli firmware build \
+            "${{ inputs.firmware_path }}" \
+            --version "${{ inputs.version }}" \
+            --platform "${{ inputs.platform }}" \
+            --min-counter "${{ inputs.min_counter }}" \
+            --output "firmware_${{ inputs.version }}_${{ inputs.platform }}.fw"
+
+      - name: Sign firmware bundle
+        env:
+          SIGNING_KEY: ${{ secrets.FIRMWARE_SIGNING_KEY }}
+        run: |
+          # Write signing key from secret to a temporary file
+          echo "$SIGNING_KEY" > /tmp/signing_key.pem
+          chmod 600 /tmp/signing_key.pem
+
+          python -m cli.ota_cli firmware sign \
+            "firmware_${{ inputs.version }}_${{ inputs.platform }}.fw" \
+            --key /tmp/signing_key.pem \
+            --output "firmware_${{ inputs.version }}_${{ inputs.platform }}.sig"
+
+          # Securely remove the key
+          shred -u /tmp/signing_key.pem
+
+      - name: Verify signature
+        env:
+          VERIFY_KEY: ${{ secrets.FIRMWARE_VERIFY_KEY }}
+        run: |
+          echo "$VERIFY_KEY" > /tmp/verify_key.pem
+
+          python -m cli.ota_cli firmware verify \
+            "firmware_${{ inputs.version }}_${{ inputs.platform }}.fw" \
+            --sig "firmware_${{ inputs.version }}_${{ inputs.platform }}.sig" \
+            --key /tmp/verify_key.pem
+
+          rm -f /tmp/verify_key.pem
+
+      - name: Compute checksums
+        run: |
+          sha256sum "firmware_${{ inputs.version }}_${{ inputs.platform }}.fw" > checksums.sha256
+          cat checksums.sha256
+
+      - name: Upload signed firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: "signed-firmware-${{ inputs.version }}-${{ inputs.platform }}"
+          path: |
+            firmware_${{ inputs.version }}_${{ inputs.platform }}.fw
+            firmware_${{ inputs.version }}_${{ inputs.platform }}.sig
+            firmware_${{ inputs.version }}_${{ inputs.platform }}.json
+            checksums.sha256
+          retention-days: 90
