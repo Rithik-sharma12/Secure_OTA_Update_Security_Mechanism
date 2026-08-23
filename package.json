@@ -1,1 +1,13 @@
-{}
+{
+  "name": "sentinel-ota",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SentinelOTA: Secure OTA firmware update platform for heterogeneous IoT devices",
+  "author": "Rithik Sharma",
+  "license": "UNLICENSED",
+  "scripts": {
+    "gateway": "cd src/implementation && python -m uvicorn gateway:app --host 0.0.0.0 --port 5000",
+    "ide": "cd CODE/OTA_IDE && pnpm dev",
+    "simulator": "cd src/implementation && python device_simulator.py ESP32"
+  }
+}

@@ -59,6 +59,20 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       });
 
+      // Anything in front of the app (Cloudflare, a reverse proxy) answers with
+      // an HTML page when the origin is restarting or a policy blocks the
+      // request. Parsing that as JSON throws "Unexpected token '<'", which tells
+      // the operator nothing — detect it and report what actually happened.
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        setErrorMessage(
+          response.status === 502 || response.status === 503 || response.status === 504
+            ? 'Server is starting up or temporarily unreachable. Wait a few seconds and try again.'
+            : `Unexpected ${response.status} response from the server. If this persists, check that the gateway and dashboard containers are running.`
+        );
+        return;
+      }
+
       const payload = (await response.json()) as {
         success?: boolean;
         data?: {

@@ -56,31 +56,24 @@ class Logger {
     }
   }
 
-  debug(context: string, message: string, data?: any): void {
-    const entry = this.createLogEntry('debug', context, message, data);
+  private _log(entry: LogEntry): void {
     this.logs.push(entry);
     if (this.logs.length > this.maxLogs) {
       this.logs.shift();
     }
     this.outputLog(entry);
+  }
+
+  debug(context: string, message: string, data?: any): void {
+    this._log(this.createLogEntry('debug', context, message, data));
   }
 
   info(context: string, message: string, data?: any): void {
-    const entry = this.createLogEntry('info', context, message, data);
-    this.logs.push(entry);
-    if (this.logs.length > this.maxLogs) {
-      this.logs.shift();
-    }
-    this.outputLog(entry);
+    this._log(this.createLogEntry('info', context, message, data));
   }
 
   warn(context: string, message: string, data?: any): void {
-    const entry = this.createLogEntry('warn', context, message, data);
-    this.logs.push(entry);
-    if (this.logs.length > this.maxLogs) {
-      this.logs.shift();
-    }
-    this.outputLog(entry);
+    this._log(this.createLogEntry('warn', context, message, data));
   }
 
   error(context: string, message: string, error?: Error | any, data?: any): void {
@@ -88,11 +81,7 @@ class Logger {
       ...this.createLogEntry('error', context, message, data),
       stack: error instanceof Error ? error.stack : undefined,
     };
-    this.logs.push(entry);
-    if (this.logs.length > this.maxLogs) {
-      this.logs.shift();
-    }
-    this.outputLog(entry);
+    this._log(entry);
   }
 
   getLogs(): LogEntry[] {

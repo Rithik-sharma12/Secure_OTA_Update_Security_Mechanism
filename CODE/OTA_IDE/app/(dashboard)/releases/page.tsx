@@ -5,9 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Download, Plus, Archive, Eye } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { formatNumber, formatUtcDate } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { PublishFirmwareCard } from '@/components/dashboard/publish-firmware-card';
 import { downloadRuntimePayload, executeRuntimeAction, fetchRuntimeActionState, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
 
 function getStatusColor(status: string) {
@@ -24,8 +24,8 @@ function getStatusColor(status: string) {
 }
 
 export default function ReleasesPage() {
-  const router = useRouter();
-  const { snapshot, isLoading } = useRuntimeSnapshot();
+  const { snapshot, isLoading, refresh } = useRuntimeSnapshot();
+  const publishRef = React.useRef<HTMLDivElement>(null);
   const [archivedReleaseIds, setArchivedReleaseIds] = React.useState<string[]>([]);
   const [selectedReleaseId, setSelectedReleaseId] = React.useState<string | null>(null);
   const [busyReleaseId, setBusyReleaseId] = React.useState<string | null>(null);
@@ -114,7 +114,7 @@ export default function ReleasesPage() {
         </div>
         <Button
           className="bg-primary hover:bg-primary/90 text-primary-foreground"
-          onClick={() => router.push('/version')}
+          onClick={() => publishRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
         >
           <Plus className="w-4 h-4 mr-2" />
           New Release
@@ -122,6 +122,11 @@ export default function ReleasesPage() {
       </div>
       {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
       {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
+
+      {/* Upload a compiled .bin and publish it as the latest release */}
+      <div ref={publishRef}>
+        <PublishFirmwareCard onPublished={() => void refresh()} />
+      </div>
 
       {/* Releases List */}
       <div className="space-y-4">

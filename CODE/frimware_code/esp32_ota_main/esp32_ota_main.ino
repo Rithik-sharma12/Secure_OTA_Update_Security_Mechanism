@@ -10,11 +10,13 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoOTA.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <Update.h>
+#include <time.h>
 
 #include "mbedtls/aes.h"
 #include "mbedtls/md.h"
@@ -28,7 +30,13 @@
 #define HEALTH_QUARANTINE 40
 #define HEALTH_MAX       100
 
-#define BACKEND_CHECK_INTERVAL_MS (15UL * 60UL * 1000UL)
+// Poll cadence for the backend manifest. Overridable from ota_config.h so a
+// dashboard publish is picked up quickly without editing this file.
+#ifndef OTA_CHECK_INTERVAL_SECONDS
+#define OTA_CHECK_INTERVAL_SECONDS 30
+#endif
+
+#define BACKEND_CHECK_INTERVAL_MS (static_cast<unsigned long>(OTA_CHECK_INTERVAL_SECONDS) * 1000UL)
 #define HEARTBEAT_INTERVAL_MS     (15UL * 1000UL)
 #define ARDUINO_OTA_PORT          3232
 
@@ -40,6 +48,17 @@
 #define SECURE_AES_BLOCK_SIZE  16U
 
 Preferences prefs;
+
+// Reused across requests. Requests are strictly sequential, so a single client
+// of each kind is enough; a WiFiClientSecure costs ~40 KB of heap while a TLS
+// session is open, so we avoid allocating one per call.
+WiFiClient plainClient;
+WiFiClientSecure secureClient;
+
+// TLS certificate validation compares the certificate's validity window against
+// the clock. An ESP32 boots at epoch 0, so every handshake fails as
+// "not yet valid" until the time is synced. Tracked here so we only sync once.
+bool tlsTimeReady = false;
 
 struct AppState {
   int healthScore = HEALTH_MAX;
@@ -61,6 +80,9 @@ void setupWiFi();
 void setupArduinoOTA();
 void checkBackendOTA();
 void sendHeartbeat();
+
+bool beginRequest(HTTPClient &http, const String &url);
+bool syncTimeForTls();
 
 bool fetchLatestRelease(ManifestInfo &manifestOut);
 bool performHttpUpdate(const String &url);
@@ -146,6 +168,62 @@ void setupWiFi() {
   }
 
   Serial.printf("\n[WiFi] Connected. IP: %s\n", WiFi.localIP().toString().c_str());
+}
+
+bool syncTimeForTls() {
+  if (tlsTimeReady) {
+    return true;
+  }
+
+  Serial.print("[TLS] Syncing clock via NTP");
+  configTime(0, 0, OTA_NTP_SERVER_PRIMARY, OTA_NTP_SERVER_SECONDARY);
+
+  // Anything past 2021-01-01 means NTP has actually replied; the epoch-0
+  // starting value would otherwise sail through a naive "is it non-zero" check.
+  const time_t minimumValidEpoch = 1609459200UL;
+  time_t now = time(nullptr);
+
+  for (int attempt = 0; attempt < 40 && now < minimumValidEpoch; ++attempt) {
+    delay(250);
+    Serial.print('.');
+    now = time(nullptr);
+  }
+
+  if (now < minimumValidEpoch) {
+    Serial.println("\n[TLS] ERROR: NTP sync failed. HTTPS certificate checks cannot pass.");
+    return false;
+  }
+
+  Serial.printf("\n[TLS] Clock synced: %s", ctime(&now));
+  tlsTimeReady = true;
+  return true;
+}
+
+/*
+ * Open `url` on `http`, selecting the transport from the scheme.
+ *
+ * https:// requires a synced clock and a trusted root. OTA_ROOT_CA should hold
+ * the PEM root that the gateway's certificate chains to (see ota_config.h).
+ * If it is left empty the connection still succeeds but WITHOUT authenticating
+ * the server, which leaves the plain-OTA path open to a swapped binary.
+ */
+bool beginRequest(HTTPClient &http, const String &url) {
+  if (!url.startsWith("https://")) {
+    return http.begin(plainClient, url);
+  }
+
+  if (!syncTimeForTls()) {
+    return false;
+  }
+
+  if (strlen(OTA_ROOT_CA) > 0) {
+    secureClient.setCACert(OTA_ROOT_CA);
+  } else {
+    Serial.println("[TLS] WARNING: OTA_ROOT_CA is empty — server certificate is NOT verified.");
+    secureClient.setInsecure();
+  }
+
+  return http.begin(secureClient, url);
 }
 
 void setupArduinoOTA() {
@@ -245,7 +323,7 @@ bool fetchLatestRelease(ManifestInfo &manifestOut) {
 
   HTTPClient http;
   const String apiUrl = String(BACKEND_URL) + "/releases/latest/manifest";
-  if (!http.begin(apiUrl)) {
+  if (!beginRequest(http, apiUrl)) {
     Serial.println("[Backend] Could not open manifest endpoint");
     return false;
   }
@@ -301,7 +379,7 @@ void sendHeartbeat() {
       : 0;
 
   HTTPClient http;
-  if (!http.begin(String(BACKEND_URL) + "/api/heartbeat")) {
+  if (!beginRequest(http, String(BACKEND_URL) + "/api/heartbeat")) {
     return;
   }
 
@@ -368,7 +446,7 @@ bool performSecurePackageUpdate(const String &url) {
   Serial.println("[Update] Starting secure OTA package flow...");
 
   HTTPClient http;
-  if (!http.begin(url)) {
+  if (!beginRequest(http, url)) {
     Serial.println("[Update] ERROR: Could not open secure package URL");
     return false;
   }
@@ -581,7 +659,7 @@ bool performPlainPackageUpdate(const String &url) {
   Serial.println("[Update] Starting plain OTA package flow...");
 
   HTTPClient http;
-  if (!http.begin(url)) {
+  if (!beginRequest(http, url)) {
     Serial.println("[Update] ERROR: Could not open plain package URL");
     return false;
   }

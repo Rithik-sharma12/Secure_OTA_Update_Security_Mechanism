@@ -1,0 +1,66 @@
+# ──────────────────────────────────────────────────
+# SentinelOTA — Root .gitignore
+# ──────────────────────────────────────────────────
+
+# ── OS files ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── MS Office temp / lock files ───────────────────
+~$*
+
+# ── IDE / Editor ──────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Python ────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# ── Node.js ───────────────────────────────────────
+node_modules/
+.next/
+.vercel/
+
+# ── PlatformIO ────────────────────────────────────
+.pio/
+
+# ── Cloudflare Tunnel credentials ─────────────────
+# Grants the ability to run this tunnel into the network. Never commit.
+cloudflared/credentials.json
+*.pem
+
+# Tunnel ingress config: carries the tunnel UUID and the public hostnames.
+# Not a credential on its own, but it maps our infrastructure, so it stays out
+# of the repo. Deploy it from the operator's machine.
+cloudflared/config.yml
+
+# ── Gateway runtime state ─────────────────────────
+# Device registry, telemetry, signed manifest and cached firmware binaries.
+# This is persistent-volume data produced at runtime, not source; committing it
+# would publish the live device inventory and go stale immediately.
+gateway_firmware_cache/
+
+# ── Secrets (firmware config with credentials) ────
+ota_config.h
+
+# ── Environment files ─────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.docker
+
+# ── Logs ──────────────────────────────────────────
+*.log
+
+# ── Build output ──────────────────────────────────
+/build/
+/out/
+/dist/

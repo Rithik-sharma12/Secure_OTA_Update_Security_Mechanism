@@ -1,9 +1,15 @@
 # PlatformIO build output
 .pio/
 
+# Secrets – each developer creates their own ota_config.h from ota_config.h.example
+ota_config.h
+
 # Local secure OTA test material (never commit private keys)
 secure-test-keys/
 release-assets/
 
 # Python cache
 __pycache__/
+
+# Log files
+*.log

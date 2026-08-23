@@ -1,6 +1,9 @@
-# Requirements
-flask
-requests
-fastapi
-uvicorn
-cryptography
+# SentinelOTA Gateway — Python Dependencies
+
+fastapi>=0.115.0
+uvicorn>=0.30.0
+# Required by FastAPI for multipart/form-data (firmware .bin upload endpoint)
+python-multipart>=0.0.9
+pydantic>=2.0.0
+cryptography>=42.0.0
+requests>=2.31.0

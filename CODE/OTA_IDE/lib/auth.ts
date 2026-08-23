@@ -6,6 +6,8 @@ import {
   type SessionRecord,
   type UserRecord,
 } from '@/lib/local-database';
+import { logger, errorTracker } from '@/lib/logger';
+import { OTAError, UnauthorizedError } from '@/lib/error-handler';
 
 const SESSION_TTL_HOURS = Number(process.env.OTA_SESSION_TTL_HOURS || 24);
 const DISALLOWED_BOOTSTRAP_USERNAMES = new Set(['admin', 'administrator', 'root']);
@@ -152,8 +154,7 @@ export async function ensureDefaultAdminUser() {
   }
 }
 
-import { logger, errorTracker } from '@/lib/logger';
-import { OTAError, UnauthorizedError } from '@/lib/error-handler';
+
 
 export async function loginWithPassword(username: string, password: string) {
   await ensureDefaultAdminUser();

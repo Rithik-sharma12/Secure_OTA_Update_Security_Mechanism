@@ -94,7 +94,25 @@ OTA_IOT/
 |  |- frimware_code/            # Firmware and OTA build/deploy config
 |  `- docs/ota-ide/             # OTA IDE architecture/dev docs
 |- src/
-|  |- implementation/           # FastAPI gateway, simulator, smoke tests
+|  |- implementation/
+|  |  |- gateway/               # FastAPI gateway (modular package)
+|  |  |  |- __init__.py         # App factory and CORS middleware
+|  |  |  |- config.py           # Configuration constants
+|  |  |  |- models.py           # Pydantic request models
+|  |  |  |- utils.py            # Utility functions
+|  |  |  |- crypto.py           # Ed25519 key management and signing
+|  |  |  |- state.py            # Thread-safe state management
+|  |  |  |- release.py          # Release, manifest, pipeline logic
+|  |  |  `- routes/             # API route handlers
+|  |  |     |- health.py        # Root and /healthz
+|  |  |     |- heartbeat.py     # /api/heartbeat
+|  |  |     |- dashboard.py     # /api/dashboard, /api/events
+|  |  |     |- releases.py      # /api/releases, /releases/latest/*
+|  |  |     |- deployments.py   # /api/deployments
+|  |  |     `- operations.py    # Pipeline, sync, firmware download
+|  |  |- edge_gateway.py        # Backwards-compatible entry point
+|  |  |- device_simulator.py    # Device simulator for testing
+|  |  `- requirements.txt       # Python dependencies (pinned)
 |  `- server/                   # Prototype server snippets
 |- OTA_UI/                      # Additional UI workspace
 |- firmware_repo/               # Firmware metadata cache/artifacts
