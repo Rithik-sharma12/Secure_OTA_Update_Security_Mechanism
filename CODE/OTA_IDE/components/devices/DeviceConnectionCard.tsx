@@ -118,6 +118,8 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
   const [baudRate, setBaudRate] = React.useState('115200');
   const [boardType, setBoardType] = React.useState('ESP32');
   const [firmwarePath, setFirmwarePath] = React.useState(defaultFirmwarePath);
+  const [wifiSsid, setWifiSsid] = React.useState('');
+  const [wifiPassword, setWifiPassword] = React.useState('');
   const [otaHost, setOtaHost] = React.useState(defaultOtaHost);
   const [otaPort, setOtaPort] = React.useState('3232');
   const [otaToken, setOtaToken] = React.useState('');
@@ -163,6 +165,10 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
     const target = normalizeComPortName(selectedPort);
     return availablePorts.some((port) => normalizeComPortName(port.path) === target);
   }, [availablePorts, selectedPort]);
+
+  // Only these two boards have WiFi macros in ota_config.h; the AVR and STM32
+  // targets have no WiFi radio, so provisioning fields are meaningless there.
+  const supportsWifiProvisioning = boardType === 'ESP32' || boardType === 'ESP8266';
 
   const appendMonitorEntry = React.useCallback((entry: Omit<MonitorEntry, 'id' | 'timestamp'> & { timestamp?: Date }) => {
     setMonitorEntries((current) => {
@@ -733,6 +739,19 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       return;
     }
 
+    const normalizedSsid = wifiSsid.trim();
+    // The password may legitimately be blank — open networks exist — but a
+    // device flashed without an SSID can never reach the gateway, so it is
+    // required whenever the board has a radio.
+    if (supportsWifiProvisioning && !normalizedSsid) {
+      updateStatus(
+        'WiFi network missing',
+        'error',
+        `${boardType} needs a WiFi SSID baked in at flash time to reach the gateway. Enter the network name and retry.`
+      );
+      return;
+    }
+
     setUploadStatus('queued');
     setUploadProgress(0);
     setUploadError(null);
@@ -762,6 +781,9 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
           boardType,
           comPort: activePort,
           baudRate,
+          ...(supportsWifiProvisioning
+            ? { wifiSsid: normalizedSsid, wifiPassword }
+            : {}),
         }),
       });
 
@@ -1072,6 +1094,45 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
                     placeholder={firmwarePathPlaceholder}
                   />
                 </div>
+
+                {supportsWifiProvisioning && (
+                  <>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground" htmlFor="serial-wifi-ssid">
+                        WiFi Network (SSID)
+                      </label>
+                      <Input
+                        id="serial-wifi-ssid"
+                        value={wifiSsid}
+                        onChange={(event) => setWifiSsid(event.target.value)}
+                        className="border-border/60 bg-background/60"
+                        placeholder="home-network-2g"
+                        maxLength={32}
+                        autoComplete="off"
+                      />
+                      <p className="text-xs text-foreground/60">
+                        Baked into the firmware at compile time so the device can reach the gateway
+                        after its first flash.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground" htmlFor="serial-wifi-password">
+                        WiFi Password
+                      </label>
+                      <Input
+                        id="serial-wifi-password"
+                        type="password"
+                        value={wifiPassword}
+                        onChange={(event) => setWifiPassword(event.target.value)}
+                        className="border-border/60 bg-background/60"
+                        placeholder="Leave blank for an open network"
+                        maxLength={64}
+                        autoComplete="off"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">

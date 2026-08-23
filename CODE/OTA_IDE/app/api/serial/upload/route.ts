@@ -11,6 +11,11 @@ const uploadSchema = z.object({
   boardType: z.enum(['ATmega328P', 'ESP8266', 'ESP32', 'STM32F103']),
   comPort: z.string().trim().min(3).max(16),
   baudRate: z.string().trim().min(3).max(16),
+  // Baked into ota_config.h at compile time for WiFi-capable boards. 32 is the
+  // IEEE 802.11 SSID limit; 64 the WPA passphrase limit. The password is not
+  // trimmed — leading and trailing spaces are legal in a WPA passphrase.
+  wifiSsid: z.string().trim().max(32).optional(),
+  wifiPassword: z.string().max(64).optional(),
 });
 
 export async function POST(request: Request) {

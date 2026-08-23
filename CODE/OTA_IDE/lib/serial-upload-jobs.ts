@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { uploadsStore, uploadLogsStore, type UploadRecord, type UploadLogRecord } from '@/lib/local-database';
@@ -37,6 +38,13 @@ export type StartUploadInput = {
   comPort: string;
   baudRate: string;
   userId: string;
+  /**
+   * WiFi credentials baked into ota_config.h at compile time, so a freshly
+   * flashed device can reach the gateway without the header being hand-edited.
+   * Only meaningful for the WiFi-capable boards (ESP32/ESP8266).
+   */
+  wifiSsid?: string;
+  wifiPassword?: string;
 };
 
 const arduinoCliPath = process.env.ARDUINO_CLI_PATH || 'arduino-cli';
@@ -75,6 +83,88 @@ function resolveSketchPath(inputPath: string) {
     fileName: path.basename(absolutePath),
     sketchDirectory: path.dirname(absolutePath),
   };
+}
+
+/**
+ * Escape a value for embedding in a C string literal.
+ *
+ * Backslash must be escaped before the quote, or the quote's own escape would
+ * be double-escaped. Line breaks are rejected outright: they are invalid in an
+ * SSID or WPA passphrase anyway, and they are the one input that would break
+ * out of the literal and produce a confusing compiler error rather than a
+ * clear rejection here.
+ */
+function escapeCStringLiteral(value: string) {
+  if (/[\r\n]/.test(value)) {
+    throw new Error('WiFi credentials cannot contain line breaks.');
+  }
+
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+/**
+ * Rewrite the value of a single `#define NAME "..."` line, leaving the macro
+ * name and its surrounding whitespace alone.
+ *
+ * Only the two WiFi macros are ever touched. Everything else in the header —
+ * BACKEND_URL, API keys, the encryption key, the pinned root CA, NTP servers —
+ * is fleet-wide configuration, not per-device, and must survive untouched.
+ */
+function replaceDefine(source: string, macro: string, value: string) {
+  // Matches the existing quoted value including any escaped characters inside.
+  const pattern = new RegExp(`^([ \\t]*#define[ \\t]+${macro}[ \\t]+)"(?:[^"\\\\]|\\\\.)*"`, 'm');
+
+  if (!pattern.test(source)) {
+    throw new Error(
+      `Could not find '#define ${macro}' in ota_config.h, so WiFi credentials cannot be injected.`
+    );
+  }
+
+  const escaped = escapeCStringLiteral(value);
+
+  // Function replacement, not a '$1' string: a password containing $& or $'
+  // would otherwise be interpreted as a replacement pattern and mangled.
+  return source.replace(pattern, (_match, prefix: string) => `${prefix}"${escaped}"`);
+}
+
+/**
+ * Copy the sketch to a throwaway directory and patch the copy's ota_config.h.
+ *
+ * The sketch lives in a tracked git path whose ota_config.h is a committed
+ * placeholder, so patching it in place would risk a real WiFi password landing
+ * in a commit, and two concurrent flashes would overwrite each other's config.
+ *
+ * arduino-cli requires the sketch folder name to match the primary .ino file
+ * name, so the copy keeps its original basename inside a temporary parent
+ * rather than becoming the mkdtemp directory itself.
+ */
+function prepareFlashWorkspace(sketchDirectory: string, wifiSsid?: string, wifiPassword?: string) {
+  const cleanupRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-flash-'));
+
+  try {
+    const workspace = path.join(cleanupRoot, path.basename(sketchDirectory));
+    fs.cpSync(sketchDirectory, workspace, { recursive: true });
+
+    if (wifiSsid) {
+      const configPath = path.join(workspace, 'ota_config.h');
+      if (!fs.existsSync(configPath)) {
+        throw new Error(
+          'ota_config.h was not found beside the sketch, so WiFi credentials cannot be injected.'
+        );
+      }
+
+      let source = fs.readFileSync(configPath, 'utf8');
+      source = replaceDefine(source, 'WIFI_SSID', wifiSsid);
+      source = replaceDefine(source, 'WIFI_PASSWORD', wifiPassword ?? '');
+      fs.writeFileSync(configPath, source, 'utf8');
+    }
+
+    return { workspace, cleanupRoot };
+  } catch (error) {
+    // Never leak the temp directory when preparation fails partway.
+    fs.rmSync(cleanupRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function resolveFqbn(boardType: string) {
@@ -253,9 +343,13 @@ async function runProcess(
   });
 }
 
-async function runUploadJob(jobId: string, sketchDirectory: string) {
+async function runUploadJob(jobId: string, sketchDirectory: string, cleanupRoot?: string) {
   const current = jobs.get(jobId);
   if (!current) {
+    // Nothing will run, so the workspace would otherwise be orphaned.
+    if (cleanupRoot) {
+      fs.rmSync(cleanupRoot, { recursive: true, force: true });
+    }
     return;
   }
 
@@ -319,6 +413,20 @@ async function runUploadJob(jobId: string, sketchDirectory: string) {
     });
 
     await appendUploadLog(jobId, 'error', message);
+  } finally {
+    // The workspace holds a copy of ota_config.h carrying the WiFi password in
+    // clear text, so it is removed whether the flash succeeded or failed.
+    if (cleanupRoot) {
+      try {
+        fs.rmSync(cleanupRoot, { recursive: true, force: true });
+      } catch (cleanupError) {
+        logger.error(
+          'SerialUploadJobs',
+          `Failed to remove temporary flash workspace for job ${jobId}`,
+          cleanupError
+        );
+      }
+    }
   }
 }
 
@@ -347,6 +455,32 @@ export async function startSerialUpload(input: StartUploadInput) {
   }
 
   const fqbn = resolveFqbn(input.boardType);
+
+  // Prepared before the job record exists so a bad credential (line breaks, a
+  // header missing the WIFI_SSID define) fails the request outright instead of
+  // leaving a queued job that can never run.
+  const { workspace, cleanupRoot } = prepareFlashWorkspace(
+    sketch.sketchDirectory,
+    input.wifiSsid,
+    input.wifiPassword
+  );
+
+  try {
+    return await launchUploadJob(input, sketch, fqbn, requestedPort, workspace, cleanupRoot);
+  } catch (error) {
+    fs.rmSync(cleanupRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function launchUploadJob(
+  input: StartUploadInput,
+  sketch: ReturnType<typeof resolveSketchPath>,
+  fqbn: string,
+  requestedPort: string,
+  workspace: string,
+  cleanupRoot: string
+) {
   const fileHash = await hashFile(sketch.filePath);
   const jobId = crypto.randomUUID();
 
@@ -389,7 +523,12 @@ export async function startSerialUpload(input: StartUploadInput) {
 
   await appendUploadLog(jobId, 'info', 'Upload job created and queued.');
 
-  void runUploadJob(jobId, sketch.sketchDirectory);
+  if (input.wifiSsid) {
+    // SSID only — the password is never written to the log or the job store.
+    await appendUploadLog(jobId, 'info', `Configuring WiFi for SSID "${input.wifiSsid}".`);
+  }
+
+  void runUploadJob(jobId, workspace, cleanupRoot);
 
   return snapshot;
 }

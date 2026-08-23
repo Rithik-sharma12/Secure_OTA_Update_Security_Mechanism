@@ -1,8 +1,11 @@
-# .github/workflows/firmware-release.yml
 # ─────────────────────────────────────────────────────────
 # Triggers on push of a version tag (v1.0.0, v2.4.1, etc.)
 # Builds the ESP32 firmware and creates a GitHub Release
 # with the .bin attached – ready for devices to pull.
+#
+# INERT UNTIL SECRETS ARE SET. See the list at the bottom of
+# this file; with none configured the build compiles against
+# empty credentials and the release is published unsigned.
 # ─────────────────────────────────────────────────────────
 
 name: Build & Release ESP32 Firmware
@@ -16,6 +19,14 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
 
+    # The PlatformIO project lives in a subdirectory. This applies to `run:`
+    # steps ONLY — `uses:` steps still resolve paths from the repo root, which
+    # is why hashFiles() and the release `files:` glob below are fully
+    # qualified.
+    defaults:
+      run:
+        working-directory: CODE/frimware_code
+
     steps:
       # ── 1. Checkout source ────────────────────────────────
       - name: Checkout
@@ -26,18 +37,26 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: pio-${{ hashFiles('platformio.ini') }}
+          # hashFiles() is always repo-root relative, regardless of
+          # defaults.run.working-directory.
+          key: pio-${{ hashFiles('CODE/frimware_code/platformio.ini') }}
 
       # ── 3. Install PlatformIO ─────────────────────────────
       - name: Install PlatformIO
         run: pip install platformio
 
       # ── 4. Inject secrets into ota_config.h ──────────────
-      # Wi-Fi and OTA secrets live in GitHub repo secrets,
-      # NOT in the source tree.
+      # Wi-Fi and OTA secrets live in GitHub repo secrets, NOT in the source
+      # tree.
+      #
+      # This MUST be written to esp32_ota_main/, not the project root:
+      # platformio.ini sets `src_dir = esp32_ota_main`, and the sketch does
+      # `#include "ota_config.h"`, which a quoted include resolves relative to
+      # the including file. A root-level copy is never seen by the compiler, so
+      # the build would silently use the checked-in YOUR_WIFI_SSID placeholder.
       - name: Create ota_config.h from secrets
         run: |
-          cat > ota_config.h <<'EOF'
+          cat > esp32_ota_main/ota_config.h <<'EOF'
           #pragma once
           #define WIFI_SSID       "${{ secrets.WIFI_SSID }}"
           #define WIFI_PASSWORD   "${{ secrets.WIFI_PASSWORD }}"
@@ -47,13 +66,30 @@ jobs:
           #define DEVICE_ID       "${{ secrets.DEVICE_ID }}"
           #define DEVICE_TYPE     "ESP32"
           #define BACKEND_API_KEY "${{ secrets.BACKEND_API_KEY }}"
+          #define OTA_NTP_SERVER_PRIMARY   "pool.ntp.org"
+          #define OTA_NTP_SERVER_SECONDARY "time.nist.gov"
+          #define OTA_CHECK_INTERVAL_SECONDS 30
           #define FIRMWARE_ENC_KEY "${{ secrets.FIRMWARE_ENC_KEY }}"
+          static const char OTA_ROOT_CA[] PROGMEM = "${{ secrets.OTA_ROOT_CA }}";
           static const char FIRMWARE_PUB_KEY[] = R"KEY(
           ${{ secrets.FIRMWARE_PUB_KEY }}
           )KEY";
           EOF
+          echo "Wrote esp32_ota_main/ota_config.h ($(wc -l < esp32_ota_main/ota_config.h) lines)"
 
-      # ── 5. Build for all board variants ───────────────────
+      # ── 5. Static analysis ────────────────────────────────
+      # There is no unit-test harness for the embedded C++, so the compile
+      # below is the real gate. This adds a cheap advisory pass on top.
+      #
+      # continue-on-error because no lint baseline exists yet — a hard gate
+      # would block every release on pre-existing warnings. Drop it once the
+      # tree is clean if you want failures to block a release.
+      - name: Static analysis (advisory)
+        continue-on-error: true
+        run: pio check --skip-packages -e esp32dev
+
+      # ── 6. Build for all board variants ───────────────────
+      # Any compile error fails the workflow and no release is published.
       - name: Build esp32dev
         run: pio run -e esp32dev
 
@@ -63,7 +99,7 @@ jobs:
       - name: Build esp32c3
         run: pio run -e esp32c3
 
-      # ── 6. Rename binaries to include board & version ─────
+      # ── 7. Rename binaries to include board & version ─────
       - name: Rename firmware binaries
         run: |
           TAG=${{ github.ref_name }}
@@ -78,19 +114,26 @@ jobs:
           cp .pio/build/esp32s3/firmware.bin   release-assets/firmware-esp32s3.bin
           cp .pio/build/esp32c3/firmware.bin   release-assets/firmware-esp32c3.bin
 
-      # ── 6.5. Sign & Encrypt firmware binaries ────────────
-      - name: Sign & Encrypt firmware binaries
-        if: secrets.FIRMWARE_ENC_KEY != '' && secrets.FIRMWARE_PRIV_KEY != ''
+      # ── 8. Sign & encrypt firmware binaries ───────────────
+      # The signing keys are checked inside the script, not in an `if:`
+      # condition: the `secrets` context is not available to step-level `if:`,
+      # and referencing it there makes the whole workflow fail to parse.
+      - name: Sign & encrypt firmware binaries
         env:
           FIRMWARE_ENC_KEY: ${{ secrets.FIRMWARE_ENC_KEY }}
           FIRMWARE_PRIV_KEY: ${{ secrets.FIRMWARE_PRIV_KEY }}
         run: |
-          echo "Signing and Encrypting firmware binaries..."
+          if [ -z "$FIRMWARE_ENC_KEY" ] || [ -z "$FIRMWARE_PRIV_KEY" ]; then
+            echo "::warning::FIRMWARE_ENC_KEY / FIRMWARE_PRIV_KEY are not set — publishing PLAIN, UNSIGNED binaries. Devices with secure OTA provisioned will reject these."
+            exit 0
+          fi
 
           if [ ${#FIRMWARE_ENC_KEY} -ne 32 ]; then
             echo "FIRMWARE_ENC_KEY must be exactly 32 characters for AES-256."
             exit 1
           fi
+
+          echo "Signing and encrypting firmware binaries..."
 
           # Save the private key to a temporary file for openssl to use
           echo "$FIRMWARE_PRIV_KEY" > priv.pem
@@ -118,14 +161,14 @@ jobs:
 
           rm priv.pem
 
-      # ── 7. Compute SHA-256 checksums ──────────────────────
+      # ── 9. Compute SHA-256 checksums ──────────────────────
       - name: Compute checksums
         run: |
           cd release-assets
           sha256sum *.bin > checksums.txt
           cat checksums.txt
 
-      # ── 8. Create GitHub Release & upload assets ──────────
+      # ── 10. Create GitHub Release & upload assets ─────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -146,11 +189,14 @@ jobs:
             ```
 
             ### OTA
-            Devices automatically pull this release within 15 minutes.
+            Devices poll the gateway every 30 s by default
+            (`OTA_CHECK_INTERVAL_SECONDS`) and pick this up on the next check.
             You can also trigger manually by holding the BOOT button for 3 s.
+          # Repo-root relative: `uses:` steps do not inherit
+          # defaults.run.working-directory.
           files: |
-            release-assets/*.bin
-            release-assets/checksums.txt
+            CODE/frimware_code/release-assets/*.bin
+            CODE/frimware_code/release-assets/checksums.txt
           draft: false
           prerelease: false
         env:
@@ -168,6 +214,11 @@ jobs:
 #   FIRMWARE_ENC_KEY – 32-character AES key (required for secure package mode)
 #   FIRMWARE_PUB_KEY – PEM public key used by device for signature verification
 #   FIRMWARE_PRIV_KEY – PEM private key used by CI for signing
+#   OTA_ROOT_CA    – optional; PEM root CA, only needed when BACKEND_URL is
+#                    https. Leave unset for plain http deployments.
+#
+# Set them with:
+#   gh secret set WIFI_SSID --repo Rithik-sharma12/Secure_OTA_Update_Security_Mechanism
 #
 # GITHUB_TOKEN is provided automatically by GitHub Actions.
 # ─────────────────────────────────────────────────────────
