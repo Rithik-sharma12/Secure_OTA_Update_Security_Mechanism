@@ -106,9 +106,11 @@ function normalizeComPortName(value: string) {
 interface DeviceConnectionCardProps {
   workflowHint?: WorkflowHint | null;
   onWorkflowHandled?: () => void;
+  otaHostHint?: string | null;
+  onOtaHostHandled?: () => void;
 }
 
-export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: DeviceConnectionCardProps) {
+export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostHint, onOtaHostHandled }: DeviceConnectionCardProps) {
   const defaultFirmwarePath = (process.env.NEXT_PUBLIC_OTA_DEFAULT_FIRMWARE_PATH || '').trim();
   const firmwarePathPlaceholder = 'C:/path/to/OTA_IOT/CODE/frimware_code/esp32_ota_main/esp32_ota_main.ino';
   const defaultOtaHost = (process.env.NEXT_PUBLIC_OTA_DEFAULT_HOST || '').trim();
@@ -576,6 +578,22 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled }: Device
       'Wireless deployment is ready for a device already on the network.'
     );
   };
+
+  React.useEffect(() => {
+    const host = otaHostHint?.trim();
+    if (!host) {
+      return;
+    }
+
+    setConnectionMode('ota');
+    setOtaHost(host);
+    updateStatus(
+      'OTA target selected',
+      'info',
+      `${host} was discovered on the local network and loaded as the OTA target. Verify the port, then check and push.`
+    );
+    onOtaHostHandled?.();
+  }, [onOtaHostHandled, otaHostHint, updateStatus]);
 
   React.useEffect(() => {
     if (workflowHint?.mode) {

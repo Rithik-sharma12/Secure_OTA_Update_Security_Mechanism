@@ -73,6 +73,29 @@ export interface ApiLogRecord {
   updatedAt?: Timestamp;
 }
 
+/**
+ * An explicit, revocable consent record. Before the dashboard is allowed to
+ * touch a host COM port or sweep the local network, a signed-in operator has to
+ * grant access to that specific resource. This is what turns "the server can
+ * technically see COM3" into "the operator authorised COM3 for this account".
+ *
+ * - resourceType 'serial'  → resourceId is a normalised COM port name (e.g. COM3)
+ * - resourceType 'network' → resourceId is a subnet in CIDR form (e.g. 192.168.1.0/24)
+ */
+export interface AccessGrantRecord {
+  _id?: string;
+  userId: string;
+  resourceType: 'serial' | 'network';
+  resourceId: string;
+  label: string;
+  grantedBy: string;
+  grantedAt: string;
+  expiresAt: number | null;
+  revoked: boolean;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+}
+
 const dbDirectory = path.resolve(process.cwd(), process.env.OTA_LOCAL_DB_DIR || '.local-db');
 fs.mkdirSync(dbDirectory, { recursive: true });
 
@@ -88,6 +111,7 @@ export const sessionsStore = createStore<SessionRecord>('sessions.db');
 export const uploadsStore = createStore<UploadRecord>('uploads.db');
 export const uploadLogsStore = createStore<UploadLogRecord>('upload-logs.db');
 export const apiLogsStore = createStore<ApiLogRecord>('api-logs.db');
+export const accessGrantsStore = createStore<AccessGrantRecord>('access-grants.db');
 
 let initialized = false;
 
@@ -102,6 +126,7 @@ export async function initializeLocalDatabase() {
     uploadsStore.load(),
     uploadLogsStore.load(),
     apiLogsStore.load(),
+    accessGrantsStore.load(),
   ]);
 
   await usersStore.ensureIndex({ fieldName: 'username', unique: true });
@@ -111,6 +136,7 @@ export async function initializeLocalDatabase() {
   await uploadLogsStore.ensureIndex({ fieldName: 'jobId' });
   await uploadLogsStore.ensureIndex({ fieldName: 'sequence' });
   await apiLogsStore.ensureIndex({ fieldName: 'route' });
+  await accessGrantsStore.ensureIndex({ fieldName: 'userId' });
 
   initialized = true;
 }

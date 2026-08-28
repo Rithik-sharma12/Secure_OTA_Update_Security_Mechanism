@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { withSecureApi } from '@/lib/api-security';
 import { startSerialUpload } from '@/lib/serial-upload-jobs';
+import { isAccessGranted } from '@/lib/host-access';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +34,20 @@ export async function POST(request: Request) {
             error: 'User session is missing.',
           },
           { status: 401 }
+        );
+      }
+
+      // Consent gate: flashing over a physical COM port requires an explicit,
+      // unexpired grant on that exact port. Detection alone is not permission.
+      const portGranted = await isAccessGranted(userId, 'serial', payload.comPort);
+      if (!portGranted) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Access to ${payload.comPort.toUpperCase()} has not been granted. Grant it under Host Access, then retry the flash.`,
+            requiresGrant: { resourceType: 'serial', resourceId: payload.comPort },
+          },
+          { status: 403 }
         );
       }
 

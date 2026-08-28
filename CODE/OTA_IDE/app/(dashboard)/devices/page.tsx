@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
 import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard';
+import { HostAccessCard } from '@/components/devices/HostAccessCard';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { formatUtcTime } from '@/lib/formatters';
 import { executeRuntimeAction } from '@/lib/runtime-actions';
@@ -56,6 +57,7 @@ function getHealthColor(health: string) {
 export default function DevicesPage() {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [workflowHint, setWorkflowHint] = React.useState<{ deviceName: string; mode: 'serial' | 'ota' } | null>(null);
+  const [otaHostHint, setOtaHostHint] = React.useState<string | null>(null);
   const [busyDeviceId, setBusyDeviceId] = React.useState<string | null>(null);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -116,9 +118,18 @@ export default function DevicesPage() {
       {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
       {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
+      <HostAccessCard
+        onDeployToHost={(ip) => {
+          setOtaHostHint(ip);
+          scrollToConnectionPanel();
+        }}
+      />
+
       <DeviceConnectionCard
         workflowHint={workflowHint}
         onWorkflowHandled={() => setWorkflowHint(null)}
+        otaHostHint={otaHostHint}
+        onOtaHostHandled={() => setOtaHostHint(null)}
       />
 
       {/* Search and Filters */}

@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from ..auth import require_write_auth
 from ..config import MAX_DEVICE_LOG_ENTRIES
 from ..deployment import (
     QUARANTINE_ASH_THRESHOLD,
@@ -32,9 +33,13 @@ from ..utils import (
 
 router = APIRouter()
 
+# Real API key guard, imported directly so Depends() captures the actual
+# function (see gateway/auth.py for why this must not be monkey-patched).
+_require_write_auth = require_write_auth
+
 
 @router.post('/api/heartbeat')
-def receive_heartbeat(payload: dict[str, Any]) -> dict[str, Any]:
+def receive_heartbeat(payload: dict[str, Any], _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     device_id = str(payload.get('device_id', '')).strip()
     if not device_id:
         raise HTTPException(status_code=400, detail='Missing device_id')
