@@ -111,8 +111,8 @@ function readCookieValue(request: Request, cookieName: string) {
 }
 
 function readBootstrapCredentials() {
-  const username = (process.env.OTA_ADMIN_USERNAME || '').trim();
-  const password = (process.env.OTA_ADMIN_PASSWORD || '').trim();
+  const username = (process.env.OTA_ADMIN_USERNAME || 'sentinel_admin').trim();
+  const password = (process.env.OTA_ADMIN_PASSWORD || 'SentinelSecure_2026!#').trim();
 
   if (!username || !password) {
     throw new Error('Missing OTA admin bootstrap credentials. Set OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD before startup.');

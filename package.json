@@ -5,9 +5,14 @@
   "description": "SentinelOTA: Secure OTA firmware update platform for heterogeneous IoT devices",
   "author": "Rithik Sharma",
   "license": "UNLICENSED",
+  "workspaces": [
+    "CODE/OTA_IDE",
+    "OTA_UI"
+  ],
   "scripts": {
-    "gateway": "cd src/implementation && python -m uvicorn gateway:app --host 0.0.0.0 --port 5000",
-    "ide": "cd CODE/OTA_IDE && pnpm dev",
-    "simulator": "cd src/implementation && python device_simulator.py ESP32"
+    "dev": "npm run dev --workspace=@sentinel-ota/ide",
+    "build": "npm run build --workspace=@sentinel-ota/ide",
+    "start": "npm run start --workspace=@sentinel-ota/ide",
+    "lint": "npm run lint --workspace=@sentinel-ota/ide"
   }
 }

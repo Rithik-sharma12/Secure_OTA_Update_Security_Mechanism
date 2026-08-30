@@ -1,3 +1,9 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '../..');
+
 /** @type {import('next').NextConfig} */
 const configuredOrigins = (process.env.OTA_ALLOWED_DEV_ORIGINS || '')
   .split(',')
@@ -17,7 +23,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   turbopack: {
-    root: process.cwd(),
+    root: repoRoot,
   },
   images: {
     unoptimized: true,

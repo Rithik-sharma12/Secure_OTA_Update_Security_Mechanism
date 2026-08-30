@@ -1,0 +1,6 @@
+{
+  "name": "SentinelOTA IDE",
+  "description": "Secure OTA firmware update platform and IDE for heterogeneous IoT device fleets",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
