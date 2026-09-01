@@ -64,3 +64,11 @@ ota_config.h
 /build/
 /out/
 /dist/
+
+# ── Signing material ──────────────────────────────
+# The gateway's Ed25519 manifest-signing keypair. The real keys live in the
+# sentinel_gateway_keys Docker volume and are generated on first boot by
+# load_or_create_signing_key(); they must never be committed. A previously
+# committed private key was rotated out — see git history.
+gateway_keys/
+*.pem
