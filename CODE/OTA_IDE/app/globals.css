@@ -3,87 +3,142 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ---------------------------------------------------------------------------
+   SecureOTA design system
+   Derived from the approved split-screen login (app/login/page.tsx, b6e99c2).
+   Source values that define this system:
+     ground        bg-slate-950            #020617
+     glow          rgba(56,189,248,0.20)   sky-400
+     glow          rgba(129,140,248,0.18)  indigo-400
+     brand tile    from-sky-400 to-indigo-500, glyph text-slate-950
+     body copy     text-slate-400          #94a3b8
+     glyph accent  text-sky-300            #7dd3fc
+     hairline      border-white/10
+   The login page is the reference; these tokens carry its language to the
+   other 20 routes. Do not reintroduce the previous plum palette.
+   --------------------------------------------------------------------------- */
+
 :root {
-  /* OTA Dark Palette */
-  --background: #0f0a12;
-  --foreground: #fbe4d8;
-  --card: #1a0f22;
-  --card-foreground: #fbe4d8;
-  --popover: #1a0f22;
-  --popover-foreground: #fbe4d8;
-  --primary: #854f6c;
-  --primary-foreground: #fbe4d8;
-  --secondary: #522b5b;
-  --secondary-foreground: #fbe4d8;
-  --muted: #2b124c;
-  --muted-foreground: #b8a0b0;
-  --accent: #dfb6b2;
-  --accent-foreground: #190019;
-  --destructive: #ff6b6b;
-  --destructive-foreground: #fbe4d8;
-  --border: #2b124c;
-  --input: #1a0f22;
-  --ring: #854f6c;
-  --chart-1: #4CAF50;
-  --chart-2: #2196F3;
-  --chart-3: #FF9800;
-  --chart-4: #F44336;
-  --chart-5: #9C27B0;
+  color-scheme: dark;
+
+  --background: #020617;
+  --foreground: #f8fafc;
+  --card: #0f172a;
+  --card-foreground: #f8fafc;
+  --popover: #0f172a;
+  --popover-foreground: #f8fafc;
+  --primary: #0ea5e9;
+  --primary-foreground: #020617;
+  --secondary: #6366f1;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #7dd3fc;
+  --accent-foreground: #020617;
+  --destructive: #fb7185;
+  --destructive-foreground: #020617;
+  --border: #1e293b;
+  --input: #0f172a;
+  --ring: #38bdf8;
+
+  /* Categorical ramp. The semantic mapping is load-bearing and must not be
+     reordered: chart-1 is success/online (bg-chart-1 in Sidebar, text-chart-1
+     in login), chart-3 is warning/updating, chart-4 is error/offline
+     (bg-chart-4, text-chart-4). Same roles as the previous Material set,
+     retuned for the slate ground and separated by lightness as well as hue so
+     they survive deuteranopia and protanopia. Pair with a non-color cue. */
+  --chart-1: #34d399;
+  --chart-2: #38bdf8;
+  --chart-3: #fbbf24;
+  --chart-4: #fb7185;
+  --chart-5: #a78bfa;
+
   --radius: 0.75rem;
-  --sidebar: #190019;
-  --sidebar-foreground: #fbe4d8;
-  --sidebar-primary: #854f6c;
-  --sidebar-primary-foreground: #fbe4d8;
-  --sidebar-accent: #dfb6b2;
-  --sidebar-accent-foreground: #190019;
-  --sidebar-border: #2b124c;
-  --sidebar-ring: #854f6c;
-  --neo-glow: rgba(223, 182, 178, 0.28);
-  --neo-border: rgba(223, 182, 178, 0.62);
-  --neo-hover-text: #fff6ef;
-  /* Glass morphism */
-  --glass-bg: rgba(25, 0, 25, 0.7);
-  --glass-border: rgba(133, 79, 108, 0.2);
+
+  --sidebar: #010409;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #0ea5e9;
+  --sidebar-primary-foreground: #020617;
+  --sidebar-accent: #7dd3fc;
+  --sidebar-accent-foreground: #020617;
+  --sidebar-border: #1e293b;
+  --sidebar-ring: #38bdf8;
+
+  /* Surfaces. --hairline is the token form of the login's border-white/10. */
+  --hairline: rgba(148, 163, 184, 0.14);
+  --hairline-strong: rgba(148, 163, 184, 0.24);
+  --surface-1: color-mix(in oklab, var(--card) 72%, transparent);
+  --surface-2: color-mix(in oklab, var(--card) 86%, transparent);
+  --surface-3: color-mix(in oklab, var(--card) 94%, transparent);
+
+  /* Two layers each: tight ambient contact shadow + wide directional cast. */
+  --elevation-1: 0 1px 2px rgba(2, 6, 23, 0.4), 0 8px 24px -12px rgba(2, 6, 23, 0.7);
+  --elevation-2: 0 2px 4px rgba(2, 6, 23, 0.45), 0 16px 40px -16px rgba(2, 6, 23, 0.75);
+  --elevation-3: 0 4px 8px rgba(2, 6, 23, 0.5), 0 28px 64px -24px rgba(2, 6, 23, 0.8);
+
+  --glow-accent: 0 0 24px -4px rgba(56, 189, 248, 0.35);
+  --glow-primary: 0 0 24px -4px rgba(99, 102, 241, 0.32);
+
+  /* The login's two ambient glows, tokenized so other surfaces can reuse the
+     exact same backdrop rather than approximating it. */
+  --ambient-glow:
+    radial-gradient(60% 60% at 20% 15%, rgba(56, 189, 248, 0.2) 0%, rgba(15, 23, 42, 0) 60%),
+    radial-gradient(50% 50% at 90% 90%, rgba(129, 140, 248, 0.18) 0%, rgba(15, 23, 42, 0) 55%);
+
+  --neo-glow: rgba(56, 189, 248, 0.28);
+  --neo-border: rgba(56, 189, 248, 0.62);
+  --neo-hover-text: #f8fafc;
+
+  --glass-bg: var(--surface-1);
+  --glass-border: var(--hairline);
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --duration-fast: 150ms;
+  --duration-base: 240ms;
+  --duration-slow: 400ms;
 }
 
+/* Theme is dark-only (ThemeProvider: defaultTheme="dark" enableSystem={false}).
+   .dark is kept as an alias so the class the provider sets resolves to the same
+   values rather than falling through to an undefined palette. */
 .dark {
-  --background: #0f0a12;
-  --foreground: #fbe4d8;
-  --card: #1a0f22;
-  --card-foreground: #fbe4d8;
-  --popover: #1a0f22;
-  --popover-foreground: #fbe4d8;
-  --primary: #854f6c;
-  --primary-foreground: #fbe4d8;
-  --secondary: #522b5b;
-  --secondary-foreground: #fbe4d8;
-  --muted: #2b124c;
-  --muted-foreground: #b8a0b0;
-  --accent: #dfb6b2;
-  --accent-foreground: #190019;
-  --destructive: #ff6b6b;
-  --destructive-foreground: #fbe4d8;
-  --border: #2b124c;
-  --input: #1a0f22;
-  --ring: #854f6c;
-  --chart-1: #4CAF50;
-  --chart-2: #2196F3;
-  --chart-3: #FF9800;
-  --chart-4: #F44336;
-  --chart-5: #9C27B0;
-  --sidebar: #190019;
-  --sidebar-foreground: #fbe4d8;
-  --sidebar-primary: #854f6c;
-  --sidebar-primary-foreground: #fbe4d8;
-  --sidebar-accent: #dfb6b2;
-  --sidebar-accent-foreground: #190019;
-  --sidebar-border: #2b124c;
-  --sidebar-ring: #854f6c;
-  --neo-glow: rgba(223, 182, 178, 0.36);
-  --neo-border: rgba(223, 182, 178, 0.74);
-  --neo-hover-text: #fffaf5;
-  --glass-bg: rgba(25, 0, 25, 0.7);
-  --glass-border: rgba(133, 79, 108, 0.2);
+  --background: #020617;
+  --foreground: #f8fafc;
+  --card: #0f172a;
+  --card-foreground: #f8fafc;
+  --popover: #0f172a;
+  --popover-foreground: #f8fafc;
+  --primary: #0ea5e9;
+  --primary-foreground: #020617;
+  --secondary: #6366f1;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #7dd3fc;
+  --accent-foreground: #020617;
+  --destructive: #fb7185;
+  --destructive-foreground: #020617;
+  --border: #1e293b;
+  --input: #0f172a;
+  --ring: #38bdf8;
+  --chart-1: #34d399;
+  --chart-2: #38bdf8;
+  --chart-3: #fbbf24;
+  --chart-4: #fb7185;
+  --chart-5: #a78bfa;
+  --sidebar: #010409;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #0ea5e9;
+  --sidebar-primary-foreground: #020617;
+  --sidebar-accent: #7dd3fc;
+  --sidebar-accent-foreground: #020617;
+  --sidebar-border: #1e293b;
+  --sidebar-ring: #38bdf8;
+  --neo-glow: rgba(56, 189, 248, 0.36);
+  --neo-border: rgba(56, 189, 248, 0.74);
+  --neo-hover-text: #ffffff;
+  --glass-bg: var(--surface-1);
+  --glass-border: var(--hairline);
 }
 
 @theme inline {
@@ -113,6 +168,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-hairline: var(--hairline);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -134,19 +190,66 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Numeric columns must not reflow as values tick. */
+  .tabular,
+  [data-slot='metric-value'] {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
-/* Glassmorphism utilities */
 @layer components {
+  /* --- Elevation ------------------------------------------------------- */
+  /* .glass has 96 call sites and is the app's dominant surface primitive;
+     .glass-sm / .glass-lg / .glow-* / .neo-hover are used once or twice each
+     and are kept as thin aliases over the same system so those call sites
+     keep working. */
+  .glass {
+    background: var(--surface-1);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--elevation-1);
+  }
+
+  .glass-sm {
+    background: color-mix(in oklab, var(--card) 55%, transparent);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--elevation-1);
+  }
+
+  .glass-lg {
+    background: var(--surface-2);
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--hairline-strong);
+    box-shadow: var(--elevation-2);
+  }
+
+  .glow-accent {
+    box-shadow: var(--glow-accent);
+  }
+
+  .glow-primary {
+    box-shadow: var(--glow-primary);
+  }
+
+  /* The login's backdrop, reusable. */
+  .ambient-glow {
+    background-image: var(--ambient-glow);
+  }
+
+  /* --- Interaction ----------------------------------------------------- */
+  /* Explicit property lists — never `transition: all`. */
   .neo-hover {
-    @apply transition-all duration-200;
+    transition-property: transform, box-shadow, color, filter;
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-out-quart);
     box-shadow: 0 0 0 0 transparent;
   }
 
   .neo-hover:hover {
     transform: translateY(-1px);
     filter: saturate(1.12) brightness(1.06);
-    box-shadow: 0 0 0 1px var(--neo-border), 0 0 24px var(--neo-glow);
+    box-shadow: 0 0 0 1px var(--neo-border), var(--glow-accent);
   }
 
   .neo-hover:hover,
@@ -170,24 +273,94 @@
     transform: translateY(0);
     box-shadow: 0 0 0 1px var(--neo-border), 0 0 14px var(--neo-glow);
   }
+}
 
-  .glass {
-    @apply bg-[rgba(25,0,25,0.7)] backdrop-blur-md border border-[rgba(133,79,108,0.2)];
+/* ---------------------------------------------------------------------------
+   Scroll-driven motion primitives.
+
+   CSS only — there is no animation library in this project and none may be
+   added. Every primitive is gated on @supports and on
+   prefers-reduced-motion: no-preference, and the resting state of every
+   element is the FINAL, visible state. The animation removes it and puts it
+   back. A browser without scroll-timeline support, or a reader who has asked
+   for reduced motion, sees the finished layout rather than a blank one.
+   --------------------------------------------------------------------------- */
+
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
   }
-  
-  .glass-sm {
-    @apply bg-[rgba(25,0,25,0.5)] backdrop-blur-sm border border-[rgba(133,79,108,0.1)];
+  to {
+    opacity: 1;
+    transform: none;
   }
-  
-  .glass-lg {
-    @apply bg-[rgba(25,0,25,0.8)] backdrop-blur-lg border border-[rgba(133,79,108,0.3)];
+}
+
+@keyframes trace-draw {
+  from {
+    stroke-dashoffset: var(--trace-length, 1000);
   }
-  
-  .glow-accent {
-    @apply shadow-[0_0_20px_rgba(223,182,178,0.2)];
+  to {
+    stroke-dashoffset: 0;
   }
-  
-  .glow-primary {
-    @apply shadow-[0_0_20px_rgba(133,79,108,0.2)];
+}
+
+@keyframes chrome-settle {
+  from {
+    box-shadow: 0 0 0 0 transparent;
+    border-color: transparent;
+  }
+  to {
+    box-shadow: var(--elevation-2);
+    border-color: var(--hairline);
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* Entry reveal for cards, rows and sections. */
+    .reveal-on-scroll {
+      animation: reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 8% cover 30%;
+    }
+
+    /* Stagger children without per-element classes. */
+    .reveal-stagger > * {
+      animation: reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 8% cover 34%;
+    }
+
+    /* Scrubbed signature trace — bind --trace-length to the path length.
+       Anchor motion where it starts, per the transform-origin rule. */
+    .trace-on-scroll {
+      stroke-dasharray: var(--trace-length, 1000);
+      animation: trace-draw linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 70%;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    /* TopBar elevation once the scroll container leaves the top.
+       Replaces a JS scroll listener. */
+    .chrome-on-scroll {
+      animation: chrome-settle linear both;
+      animation-timeline: scroll(nearest block);
+      animation-range: 0 64px;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

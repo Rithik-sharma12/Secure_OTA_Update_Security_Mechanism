@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { ThemeProvider } from '@/components/theme-provider'
@@ -8,26 +8,26 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'OTA IDE - Firmware Management Control Center',
-  description: 'Premium OTA firmware IDE for managing heterogeneous device fleets',
-  generator: 'v0.app',
+  title: 'SecureOTA — Firmware Management Control Center',
+  description: 'Secure OTA firmware delivery for heterogeneous IoT device fleets',
   icons: {
+    // Only /icon.svg is referenced. The previous entries pointed at
+    // /icon-light-32x32.png, /icon-dark-32x32.png and /apple-icon.png, none of
+    // which exist in public/ — every tab requested three 404s and fell back to
+    // a blank favicon. Add the raster variants back here when the files exist.
     icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
       {
         url: '/icon.svg',
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
   },
+}
+
+// themeColor belongs on the viewport export in the App Router; putting it in
+// metadata is deprecated and warns at build time.
+export const viewport: Viewport = {
+  themeColor: '#020617',
 }
 
 export default function RootLayout({

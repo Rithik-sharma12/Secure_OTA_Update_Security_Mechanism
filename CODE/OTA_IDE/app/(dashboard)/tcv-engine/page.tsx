@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Activity, AlertCircle, CheckCircle, Cpu, HardDrive, Zap, Shield } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { executeRuntimeAction } from '@/lib/runtime-actions';
+import { chartAxis, chartColors, chartTooltipStyle } from '@/lib/chart-theme';
 
 const performanceData = [
   { time: '00:00', verification: 0 },
@@ -86,17 +87,18 @@ export default function TCVEnginePage() {
         <CardContent>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={performanceData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              <XAxis dataKey="time" stroke="rgba(255,255,255,0.5)" style={{ fontSize: '12px' }} />
-              <YAxis stroke="rgba(255,255,255,0.5)" style={{ fontSize: '12px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartAxis.grid} />
+              <XAxis dataKey="time" stroke={chartAxis.stroke} style={{ fontSize: '12px' }} />
+              <YAxis stroke={chartAxis.stroke} style={{ fontSize: '12px' }} />
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: 'rgba(25,0,25,0.95)', 
-                  border: '1px solid rgba(133,79,108,0.3)',
-                  borderRadius: '8px'
+                  backgroundColor: chartTooltipStyle.backgroundColor, 
+                  border: chartTooltipStyle.border,
+                  borderRadius: chartTooltipStyle.borderRadius,
+                  boxShadow: chartTooltipStyle.boxShadow
                 }}
               />
-              <Line type="monotone" dataKey="verification" stroke="#854f6c" strokeWidth={2} dot={{ fill: '#854f6c', r: 4 }} name="Verifications" />
+              <Line type="monotone" dataKey="verification" stroke={chartColors.info} strokeWidth={2} dot={{ fill: chartColors.info, r: 4 }} name="Verifications" />
             </LineChart>
           </ResponsiveContainer>
         </CardContent>

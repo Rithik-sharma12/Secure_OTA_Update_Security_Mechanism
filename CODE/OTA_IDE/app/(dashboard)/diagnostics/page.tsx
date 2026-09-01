@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Activity, AlertTriangle, CheckCircle, Zap, HardDrive, Wifi, Bug } from 'lucide-react';
 import { executeRuntimeAction } from '@/lib/runtime-actions';
+import { chartAxis, chartColors, chartTooltipStyle } from '@/lib/chart-theme';
 
 const diagnosticsData = [
   { metric: 'CPU', value: 45, threshold: 80, status: 'normal', icon: <Zap className="w-4 h-4" /> },
@@ -143,19 +144,20 @@ export default function DiagnosticsPage() {
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={timeSeriesData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              <XAxis dataKey="time" stroke="rgba(255,255,255,0.5)" style={{ fontSize: '12px' }} />
-              <YAxis stroke="rgba(255,255,255,0.5)" style={{ fontSize: '12px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartAxis.grid} />
+              <XAxis dataKey="time" stroke={chartAxis.stroke} style={{ fontSize: '12px' }} />
+              <YAxis stroke={chartAxis.stroke} style={{ fontSize: '12px' }} />
               <Tooltip 
                 contentStyle={{ 
-                  backgroundColor: 'rgba(25,0,25,0.95)', 
-                  border: '1px solid rgba(133,79,108,0.3)',
-                  borderRadius: '8px'
+                  backgroundColor: chartTooltipStyle.backgroundColor, 
+                  border: chartTooltipStyle.border,
+                  borderRadius: chartTooltipStyle.borderRadius,
+                  boxShadow: chartTooltipStyle.boxShadow
                 }}
               />
-              <Line type="monotone" dataKey="cpu" stroke="#854f6c" strokeWidth={2} dot={false} name="CPU" />
-              <Line type="monotone" dataKey="memory" stroke="#4CAF50" strokeWidth={2} dot={false} name="Memory" />
-              <Line type="monotone" dataKey="disk" stroke="#FF9800" strokeWidth={2} dot={false} name="Disk" />
+              <Line type="monotone" dataKey="cpu" stroke={chartColors.info} strokeWidth={2} dot={false} name="CPU" />
+              <Line type="monotone" dataKey="memory" stroke={chartColors.success} strokeWidth={2} dot={false} name="Memory" />
+              <Line type="monotone" dataKey="disk" stroke={chartColors.warning} strokeWidth={2} dot={false} name="Disk" />
             </LineChart>
           </ResponsiveContainer>
         </CardContent>

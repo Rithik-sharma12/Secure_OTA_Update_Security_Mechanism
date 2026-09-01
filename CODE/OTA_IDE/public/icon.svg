@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" role="img" aria-label="SecureOTA">
+  <defs>
+    <linearGradient id="secureota-mark" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield: the signed-firmware boundary. Gradient matches the login brand
+       tile (from-sky-400 to-indigo-500). -->
+  <path d="M16 2 4 6.5v9.2c0 7.1 4.9 12.3 12 14.3 7.1-2 12-7.2 12-14.3V6.5L16 2Z" fill="url(#secureota-mark)"/>
+  <!-- Upward transmission arcs cut out of the shield, in the ground color the
+       login uses for the tile glyph (text-slate-950). Reads at 16px. -->
+  <circle cx="16" cy="22.2" r="2.05" fill="#020617"/>
+  <path d="M12.9 18.3a4.4 4.4 0 0 1 6.2 0" stroke="#020617" stroke-width="2.1" stroke-linecap="round"/>
+  <path d="M10.2 14.5a8.2 8.2 0 0 1 11.6 0" stroke="#020617" stroke-width="2.1" stroke-linecap="round"/>
+</svg>

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatNumber, formatUtcDate, formatUtcTime } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { chartAxis, chartColors, chartTooltipLabelStyle, chartTooltipStyle } from '@/lib/chart-theme';
 
 const weekLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -81,9 +82,9 @@ export default function DashboardPage() {
 
   const deviceStatusData = React.useMemo(
     () => [
-      { name: 'Online', value: onlineCount, color: '#4CAF50' },
-      { name: 'Offline', value: offlineCount, color: '#F44336' },
-      { name: 'Updating', value: updatingCount, color: '#FF9800' },
+      { name: 'Online', value: onlineCount, color: chartColors.success },
+      { name: 'Offline', value: offlineCount, color: chartColors.error },
+      { name: 'Updating', value: updatingCount, color: chartColors.warning },
     ],
     [offlineCount, onlineCount, updatingCount]
   );
@@ -144,15 +145,15 @@ export default function DashboardPage() {
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={metricsData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="name" stroke="rgba(255,255,255,0.5)" />
-                <YAxis stroke="rgba(255,255,255,0.5)" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartAxis.grid} />
+                <XAxis dataKey="name" stroke={chartAxis.stroke} />
+                <YAxis stroke={chartAxis.stroke} />
                 <Tooltip 
-                  contentStyle={{ backgroundColor: 'rgba(25,0,25,0.9)', border: '1px solid rgba(133,79,108,0.3)' }}
-                  labelStyle={{ color: '#fbe4d8' }}
+                  contentStyle={chartTooltipStyle}
+                  labelStyle={chartTooltipLabelStyle}
                 />
-                <Bar dataKey="successful" fill="#4CAF50" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="failed" fill="#F44336" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="successful" fill={chartColors.success} radius={[8, 8, 0, 0]} />
+                <Bar dataKey="failed" fill={chartColors.error} radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -181,8 +182,8 @@ export default function DashboardPage() {
                   ))}
                 </Pie>
                 <Tooltip 
-                  contentStyle={{ backgroundColor: 'rgba(25,0,25,0.9)', border: '1px solid rgba(133,79,108,0.3)' }}
-                  labelStyle={{ color: '#fbe4d8' }}
+                  contentStyle={chartTooltipStyle}
+                  labelStyle={chartTooltipLabelStyle}
                 />
               </PieChart>
             </ResponsiveContainer>
