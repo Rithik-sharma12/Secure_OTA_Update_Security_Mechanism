@@ -303,6 +303,66 @@
   color: var(--white);
 }
 
+/* ── Console nav ────────────────────────────────────────────────────────── */
+/* Group tab. Active carries the ember hairline and tint; inactive is bare
+   until hover. Explicit transition property list. */
+.ds-navchip {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--app-ink2, rgba(255, 255, 255, 0.72));
+  font: var(--type-body-md);
+  text-decoration: none;
+  transition-property: background-color, color, border-color;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.ds-navchip:hover {
+  background: var(--app-hover, rgba(255, 255, 255, 0.06));
+  color: var(--app-ink, #fff);
+  text-decoration: none;
+}
+.ds-navchip[data-active='true'] {
+  border-color: var(--hairline-glow);
+  background: rgba(255, 40, 3, 0.14);
+  color: var(--app-ink, #fff);
+  font: var(--type-body-strong);
+}
+
+/* Sub-nav pill. Active inverts to the light surface, per the design. */
+.ds-subchip {
+  border: 1px solid var(--app-line, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: var(--app-ink2, rgba(255, 255, 255, 0.72));
+  font: var(--type-button-cap-light);
+  text-decoration: none;
+  transition-property: background-color, color;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.ds-subchip:hover {
+  background: var(--app-hover, rgba(255, 255, 255, 0.06));
+  color: var(--app-ink, #fff);
+  text-decoration: none;
+}
+.ds-subchip[data-active='true'] {
+  background: var(--app-inv-bg, #fff);
+  color: var(--app-inv-ink, #181818);
+}
+
+.ota-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes ota-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 /* ── Scroll reveal ──────────────────────────────────────────────────────── */
 /* CSS scroll-driven only — this project has no animation library and may not
    gain one. Resting state is the FINAL visible state, so a browser without

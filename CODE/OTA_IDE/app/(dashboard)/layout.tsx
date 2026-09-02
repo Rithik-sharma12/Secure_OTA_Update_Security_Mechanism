@@ -2,8 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import Sidebar from '@/components/layout/Sidebar';
-import TopBar from '@/components/layout/TopBar';
+import TopNav from '@/components/layout/TopNav';
 import StatusBar from '@/components/layout/StatusBar';
 import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { ErrorFallback } from '@/components/error/ErrorFallback';
@@ -16,8 +15,6 @@ function DashboardShell({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = React.useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = React.useState(true);
 
   React.useEffect(() => {
@@ -68,28 +65,21 @@ function DashboardShell({
     // ds-root exposes the ember/carbon tokens (--ember, --type-*, .ota-brand)
     // to the whole console, alongside the shadcn tokens globals.css maps onto
     // the same palette.
-    <div className="ds-root flex min-h-svh flex-col bg-background md:flex-row">
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen((current) => !current)}
-        mobileOpen={isMobileSidebarOpen}
-        onMobileOpenChange={setIsMobileSidebarOpen}
-      />
+    //
+    // The design replaces the left sidebar with a horizontal group nav, so
+    // Sidebar and TopBar are no longer mounted; TopNav carries the groups, the
+    // sub-nav, density and sign-out.
+    <div className="ds-root flex min-h-svh flex-col bg-background">
+      <TopNav />
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setIsMobileSidebarOpen(true)} />
+      {/* app-canvas is the design's console ground: carbon, the backdrop
+          photo blended to ember, and a radial scrim. Content is centred in a
+          1152px column to match. */}
+      <main className="app-canvas flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="mx-auto w-full max-w-[1152px] px-6 py-7">{children}</div>
+      </main>
 
-        {/* app-canvas is the design's console ground: carbon, the backdrop
-            photo blended to ember, and a radial scrim. Content is centred in a
-            1152px column to match. */}
-        <main className="app-canvas flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="mx-auto w-full max-w-[1152px] px-4 py-5 sm:px-6 lg:px-6 lg:py-7">
-            {children}
-          </div>
-        </main>
-
-        <StatusBar />
-      </div>
+      <StatusBar />
     </div>
   );
 }
