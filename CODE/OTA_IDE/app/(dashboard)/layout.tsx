@@ -65,7 +65,10 @@ function DashboardShell({
   }
 
   return (
-    <div className="flex min-h-svh flex-col bg-background md:flex-row">
+    // ds-root exposes the ember/carbon tokens (--ember, --type-*, .ota-brand)
+    // to the whole console, alongside the shadcn tokens globals.css maps onto
+    // the same palette.
+    <div className="ds-root flex min-h-svh flex-col bg-background md:flex-row">
       <Sidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((current) => !current)}
@@ -76,8 +79,11 @@ function DashboardShell({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <TopBar onMenuClick={() => setIsMobileSidebarOpen(true)} />
 
-        <main className="flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="p-3 sm:p-4 lg:p-6">
+        {/* app-canvas is the design's console ground: carbon, the backdrop
+            photo blended to ember, and a radial scrim. Content is centred in a
+            1152px column to match. */}
+        <main className="app-canvas flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="mx-auto w-full max-w-[1152px] px-4 py-5 sm:px-6 lg:px-6 lg:py-7">
             {children}
           </div>
         </main>

@@ -23,6 +23,7 @@ import {
   FlaskConical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Logo from '@/components/brand/Logo';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import {
@@ -121,14 +122,10 @@ function NavigationContent({
         )}
       >
         <div className={cn('flex items-center gap-2', compact && 'justify-center')}>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-accent to-primary font-bold text-accent-foreground">
-            OTA
-          </div>
-          {!compact && (
-            <div>
-              <span className="block text-sm font-semibold text-sidebar-foreground">IDE</span>
-              <span className="block text-xs text-sidebar-foreground/60">Firmware Control Center</span>
-            </div>
+          {compact ? (
+            <Logo size={40} showWordmark={false} />
+          ) : (
+            <Logo size={48} wordmarkSize={20} />
           )}
         </div>
 

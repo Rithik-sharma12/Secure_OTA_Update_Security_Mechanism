@@ -2,26 +2,33 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { KeyRound, Loader2, Lock, Radio, ShieldCheck, User2, Wifi } from 'lucide-react';
+import { Activity, FileCheck2, KeyRound, Loader2, ShieldCheck, User2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiFetch, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
+import Logo from '@/components/brand/Logo';
 
-const highlights = [
+// The design's trust chain. The signature trace draws down the rail and each
+// waypoint stamps a verified tick as it passes; `delay` is when that waypoint
+// lights, timed against the 2.1s trace.
+const chain = [
+  {
+    icon: FileCheck2,
+    title: 'Signed at the source',
+    description: 'Ed25519 over sha256(image) before the binary leaves your machine.',
+    delay: '0.45s',
+  },
   {
     icon: ShieldCheck,
-    title: 'Signed, verified firmware',
-    description: 'Ed25519 manifests and RSA-verified packages gate every release before a device flashes it.',
+    title: 'Verified on the device',
+    description: 'The bootloader refuses an image whose digest does not match the manifest.',
+    delay: '1.15s',
   },
   {
-    icon: Radio,
-    title: 'Serial and OTA delivery',
-    description: 'Flash over a granted COM port or push wirelessly to devices discovered on your network.',
-  },
-  {
-    icon: Lock,
-    title: 'Explicit host access',
-    description: 'Physical ports and the local network stay locked until an operator grants access.',
+    icon: Activity,
+    title: 'Confirmed by heartbeat',
+    description: 'A release resolves only when the device itself reports the target version.',
+    delay: '1.85s',
   },
 ];
 
@@ -120,53 +127,164 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-svh w-full lg:grid-cols-2">
+    <div className="ds-root grid min-h-svh w-full lg:grid-cols-[1.05fr_0.95fr]">
       {/* Brand / value panel */}
-      <div className="relative hidden overflow-hidden bg-slate-950 lg:flex lg:flex-col lg:justify-between">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-70"
-          style={{
-            background:
-              'radial-gradient(60% 60% at 20% 15%, rgba(56,189,248,0.20) 0%, rgba(15,23,42,0) 60%), radial-gradient(50% 50% at 90% 90%, rgba(129,140,248,0.18) 0%, rgba(15,23,42,0) 55%)',
-          }}
-        />
-        <div className="relative z-10 p-10">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-500 shadow-lg shadow-sky-500/20">
-              <Wifi className="h-6 w-6 text-slate-950" />
-            </span>
-            <div>
-              <p className="text-lg font-semibold tracking-tight text-white">SecureOTA</p>
-              <p className="text-xs text-slate-400">Heterogeneous firmware delivery platform</p>
-            </div>
-          </div>
+      <div
+        className="relative hidden overflow-hidden lg:flex lg:flex-col lg:justify-between"
+        style={{
+          padding: 'clamp(24px,3.4vh,44px) clamp(28px,3.6vw,52px)',
+          gap: 'clamp(14px,2.4vh,30px)',
+          borderRight: '1px solid rgba(255,255,255,.08)',
+          backgroundColor: '#0d0d0d',
+          backgroundImage:
+            'linear-gradient(105deg,rgba(13,13,13,.95) 0%,rgba(13,13,13,.80) 46%,rgba(58,8,0,.66) 100%),linear-gradient(0deg,#ff2803,#ff2803),url("/brand/login-bg.jpg")',
+          backgroundBlendMode: 'normal,color,normal',
+          backgroundSize: 'cover,cover,cover',
+          backgroundPosition: 'center,center,center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      >
+        <div className="relative z-10">
+          <Logo size={40} wordmarkSize={24} />
         </div>
 
-        <div className="relative z-10 max-w-lg px-10">
-          <h1 className="text-3xl font-semibold leading-tight text-white">
-            Ship firmware to the field without shipping the risk.
+        <div
+          className="relative z-10 flex min-h-0 max-w-[520px] flex-col"
+          style={{ gap: 'clamp(12px,1.9vh,24px)' }}
+        >
+          <div className="type-micro-cap" style={{ color: 'var(--amber)' }}>
+            Signed · Verified · Health-gated
+          </div>
+
+          <h1
+            style={{
+              margin: 0,
+              font: '600 clamp(30px,4.4vh,52px)/1.1 var(--font-display)',
+              letterSpacing: 'var(--tracking-display)',
+              color: '#fff',
+              textWrap: 'balance',
+            }}
+          >
+            Update the fleet without{' '}
+            <span
+              style={{
+                background: 'var(--highlight-keyword)',
+                color: 'var(--highlight-keyword-ink)',
+                padding: '0 8px',
+                borderRadius: 4,
+                boxShadow: 'var(--shadow-3-glow)',
+              }}
+            >
+              bricking
+            </span>{' '}
+            it.
           </h1>
-          <p className="mt-4 text-sm leading-relaxed text-slate-400">
-            Sign in to manage device fleets, publish signed releases, and control exactly which
-            hardware ports and networks the platform is allowed to touch.
+
+          <p
+            style={{
+              margin: 0,
+              font: '400 clamp(13px,1.75vh,17px)/1.6 var(--font-ui)',
+              color: 'var(--on-dark-muted)',
+              maxWidth: '44ch',
+              textWrap: 'pretty',
+            }}
+          >
+            Every binary is signed before it leaves your machine and verified on the device before
+            it boots. The device reports back — the console never claims success on its behalf.
           </p>
 
-          <div className="mt-8 space-y-4">
-            {highlights.map((item) => (
-              <div key={item.title} className="flex gap-3">
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5">
-                  <item.icon className="h-5 w-5 text-sky-300" />
+          {/* Trust chain. The rail is a static hairline with the ember trace
+              drawn over it; both are decorative, so the SVG is aria-hidden and
+              the list below carries the meaning. */}
+          <div
+            className="relative flex flex-col pt-0.5"
+            style={{ gap: 'clamp(11px,1.7vh,20px)' }}
+          >
+            <svg
+              width="2"
+              height="188"
+              viewBox="0 0 2 188"
+              aria-hidden="true"
+              style={{ position: 'absolute', left: 19, top: 14, overflow: 'visible' }}
+            >
+              <line x1="1" y1="0" x2="1" y2="188" stroke="rgba(255,255,255,.12)" strokeWidth="2" />
+              <line
+                x1="1"
+                y1="0"
+                x2="1"
+                y2="188"
+                stroke="#ff9742"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeDasharray="188"
+                strokeDashoffset="188"
+                style={{
+                  ['--ota-len' as string]: '188',
+                  animation: 'ota-trace 2.1s var(--ease-standard) .25s forwards',
+                  filter: 'drop-shadow(0 0 6px rgba(255,151,66,.9))',
+                }}
+              />
+            </svg>
+
+            {chain.map((item) => (
+              <div key={item.title} className="relative z-10 flex items-start gap-4">
+                <span
+                  className="relative inline-flex shrink-0 items-center justify-center"
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 10,
+                    border: '1px solid rgba(255,255,255,.12)',
+                    background: 'rgba(13,13,13,.92)',
+                    color: 'var(--amber)',
+                    animation: `ota-chip .5s var(--ease-standard) ${item.delay} forwards`,
+                  }}
+                >
+                  <item.icon className="h-5 w-5" />
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex items-center justify-center"
+                    style={{
+                      position: 'absolute',
+                      right: -5,
+                      bottom: -5,
+                      width: 16,
+                      height: 16,
+                      borderRadius: '50%',
+                      background: 'var(--ember)',
+                      color: '#fff',
+                      font: '700 10px/1 var(--font-ui)',
+                      opacity: 0,
+                      animation: `ota-verify .45s var(--ease-emphasis) ${item.delay} forwards`,
+                    }}
+                  >
+                    ✓
+                  </span>
                 </span>
-                <div>
-                  <p className="text-sm font-medium text-white">{item.title}</p>
-                  <p className="text-xs leading-relaxed text-slate-400">{item.description}</p>
-                </div>
+                <span className="flex flex-col gap-1 pt-[3px]">
+                  <span className="type-body-strong" style={{ color: '#fff' }}>
+                    {item.title}
+                  </span>
+                  <span
+                    className="type-caption"
+                    style={{
+                      color: 'var(--on-dark-muted)',
+                      maxWidth: '42ch',
+                      textWrap: 'pretty',
+                    }}
+                  >
+                    {item.description}
+                  </span>
+                </span>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="relative z-10 p-10 text-xs text-slate-500">
+        <div
+          className="relative z-10 type-caption"
+          style={{ color: 'rgba(255,255,255,.5)' }}
+        >
           Protected environment · access is authenticated and audited.
         </div>
       </div>
@@ -175,10 +293,7 @@ export default function LoginPage() {
       <div className="flex items-center justify-center bg-background px-6 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-500">
-              <Wifi className="h-5 w-5 text-slate-950" />
-            </span>
-            <p className="text-lg font-semibold tracking-tight text-foreground">SecureOTA</p>
+            <Logo size={40} wordmarkSize={20} />
           </div>
 
           <div className="mb-8 space-y-1.5">

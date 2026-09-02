@@ -333,3 +333,54 @@
     }
   }
 }
+
+/* ── Login trust chain ──────────────────────────────────────────────────── */
+/* The signature trace drawing down the chain, each waypoint lighting and
+   stamping a verified tick as it passes. All four use `forwards`, so the
+   global prefers-reduced-motion rule (which collapses duration to 0.01ms)
+   lands them on their FINAL state rather than hiding them. */
+@keyframes ota-trace {
+  from {
+    stroke-dashoffset: var(--ota-len, 240);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes ota-chip {
+  from {
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: none;
+  }
+  to {
+    border-color: var(--hairline-glow);
+    box-shadow: 0 0 18px -4px rgba(255, 151, 66, 0.6);
+  }
+}
+
+@keyframes ota-verify {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ota-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
