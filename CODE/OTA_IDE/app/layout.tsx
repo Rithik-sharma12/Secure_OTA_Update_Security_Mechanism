@@ -1,11 +1,34 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Geist, Geist_Mono, Montserrat, Poppins, Source_Sans_3 } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
+
+// Ember/carbon design system faces. Montserrat carries display and UI-caps,
+// Source Sans 3 the body, Poppins the `secureota` wordmark. Exposed as CSS
+// variables that app/design-system.css reads via --font-display / --font-ui /
+// --font-brand. Only the weights the type scale actually uses are requested.
+const montserrat = Montserrat({
+  subsets: ['latin'],
+  weight: ['600', '700'],
+  variable: '--font-montserrat',
+  display: 'swap',
+});
+const sourceSans = Source_Sans_3({
+  subsets: ['latin'],
+  weight: ['400', '600'],
+  variable: '--font-source-sans',
+  display: 'swap',
+});
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['600'],
+  variable: '--font-poppins',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'SecureOTA — Firmware Management Control Center',
@@ -37,7 +60,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-svh overflow-x-hidden font-sans antialiased bg-background text-foreground">
+      <body
+        className={`${montserrat.variable} ${sourceSans.variable} ${poppins.variable} min-h-svh overflow-x-hidden font-sans antialiased bg-background text-foreground`}
+      >
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="ota-ide-theme">
           {children}
         </ThemeProvider>

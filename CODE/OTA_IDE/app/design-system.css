@@ -1,0 +1,335 @@
+/* ===========================================================================
+   SecureOTA design system — ember / carbon
+   Imported from the Claude Design project "SecureOTA Console"
+   (c9205f18-6092-4f98-b3dd-586e6de9f62f), which builds on the
+   modernize-design-system tokens (85614121-…).
+
+   SCOPING: every token here lives on `.ds-root`, NOT `:root`.
+   The console's 68 shadcn/ui components are bound to a different token set
+   (--background, --primary, --radius-lg, --font-mono …) in globals.css, and
+   several names collide — `--radius-sm|md|lg|xl` and `--font-mono` in
+   particular. Defining these globally would silently restyle all 21 console
+   routes with no visual verification. Scoping keeps the new surfaces exact
+   and the console untouched until it is converted deliberately against the
+   design's own `showApp` view.
+
+   Font families come from next/font/google in app/layout.tsx, which exposes
+   --font-montserrat, --font-source-sans and --font-poppins.
+   =========================================================================== */
+
+.ds-root {
+  /* ── Brand ramp. Never introduce a hue outside this set. ──────────────── */
+  --ember: #ff2803;
+  --ember-deep: #c02000;
+  --amber: #ff9742;
+
+  /* ── Neutrals ─────────────────────────────────────────────────────────── */
+  --void: #0d0d0d;
+  --carbon: #181818;
+  --coal: #212121;
+  --bone: #f0f0ee;
+  --white: #ffffff;
+
+  /* ── Ink (on light) ───────────────────────────────────────────────────── */
+  --ink: var(--carbon);
+  --ink-deep: var(--carbon);
+  --ink-press: var(--coal);
+  --ink-muted: #6b6b66;
+
+  /* ── Ink (on dark) ────────────────────────────────────────────────────── */
+  --on-dark-muted: rgba(255, 255, 255, 0.72);
+  --on-dark-muted-solid: #c9c6c1;
+  --on-dark-faint: rgba(255, 255, 255, 0.16);
+
+  /* ── Hairlines ────────────────────────────────────────────────────────── */
+  --hairline-cloud: #e8e4df;
+  --hairline-cool: #dcd7d2;
+  --hairline-dark: rgba(255, 255, 255, 0.12);
+  --hairline-glow: rgba(255, 40, 3, 0.34);
+
+  /* ── Semantic text ────────────────────────────────────────────────────── */
+  --text-body: var(--ink);
+  --text-heading: var(--carbon);
+  --text-muted: var(--ink-muted);
+  --text-on-dark: var(--white);
+  --text-on-dark-muted: var(--on-dark-muted);
+  --text-link-on-dark: var(--amber);
+  --text-link-on-light: var(--ember-deep);
+  --text-link-emphasis: var(--ember-deep);
+
+  /* ── Surfaces ─────────────────────────────────────────────────────────── */
+  --surface-page-dark: var(--carbon);
+  --surface-page-light: var(--bone);
+  --surface-card-dark: var(--coal);
+  --surface-card-light: var(--white);
+  --surface-card-feature: rgba(33, 33, 33, 0.62);
+  --surface-night: var(--coal);
+  --surface-void: var(--void);
+  --surface-code: var(--void);
+  --surface-ghost-on-dark: var(--on-dark-faint);
+  --surface-press-light: #f7f2ef;
+  --surface-tint: #faf8f6;
+
+  /* ── Keyword highlight (the hero's inline mark) ───────────────────────── */
+  --highlight-keyword: var(--ember);
+  --highlight-keyword-ink: var(--white);
+
+  /* ── Gradients ────────────────────────────────────────────────────────── */
+  --gradient-cta: linear-gradient(96deg, #ff2803 0%, #ff9742 100%);
+  --gradient-panel: linear-gradient(152deg, #ff9742 0%, #c02000 48%, #212121 100%);
+  --gradient-hero-sweep: linear-gradient(112deg, rgba(255, 40, 3, 0.92) 0%, #ff7a2b 15%, #212121 54%, #0d0d0d 100%);
+  --gradient-edge: linear-gradient(180deg, rgba(255, 40, 3, 0.32) 0%, rgba(255, 40, 3, 0) 100%);
+
+  /* ── Elevation ────────────────────────────────────────────────────────── */
+  --shadow-0: none;
+  --shadow-1: rgba(0, 0, 0, 0.1) 0 2px 8px 0;
+  --shadow-2: rgba(24, 24, 24, 0.12) 0 10px 24px -6px, rgba(24, 24, 24, 0.08) 0 4px 8px -4px;
+  --shadow-3-glow: rgba(255, 40, 3, 0.42) 0 0 28px 0, rgba(255, 151, 66, 0.28) 0 0 64px 0;
+  --shadow-4-press: rgba(0, 0, 0, 0.4) 0 0.35rem 1rem;
+  --shadow-panel: rgba(0, 0, 0, 0.55) 0 24px 60px -20px;
+  --shadow-input-focus: rgba(255, 40, 3, 0.18) 0 2px 10px inset;
+  --glow-edge-inset: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --glow-text: 0 0 18px rgba(255, 40, 3, 0.55);
+  --accent-glow: var(--ember);
+
+  /* ── Focus ────────────────────────────────────────────────────────────── */
+  --ring-focus: rgba(255, 40, 3, 0.55);
+  --ring-focus-solid: var(--ember);
+
+  /* ── Type families ────────────────────────────────────────────────────── */
+  --font-display: var(--font-montserrat), 'Segoe UI', system-ui, sans-serif;
+  --font-ui: var(--font-source-sans), -apple-system, system-ui, 'Segoe UI', Helvetica, sans-serif;
+  --font-brand: var(--font-poppins), var(--font-display), sans-serif;
+  --font-mono: SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ── Type scale ───────────────────────────────────────────────────────── */
+  --type-display-hero: 700 88px/1.06 var(--font-display);
+  --type-display-large: 600 60px/1.1 var(--font-display);
+  --type-heading-xl: 600 30px/1.2 var(--font-display);
+  --type-heading-lg: 600 27px/1.25 var(--font-display);
+  --type-heading-md: 600 24px/1.25 var(--font-display);
+  --type-heading-sm: 600 20px/1.3 var(--font-display);
+  --type-eyebrow: 600 14px/1.4 var(--font-display);
+  --type-button-cap: 700 14px/1.14 var(--font-display);
+  --type-button-cap-light: 600 14px/1.29 var(--font-display);
+  --type-micro-cap: 700 10px/1.8 var(--font-display);
+  --type-body-lg: 400 17px/1.85 var(--font-ui);
+  --type-body-md: 400 16px/1.55 var(--font-ui);
+  --type-body-strong: 600 16px/1.55 var(--font-ui);
+  --type-caption: 400 14px/1.5 var(--font-ui);
+  --type-code: 400 15px/1.6 var(--font-mono);
+  --type-code-strong: 700 15px/1.6 var(--font-mono);
+
+  /* ── Tracking ─────────────────────────────────────────────────────────── */
+  --tracking-display: -1.2px;
+  --tracking-caps: 1.4px;
+  --tracking-micro: 1.8px;
+  --tracking-flat: 0;
+
+  /* ── Radius ───────────────────────────────────────────────────────────── */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-xxl: 18px;
+  --radius-full: 9999px;
+
+  /* ── Spacing ──────────────────────────────────────────────────────────── */
+  --space-xxs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --space-section: 96px;
+  --space-section-mobile: 40px;
+
+  /* ── Layout ───────────────────────────────────────────────────────────── */
+  --container-max: 1152px;
+  --container-gutter: 24px;
+
+  /* ── Motion ───────────────────────────────────────────────────────────── */
+  --dur-fast: 140ms;
+  --dur-base: 240ms;
+  --dur-slow: 520ms;
+  --dur-ambient: 18s;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Brand wordmark ─────────────────────────────────────────────────────── */
+/* Renders as `secure` + `<em>ota</em>`, the em carrying the ember. Lowercase
+   is applied by the rule, so the markup can stay readable. */
+.ota-brand {
+  font-family: var(--font-brand);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.ota-brand em {
+  font-style: normal;
+  color: var(--ember);
+}
+
+/* ── Type utilities ─────────────────────────────────────────────────────── */
+.ds-root .type-display-hero {
+  font: var(--type-display-hero);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+.ds-root .type-display-large {
+  font: var(--type-display-large);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+.ds-root .type-heading-xl {
+  font: var(--type-heading-xl);
+  letter-spacing: -0.4px;
+}
+.ds-root .type-heading-lg {
+  font: var(--type-heading-lg);
+  letter-spacing: -0.5px;
+}
+.ds-root .type-heading-md {
+  font: var(--type-heading-md);
+  letter-spacing: -0.4px;
+}
+.ds-root .type-heading-sm {
+  font: var(--type-heading-sm);
+  letter-spacing: -0.2px;
+}
+.ds-root .type-body-lg {
+  font: var(--type-body-lg);
+  text-wrap: pretty;
+}
+.ds-root .type-body-md {
+  font: var(--type-body-md);
+}
+.ds-root .type-body-strong {
+  font: var(--type-body-strong);
+}
+.ds-root .type-caption {
+  font: var(--type-caption);
+}
+.ds-root .type-eyebrow {
+  font: var(--type-eyebrow);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.ds-root .type-button-cap {
+  font: var(--type-button-cap);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.ds-root .type-micro-cap {
+  font: var(--type-micro-cap);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+.ds-root .type-code {
+  font: var(--type-code);
+}
+
+/* ── Effects ────────────────────────────────────────────────────────────── */
+.ds-glow-text {
+  text-shadow: var(--glow-text);
+}
+
+.ds-root :focus-visible {
+  outline: 3px solid var(--ring-focus);
+  outline-offset: 2px;
+}
+
+.ds-root ::selection {
+  background: rgba(255, 40, 3, 0.35);
+}
+
+/* CTA — the ember→amber sweep with its glow. Explicit transition property
+   list; never `transition: all`. */
+.ds-cta {
+  border: none;
+  cursor: pointer;
+  background: var(--gradient-cta);
+  color: var(--carbon);
+  font: var(--type-button-cap);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  box-shadow: var(--shadow-3-glow);
+  transition-property: transform, box-shadow, filter;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.ds-cta:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+.ds-cta:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-4-press);
+}
+
+/* Ghost button on dark. */
+.ds-ghost {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--white);
+  font: var(--type-button-cap);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  text-decoration: none;
+  transition-property: border-color, background-color, color;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.ds-ghost:hover {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--white);
+  text-decoration: none;
+}
+
+/* Nav links on dark — the design's global `a` rule, scoped. */
+.ds-root .ds-navlink {
+  color: var(--on-dark-muted);
+  text-decoration: none;
+  transition-property: color;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-standard);
+}
+.ds-root .ds-navlink:hover {
+  color: var(--white);
+}
+
+/* ── Scroll reveal ──────────────────────────────────────────────────────── */
+/* CSS scroll-driven only — this project has no animation library and may not
+   gain one. Resting state is the FINAL visible state, so a browser without
+   scroll-timeline support (or a reader asking for reduced motion) gets the
+   finished layout rather than a blank one. */
+@keyframes ds-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .ds-reveal {
+      animation: ds-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 6% cover 28%;
+    }
+    .ds-reveal-stagger > * {
+      animation: ds-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 6% cover 32%;
+    }
+  }
+}

@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+/* Ember/carbon design system, scoped to .ds-root — see design-system.css for
+   why it is not on :root. */
+@import './design-system.css';
 
 @custom-variant dark (&:is(.dark *));
 
