@@ -53,6 +53,23 @@
 #define SECURE_AES_BLOCK_SIZE  16U
 #define SHA256_DIGEST_BYTES    32U
 
+/* Secure package framing. Defined once on the gateway side in
+ * src/implementation/gateway/package.py — keep the two in step.
+ *
+ *   v2  magic(6) | sig_alg(1) | cipher_alg(1) | sig_len(2) | IV(16) | sig | ct
+ *   v1  IV(16) | sig(256) | ct
+ *
+ * SECURE_HEADER_BYTES must stay <= SECURE_IV_BYTES: the v1 branch reads a
+ * header-sized block speculatively and reuses it as the front of the IV.
+ */
+#define SECURE_MAGIC_V2    "SOTAv2"
+#define SECURE_MAGIC_BYTES 6U
+#define SECURE_HEADER_BYTES 10U
+
+#define SECURE_SIG_ALG_RSA2048_SHA256 1U
+#define SECURE_SIG_ALG_ED25519        2U  // reserved; not verifiable in this build
+#define SECURE_CIPHER_ALG_AES256_CBC  1U
+
 /* ── Security policy ───────────────────────────────────────────────────────
  * Both switches default to the safe value and may be overridden in
  * ota_config.h for bench work only. A build with either set to 1 must never
@@ -579,24 +596,107 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
     return false;
   }
 
-  const size_t encryptedSize =
-    static_cast<size_t>(contentLength - static_cast<int>(SECURE_IV_BYTES + SECURE_SIGNATURE_BYTES));
+  WiFiClient *stream = http.getStreamPtr();
 
-  if ((encryptedSize % SECURE_AES_BLOCK_SIZE) != 0U) {
-    Serial.printf("[Update] ERROR: Encrypted payload size invalid (%u bytes)\n", static_cast<unsigned int>(encryptedSize));
+  /*
+   * Two package layouts are accepted, distinguished by a magic prefix:
+   *
+   *   v2  "SOTAv2" | sig_alg | cipher_alg | sig_len(be16) | IV | sig | ct
+   *   v1  IV | sig | ct                      (no header; the original format)
+   *
+   * v2 states its algorithms rather than leaving the device to assume them,
+   * so a package signed with something this build cannot verify is rejected
+   * outright instead of being fed to the wrong verifier. v1 is still parsed
+   * so packages built by older tooling keep working.
+   *
+   * Both layouts are defined once, on the gateway side, in
+   * src/implementation/gateway/package.py.
+   */
+  uint8_t header[SECURE_HEADER_BYTES];
+  const size_t headerRead = stream->readBytes(reinterpret_cast<char *>(header), sizeof(header));
+  if (headerRead != sizeof(header)) {
+    Serial.println("[Update] ERROR: Could not read secure package header");
     http.end();
     return false;
   }
 
-  WiFiClient *stream = http.getStreamPtr();
+  const bool isV2 = (memcmp(header, SECURE_MAGIC_V2, SECURE_MAGIC_BYTES) == 0);
+
+  size_t signatureLength = SECURE_SIGNATURE_BYTES;
+  size_t consumedHeader = 0;
 
   uint8_t iv[SECURE_IV_BYTES];
   uint8_t signature[SECURE_SIGNATURE_BYTES];
 
-  const size_t ivRead = stream->readBytes(reinterpret_cast<char *>(iv), sizeof(iv));
-  const size_t sigRead = stream->readBytes(reinterpret_cast<char *>(signature), sizeof(signature));
-  if (ivRead != sizeof(iv) || sigRead != sizeof(signature)) {
-    Serial.println("[Update] ERROR: Could not read secure package header");
+  if (isV2) {
+    const uint8_t signatureAlg = header[SECURE_MAGIC_BYTES];
+    const uint8_t cipherAlg = header[SECURE_MAGIC_BYTES + 1U];
+    signatureLength = (static_cast<size_t>(header[SECURE_MAGIC_BYTES + 2U]) << 8) |
+                      static_cast<size_t>(header[SECURE_MAGIC_BYTES + 3U]);
+
+    Serial.printf("[Update] Package format v2 (sig_alg=%u cipher_alg=%u sig_len=%u)\n",
+                  static_cast<unsigned int>(signatureAlg),
+                  static_cast<unsigned int>(cipherAlg),
+                  static_cast<unsigned int>(signatureLength));
+
+    if (signatureAlg != SECURE_SIG_ALG_RSA2048_SHA256) {
+      Serial.println("[Update] ERROR: Package signed with an algorithm this build");
+      Serial.println("[Update] ERROR: cannot verify. Refusing the update.");
+      http.end();
+      return false;
+    }
+
+    if (cipherAlg != SECURE_CIPHER_ALG_AES256_CBC) {
+      Serial.println("[Update] ERROR: Unsupported package cipher. Refusing the update.");
+      http.end();
+      return false;
+    }
+
+    if (signatureLength != SECURE_SIGNATURE_BYTES) {
+      Serial.printf("[Update] ERROR: Declared signature length %u, expected %u\n",
+                    static_cast<unsigned int>(signatureLength),
+                    static_cast<unsigned int>(SECURE_SIGNATURE_BYTES));
+      http.end();
+      return false;
+    }
+
+    consumedHeader = SECURE_HEADER_BYTES;
+
+    const size_t ivRead = stream->readBytes(reinterpret_cast<char *>(iv), sizeof(iv));
+    const size_t sigRead = stream->readBytes(reinterpret_cast<char *>(signature), signatureLength);
+    if (ivRead != sizeof(iv) || sigRead != signatureLength) {
+      Serial.println("[Update] ERROR: Truncated secure package header");
+      http.end();
+      return false;
+    }
+  } else {
+    // v1: the bytes already read are the start of the IV, not a header.
+    Serial.println("[Update] Package format v1 (legacy, no algorithm header)");
+
+    memcpy(iv, header, SECURE_HEADER_BYTES);
+    const size_t ivRemaining = SECURE_IV_BYTES - SECURE_HEADER_BYTES;
+    const size_t ivRead = stream->readBytes(
+      reinterpret_cast<char *>(iv) + SECURE_HEADER_BYTES, ivRemaining);
+    const size_t sigRead = stream->readBytes(
+      reinterpret_cast<char *>(signature), SECURE_SIGNATURE_BYTES);
+    if (ivRead != ivRemaining || sigRead != SECURE_SIGNATURE_BYTES) {
+      Serial.println("[Update] ERROR: Truncated secure package header");
+      http.end();
+      return false;
+    }
+  }
+
+  const size_t framingBytes = consumedHeader + SECURE_IV_BYTES + signatureLength;
+  if (static_cast<size_t>(contentLength) <= framingBytes) {
+    Serial.println("[Update] ERROR: Secure package has no payload after its header");
+    http.end();
+    return false;
+  }
+
+  const size_t encryptedSize = static_cast<size_t>(contentLength) - framingBytes;
+
+  if ((encryptedSize % SECURE_AES_BLOCK_SIZE) != 0U) {
+    Serial.printf("[Update] ERROR: Encrypted payload size invalid (%u bytes)\n", static_cast<unsigned int>(encryptedSize));
     http.end();
     return false;
   }

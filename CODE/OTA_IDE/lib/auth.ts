@@ -19,6 +19,9 @@ const DISALLOWED_BOOTSTRAP_PASSWORDS = new Set([
   'change-this-password',
   '123456',
   '12345678',
+  // Was the hardcoded fallback in readBootstrapCredentials(). It is in this
+  // repository's history, so it must never be accepted as a real password.
+  'sentinelsecure_2026!#',
 ]);
 
 // New constant for the session cookie name
@@ -112,7 +115,10 @@ function readCookieValue(request: Request, cookieName: string) {
 
 function readBootstrapCredentials() {
   const username = (process.env.OTA_ADMIN_USERNAME || 'sentinel_admin').trim();
-  const password = (process.env.OTA_ADMIN_PASSWORD || 'SentinelSecure_2026!#').trim();
+  // No default. The previous fallback ('SentinelSecure_2026!#') is published in
+  // this repository's git history, so every deployment that did not set
+  // OTA_ADMIN_PASSWORD shared one publicly known admin password.
+  const password = (process.env.OTA_ADMIN_PASSWORD || '').trim();
 
   if (!username || !password) {
     throw new Error('Missing OTA admin bootstrap credentials. Set OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD before startup.');

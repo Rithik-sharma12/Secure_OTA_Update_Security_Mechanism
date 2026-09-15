@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import require_write_auth  # noqa: F401  (re-exported for callers/tests)
-from .config import HOST, PORT
+from .config import CORS_ALLOW_CREDENTIALS, CORS_ALLOW_ORIGINS, HOST, PORT
 from .state import load_state
 from .routes import register_routes
 
@@ -24,13 +24,15 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     application = FastAPI(title='SentinelOTA Edge Gateway', version='2.0.0')
 
-    # CORS middleware
+    # CORS middleware. Origins come from OTA_GATEWAY_CORS_ORIGINS; credentials
+    # are enabled only when the list is explicit, because '*' with credentials
+    # is rejected by every browser anyway.
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=['*'],
-        allow_credentials=True,
-        allow_methods=['*'],
-        allow_headers=['*'],
+        allow_origins=CORS_ALLOW_ORIGINS,
+        allow_credentials=CORS_ALLOW_CREDENTIALS,
+        allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allow_headers=['Content-Type', 'Authorization', 'x-api-key'],
     )
 
     # Route modules import the real write-auth dependency directly from

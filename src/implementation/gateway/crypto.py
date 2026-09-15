@@ -108,7 +108,11 @@ def build_signing_metadata() -> tuple[dict[str, Any], dict[str, Any]]:
     key_record = {
         'id': SIGNING_KEY_ID,
         'name': 'Gateway Ed25519 Signing Key',
-        'type': 'ECDSA',
+        # Was reported as 'ECDSA'. The key is Ed25519 (EdDSA over Curve25519),
+        # which is a different algorithm with a different signature format —
+        # the key vault page was telling operators the wrong thing about the
+        # key they are trusting.
+        'type': SIGNING_ALGORITHM,
         'keySize': 256,
         'createdAt': created_at,
         'expiresAt': now_plus_days(1825),
