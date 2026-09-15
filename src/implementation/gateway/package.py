@@ -325,6 +325,40 @@ def open_package(package: bytes, public_key_pem: bytes, aes_key: str | bytes) ->
     return firmware_bytes
 
 
+def looks_like_secure_package(payload: bytes) -> bool:
+    """True when an artifact is recognisably a v2 secure package.
+
+    Detection is by magic only, and deliberately so. The obvious shape test for
+    a headerless v1 package — big enough for the IV and signature, with a
+    block-aligned remainder — is worthless in practice: IV_BYTES +
+    RSA_SIGNATURE_BYTES is 272, itself a multiple of 16, so the test collapses
+    to `len(payload) > 272 and len(payload) % 16 == 0`. ESP-IDF application
+    images are always 16-byte aligned, so that matches essentially every plain
+    firmware image ever published and would suppress `imageSha256` for all of
+    them.
+
+    A v1 package therefore cannot be detected from its bytes. Publishers mark
+    one explicitly with the `secure_package` flag on the release; this function
+    only supplies the default.
+    """
+    return payload.startswith(MAGIC_V2)
+
+
+def is_hex_digest(value: str) -> bool:
+    """True for exactly 64 hex characters — a well-formed SHA-256 digest.
+
+    A length check alone would let a 64-character typo through and be published
+    as a digest, which fails every update on a device that compares it.
+    """
+    if len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
+
+
 def firmware_sha256(firmware_bytes: bytes) -> str:
     """Lowercase hex SHA-256, matching the manifest's `sha256` field.
 

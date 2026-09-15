@@ -16,6 +16,18 @@ class ReleaseCreatePayload(BaseModel):
     compatible: list[str] = Field(default_factory=lambda: DEFAULT_COMPATIBILITY.copy())
     sourceFilePath: str | None = None
 
+    # SHA-256 of the PLAINTEXT firmware image, when the artifact is an
+    # encrypted package. The gateway has no AES key and cannot derive it, so
+    # the publisher supplies it; tools/create_secure_test_package.py prints it.
+    # Without it a device can verify the signature but cannot tell that the
+    # image matches the version the manifest offered.
+    imageSha256: str | None = None
+
+    # Marks the artifact as an encrypted package. A v1 package is byte-wise
+    # indistinguishable from a plain image, so it cannot be inferred; v2
+    # packages are detected from their magic when this is omitted.
+    securePackage: bool | None = None
+
 
 class DeploymentCreatePayload(BaseModel):
     releaseId: str | None = None

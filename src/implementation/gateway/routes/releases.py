@@ -56,6 +56,8 @@ def create_release(payload: ReleaseCreatePayload, _auth: None = Depends(_require
                 compatible=compatibility,
                 source_file_path=payload.sourceFilePath,
                 status='published',
+                image_sha256=payload.imageSha256,
+                secure_package=payload.securePackage,
             )
             STATE['updatedAt'] = utc_now_iso()
             persist_state_locked()
@@ -74,6 +76,8 @@ async def upload_release(
     description: str = Form('Firmware release uploaded from the OTA dashboard.'),
     changelog: str = Form('Security and reliability updates.'),
     compatible: str = Form(''),
+    imageSha256: str = Form('', description='SHA-256 of the plaintext image, for secure packages'),
+    securePackage: bool | None = Form(None, description='Artifact is an encrypted package'),
     _auth: None = Depends(_require_write_auth),
 ) -> dict[str, Any]:
     """Publish a release directly from an uploaded firmware binary.
@@ -109,6 +113,8 @@ async def upload_release(
                 status='published',
                 artifact_bytes=payload,
                 artifact_label=f'upload:{original_name}',
+                image_sha256=imageSha256 or None,
+                secure_package=securePackage,
             )
             STATE['updatedAt'] = utc_now_iso()
             persist_state_locked()
