@@ -6,13 +6,14 @@
   "author": "Rithik Sharma",
   "license": "UNLICENSED",
   "workspaces": [
-    "CODE/OTA_IDE",
-    "OTA_UI"
+    "CODE/OTA_IDE"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=@sentinel-ota/ide",
-    "build": "npm run build --workspace=@sentinel-ota/ide",
-    "start": "npm run start --workspace=@sentinel-ota/ide",
-    "lint": "npm run lint --workspace=@sentinel-ota/ide"
+    "dev": "npm run dev       --workspace=@sentinel-ota/ide",
+    "build": "npm run build     --workspace=@sentinel-ota/ide",
+    "start": "npm run start     --workspace=@sentinel-ota/ide",
+    "lint": "npm run lint      --workspace=@sentinel-ota/ide",
+    "typecheck": "npm run typecheck --workspace=@sentinel-ota/ide",
+    "test": "npm run test      --workspace=@sentinel-ota/ide"
   }
 }

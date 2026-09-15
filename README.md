@@ -58,7 +58,7 @@ flowchart LR
 
 | Layer | Technology |
 | --- | --- |
-| Control Plane | Next.js 16, React 19, TypeScript |
+| Control Plane | Next.js 16.3, React 19.3, TypeScript 5.9 |
 | UI | Tailwind CSS, Radix UI, Lucide, Recharts |
 | Local Auth/Data | Node crypto, NeDB (nedb-promises) |
 | Serial Engine | arduino-cli via child process |
@@ -114,7 +114,6 @@ OTA_IOT/
 |  |  |- device_simulator.py    # Device simulator for testing
 |  |  `- requirements.txt       # Python dependencies (pinned)
 |  `- server/                   # Prototype server snippets
-|- OTA_UI/                      # Additional UI workspace
 |- firmware_repo/               # Firmware metadata cache/artifacts
 |- gateway_firmware_cache/      # Gateway manifest/cache state
 |- gateway_keys/                # Gateway signing key material
