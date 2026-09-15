@@ -17,6 +17,23 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  type BrowserSerialDevice,
+  forgetSerialDevice,
+  isWebSerialSupported,
+  listAuthorizedDevices,
+  onSerialDevicesChanged,
+  requestSerialDevice,
+} from '@/lib/web-serial';
+import { useLocalAgent } from '@/lib/use-local-agent';
 import { apiFetch } from '@/lib/client-auth';
 
 type SerialPort = {
@@ -68,6 +85,77 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
   const [isScanning, setIsScanning] = React.useState(false);
   const [scanSummary, setScanSummary] = React.useState<string | null>(null);
   const [discovered, setDiscovered] = React.useState<DiscoveredHost[]>([]);
+
+  // Browser-side COM access. The dashboard's server has no USB, so the
+  // permission that matters is the browser's own Web Serial grant, which is
+  // per-device, per-origin, and asked for through the browser's picker.
+  const [browserSerial, setBrowserSerial] = React.useState<boolean | null>(null);
+  const [browserDevices, setBrowserDevices] = React.useState<BrowserSerialDevice[]>([]);
+  const [browserDevicesLoaded, setBrowserDevicesLoaded] = React.useState(false);
+  const [isRequestingSerial, setIsRequestingSerial] = React.useState(false);
+  const [serialPromptOpen, setSerialPromptOpen] = React.useState(false);
+  const [serialPromptDismissed, setSerialPromptDismissed] = React.useState(false);
+
+  // Local agent: lists COM ports by name with no browser prompt at all.
+  const { agent, ports: agentPorts, checked: agentChecked, error: agentError } = useLocalAgent();
+
+  const refreshBrowserDevices = React.useCallback(async () => {
+    const devices = await listAuthorizedDevices();
+    setBrowserDevices(devices);
+    setBrowserDevicesLoaded(true);
+    return devices;
+  }, []);
+
+  React.useEffect(() => {
+    const supported = isWebSerialSupported();
+    setBrowserSerial(supported);
+    if (!supported) return;
+    void refreshBrowserDevices();
+    return onSerialDevicesChanged(() => { void refreshBrowserDevices(); });
+  }, [refreshBrowserDevices]);
+
+  // Ask for COM access as soon as we know nothing has been granted yet. The
+  // picker itself needs a click, so the ask is a dialog with one button.
+  // Only ask when the agent is definitely absent — with the agent running the
+  // ports are already visible and a permission dialog would be noise.
+  React.useEffect(() => {
+    if (browserSerial && browserDevicesLoaded && browserDevices.length === 0 && !serialPromptDismissed && agentChecked && !agent) {
+      setSerialPromptOpen(true);
+    }
+  }, [agent, agentChecked, browserDevices.length, browserDevicesLoaded, browserSerial, serialPromptDismissed]);
+
+  const requestSerialAccess = async () => {
+    setIsRequestingSerial(true);
+    setError(null);
+    try {
+      const device = await requestSerialDevice();
+      await refreshBrowserDevices();
+      if (device) {
+        setSerialPromptOpen(false);
+        // Asked and answered — don't ask again this visit, even after a revoke.
+        setSerialPromptDismissed(true);
+      } else {
+        setError('No device was selected in the browser picker. Plug the board in and try again.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The browser refused serial access.');
+    } finally {
+      setIsRequestingSerial(false);
+    }
+  };
+
+  const revokeSerialAccess = async (device: BrowserSerialDevice) => {
+    setPendingResource(`serial:${device.id}`);
+    setError(null);
+    try {
+      await forgetSerialDevice(device);
+      await refreshBrowserDevices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to revoke serial access.');
+    } finally {
+      setPendingResource(null);
+    }
+  };
 
   const loadState = React.useCallback(async () => {
     setError(null);
@@ -180,6 +268,55 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
 
   return (
     <Card className="glass border-border/50">
+      <Dialog
+        open={serialPromptOpen}
+        onOpenChange={(open) => {
+          setSerialPromptOpen(open);
+          if (!open) setSerialPromptDismissed(true);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Usb className="h-5 w-5 text-primary" />
+              Allow COM port access?
+            </DialogTitle>
+            <DialogDescription>
+              SecureOTA needs permission to use the USB serial port your board is plugged into on this
+              computer. Your browser will show a list of connected devices — pick the board (for an ESP32
+              devkit this is usually <span className="font-mono">CP210x</span>, <span className="font-mono">CH340</span> or{' '}
+              <span className="font-mono">USB JTAG/serial</span>). Nothing is sent to the server; the permission
+              stays in your browser and can be revoked here at any time.
+            </DialogDescription>
+          </DialogHeader>
+          {error && (
+            <p className="rounded-md border border-chart-4/30 bg-chart-4/10 p-2 text-xs text-chart-4">{error}</p>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-border/60"
+              onClick={() => {
+                setSerialPromptOpen(false);
+                setSerialPromptDismissed(true);
+              }}
+            >
+              Not now
+            </Button>
+            <Button
+              type="button"
+              className="bg-primary hover:bg-primary/90"
+              disabled={isRequestingSerial}
+              onClick={() => void requestSerialAccess()}
+            >
+              {isRequestingSerial ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unlock className="mr-2 h-4 w-4" />}
+              Choose device &amp; allow
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <CardHeader className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
@@ -196,7 +333,10 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
             type="button"
             variant="outline"
             className="border-border/60"
-            onClick={() => void loadState()}
+            onClick={() => {
+              void loadState();
+              if (browserSerial) void refreshBrowserDevices();
+            }}
             disabled={isLoading}
           >
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -219,7 +359,133 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
             <p className="text-sm font-semibold text-foreground">Serial (COM) port access</p>
           </div>
 
-          {isLoading ? (
+          {/* Local agent status + its ports (no browser permission involved) */}
+          <div className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 ${agent ? 'border-chart-1/40 bg-chart-1/10' : 'border-border/60 bg-muted/20'}`}>
+            <div className="space-y-0.5">
+              <p className="text-sm text-foreground/80">
+                {!agentChecked
+                  ? 'Looking for the SecureOTA Agent on this computer…'
+                  : agent
+                    ? `SecureOTA Agent v${agent.version} connected - COM ports on this computer are detected automatically.`
+                    : 'SecureOTA Agent is not running on this computer.'}
+              </p>
+              <p className="text-xs text-foreground/55">
+                {agent
+                  ? agent.esptool
+                    ? 'Flashing and the serial monitor run through the agent.'
+                    : 'The flash tool is missing - restart the agent to install it.'
+                  : agentChecked
+                    ? 'The agent lists ports by name (COM7) and works in any browser. If it is running but not detected, Chrome may have asked "allow this site to access your local network" - choose Allow, then Refresh.'
+                    : ''}
+              </p>
+              {agentError && <p className="text-xs text-chart-4">{agentError}</p>}
+            </div>
+            {agentChecked && !agent && (
+              <div className="text-xs text-foreground/70">
+                <a className="underline" href="/agent/secureota_agent.py" download>Download the SecureOTA Agent</a>
+                {' '}and open it with Python; keep its window open.
+              </div>
+            )}
+          </div>
+
+          {agentPorts.map((port) => (
+            <div
+              key={`agent:${port.path}`}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-background/50 p-3"
+            >
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm text-foreground">{port.path}</span>
+                  <Badge className="bg-chart-1/20 text-chart-1">
+                    <Unlock className="mr-1 h-3 w-3" />
+                    Available
+                  </Badge>
+                </div>
+                <p className="truncate text-xs text-foreground/60">
+                  {port.description}
+                  {port.serialNumber ? ` · SN ${port.serialNumber}` : ''}
+                  {port.vendorId ? ` · VID ${port.vendorId}` : ''}
+                  {port.productId ? ` · PID ${port.productId}` : ''}
+                </p>
+              </div>
+              <span className="text-xs text-foreground/50">via SecureOTA Agent</span>
+            </div>
+          ))}
+
+          {agent && agentPorts.length === 0 && (
+            <p className="rounded-md border border-border/60 bg-muted/20 p-3 text-sm text-foreground/60">
+              No USB serial device is plugged into this computer. Connect the board - it appears here within a few seconds.
+            </p>
+          )}
+
+          {browserSerial && !agent ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                <div className="space-y-0.5">
+                  <p className="text-sm text-foreground/80">
+                    {!browserDevicesLoaded
+                      ? 'Checking which COM devices this browser may use…'
+                      : browserDevices.length === 0
+                        ? 'No COM port is granted to this dashboard yet.'
+                        : `${browserDevices.length} COM device(s) granted and connected to this computer.`}
+                  </p>
+                  <p className="text-xs text-foreground/55">
+                    Access is granted by your browser, per device. It persists for this site until revoked.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  className="bg-primary hover:bg-primary/90"
+                  disabled={isRequestingSerial}
+                  onClick={() => void requestSerialAccess()}
+                >
+                  {isRequestingSerial ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unlock className="mr-2 h-4 w-4" />}
+                  {browserDevices.length === 0 ? 'Grant COM port access' : 'Grant another device'}
+                </Button>
+              </div>
+
+              {browserDevices.map((device) => {
+                const resourceKey = `serial:${device.id}`;
+                const isPending = pendingResource === resourceKey;
+                return (
+                  <div
+                    key={device.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-background/50 p-3"
+                  >
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm text-foreground">{device.label}</span>
+                        <Badge className="bg-chart-1/20 text-chart-1">
+                          <Unlock className="mr-1 h-3 w-3" />
+                          Granted
+                        </Badge>
+                      </div>
+                      <p className="truncate text-xs text-foreground/60">
+                        {device.description}
+                        {device.vendorId ? ` · VID ${device.vendorId}` : ''}
+                        {device.productId ? ` · PID ${device.productId}` : ''}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-border/60"
+                      disabled={isPending}
+                      onClick={() => void revokeSerialAccess(device)}
+                    >
+                      {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
+                      Revoke
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : agent ? null : browserSerial === false && agentChecked ? (
+            <p className="rounded-md border border-chart-4/30 bg-chart-4/10 p-3 text-sm text-chart-4">
+              This browser cannot access COM ports directly (no Web Serial). Run the SecureOTA Agent above, or open the
+              dashboard in Chrome or Edge on the computer the board is plugged into.
+            </p>
+          ) : isLoading ? (
             <p className="text-sm text-foreground/50">Detecting connected devices…</p>
           ) : !state?.serial.supported ? (
             <p className="rounded-md border border-border/60 bg-muted/20 p-3 text-sm text-foreground/60">
@@ -427,8 +693,9 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
         <div className="flex items-start gap-2 text-xs text-foreground/50">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 text-chart-3" />
           <p>
-            Grants are recorded per account and expire automatically. A COM flash or network scan is
-            refused with a clear prompt until the matching resource is granted here.
+            {browserSerial
+              ? 'COM access is a browser permission on this computer and never expires until revoked. Network grants are recorded per account and expire automatically. A flash or scan is refused with a clear prompt until the matching resource is granted here.'
+              : 'Grants are recorded per account and expire automatically. A COM flash or network scan is refused with a clear prompt until the matching resource is granted here.'}
           </p>
         </div>
       </CardContent>

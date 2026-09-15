@@ -1,0 +1,52 @@
+/*
+ * ota_config.h.example  –  copy to ota_config.h and fill in.
+ *
+ *   cp ota_config.h.example ota_config.h
+ *
+ * ota_config.h is git-ignored; it holds this device's secrets. Every macro
+ * below is referenced by esp32_ota_main.ino, so none may be removed.
+ *
+ * The firmware is built for ONE deployment mode and cannot switch at runtime:
+ *   local  – BACKEND_URL is the http://<LAN-IP>:5000 value of OTA_LOCAL_URL,
+ *            OTA_ROOT_CA stays empty.
+ *   cloud  – BACKEND_URL is the https:// value of OTA_PUBLIC_URL and
+ *            OTA_ROOT_CA must hold the root that the tunnel's certificate
+ *            chains to. Generate it with:
+ *              python tools/fetch_root_ca.py gw.nyx-ctf.tech --out esp32_ota_main/root_ca.h
+ *            then replace the OTA_ROOT_CA line below with:  #include "root_ca.h"
+ * Changing mode needs a USB reflash.
+ */
+#pragma once
+
+// ── Wi-Fi ────────────────────────────────────────────────────────────────
+#define WIFI_SSID      "CHANGE_ME_SSID"
+#define WIFI_PASSWORD  "CHANGE_ME_WIFI_PASSWORD"
+
+// ── Device identity (DEVICE_ID must be unique per board; it is the registry key)
+#define DEVICE_ID        "esp32-001"
+#define DEVICE_TYPE      "ESP32"          // must match a release's `compatible` entry
+#define DEVICE_HOSTNAME  "esp32-001"
+
+// ── Gateway ──────────────────────────────────────────────────────────────
+// local:  "http://10.82.247.69:5000"     cloud:  "https://gw.nyx-ctf.tech"
+#define BACKEND_URL      "CHANGE_ME_BACKEND_URL"
+// Same value as OTA_GATEWAY_API_KEY in .env.docker (heartbeat is authenticated)
+#define BACKEND_API_KEY  "CHANGE_ME_GATEWAY_API_KEY"
+
+// ── TLS root for https:// BACKEND_URL. Empty = server NOT verified (local mode only)
+static const char OTA_ROOT_CA[] PROGMEM = "";
+
+#define OTA_NTP_SERVER_PRIMARY    "pool.ntp.org"
+#define OTA_NTP_SERVER_SECONDARY  "time.google.com"
+
+// ── ArduinoOTA push (env esp32dev_ota / ESP32_OTA_PASSWORD) ───────────────
+#define OTA_PASSWORD  "CHANGE_ME_OTA_PASSWORD"
+
+// ── Secure package mode (optional). Leave empty for plain-OTA fallback. ───
+// FIRMWARE_ENC_KEY must be exactly 32 characters when set.
+#define FIRMWARE_ENC_KEY  ""
+// PEM public key matching the RSA key used by tools/create_secure_test_package.py
+#define FIRMWARE_PUB_KEY  ""
+
+// Optional: how often to poll the manifest (default 30)
+// #define OTA_CHECK_INTERVAL_SECONDS 30

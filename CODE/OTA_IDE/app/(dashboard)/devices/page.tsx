@@ -22,6 +22,7 @@ import {
 import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
 import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard';
 import { HostAccessCard } from '@/components/devices/HostAccessCard';
+import { WebSerialFlashCard } from '@/components/devices/WebSerialFlashCard';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { formatUtcTime } from '@/lib/formatters';
 import { executeRuntimeAction } from '@/lib/runtime-actions';
@@ -125,11 +126,14 @@ export default function DevicesPage() {
         }}
       />
 
+      <WebSerialFlashCard />
+
       <DeviceConnectionCard
         workflowHint={workflowHint}
         onWorkflowHandled={() => setWorkflowHint(null)}
         otaHostHint={otaHostHint}
         onOtaHostHandled={() => setOtaHostHint(null)}
+        onBrowserPortAction={() => document.getElementById('web-serial-flash')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
 
       {/* Search and Filters */}

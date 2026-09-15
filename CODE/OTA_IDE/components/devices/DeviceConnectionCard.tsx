@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AlertCircle, CheckCircle, Download, Loader2, Play, RefreshCw, Square, Trash2, Upload, Wifi } from 'lucide-react';
+import { AlertCircle, CheckCircle, Download, Loader2, Play, RefreshCw, Square, Trash2, Upload, Usb, Wifi } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +17,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatUtcTime } from '@/lib/formatters';
 import { apiFetch } from '@/lib/client-auth';
+import {
+  isBrowserPortPath,
+  isWebSerialSupported,
+  listAuthorizedDevices,
+  onSerialDevicesChanged,
+  requestSerialDevice,
+} from '@/lib/web-serial';
+import { detectAgent, listAgentPorts } from '@/lib/local-agent';
 
 type ConnectionMode = 'serial' | 'ota';
 type StatusTone = 'success' | 'info' | 'warning' | 'error' | 'neutral';
@@ -96,7 +104,7 @@ function createDetectedPort(path: string, manufacturer: string | null, serialNum
 
 function isValidPortName(value: string) {
   const normalized = value.trim();
-  return /^COM\d+$/i.test(normalized) || /^\\\\\.\\COM\d+$/i.test(normalized) || /^\/dev\/.+/.test(normalized);
+  return /^COM\d+$/i.test(normalized) || /^\\\\\.\\COM\d+$/i.test(normalized) || /^\/dev\/.+/.test(normalized) || isBrowserPortPath(normalized);
 }
 
 function normalizeComPortName(value: string) {
@@ -108,9 +116,11 @@ interface DeviceConnectionCardProps {
   onWorkflowHandled?: () => void;
   otaHostHint?: string | null;
   onOtaHostHandled?: () => void;
+  /** Called when a browser-detected port is chosen for a flash or monitor, which the server cannot drive. */
+  onBrowserPortAction?: () => void;
 }
 
-export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostHint, onOtaHostHandled }: DeviceConnectionCardProps) {
+export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostHint, onOtaHostHandled, onBrowserPortAction }: DeviceConnectionCardProps) {
   const defaultFirmwarePath = (process.env.NEXT_PUBLIC_OTA_DEFAULT_FIRMWARE_PATH || '').trim();
   const firmwarePathPlaceholder = 'C:/path/to/OTA_IOT/CODE/frimware_code/esp32_ota_main/esp32_ota_main.ino';
   const defaultOtaHost = (process.env.NEXT_PUBLIC_OTA_DEFAULT_HOST || '').trim();
@@ -133,6 +143,16 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
   );
   const [isScanningPorts, setIsScanningPorts] = React.useState(false);
   const [portScanError, setPortScanError] = React.useState<string | null>(null);
+  // Resolved after mount so server and client render the same initial markup.
+  const [browserSerial, setBrowserSerial] = React.useState(false);
+  const [isAuthorizingPort, setIsAuthorizingPort] = React.useState(false);
+  // Where the current port list came from. Only 'server' ports can be driven
+  // by the server-side arduino-cli pipeline; the others live on the viewer's PC.
+  const [portSource, setPortSource] = React.useState<'agent' | 'browser' | 'server'>('server');
+
+  React.useEffect(() => {
+    setBrowserSerial(isWebSerialSupported());
+  }, []);
   const [lastPortScan, setLastPortScan] = React.useState<Date | null>(null);
   const [monitorEntries, setMonitorEntries] = React.useState<MonitorEntry[]>([]);
   const [isMonitorRunning, setIsMonitorRunning] = React.useState(false);
@@ -456,38 +476,62 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
     setPortScanError(null);
 
     try {
-      const response = await apiFetch('/api/serial-ports', { cache: 'no-store' });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || `Unable to scan COM ports (${response.status})`);
+      let ports: DetectedSerialPort[];
+      let serverSupported: boolean | undefined;
+      let source: 'agent' | 'browser' | 'server' = 'server';
+
+      // The local agent knows the real COM names on the viewer's machine and
+      // needs no permission prompt, so it wins whenever it is running.
+      const agent = await detectAgent();
+      if (agent) {
+        source = 'agent';
+        ports = (await listAgentPorts()).map((port) =>
+          createDetectedPort(port.path, port.description || port.manufacturer, port.serialNumber, port.vendorId, port.productId)
+        );
+      } else if (browserSerial) {
+        source = 'browser';
+        // The browser enumerates USB serial devices on the viewer's machine —
+        // the only machine the board can actually be plugged into. Only
+        // devices authorized once via the picker are listed.
+        ports = (await listAuthorizedDevices()).map((device) =>
+          createDetectedPort(device.label, device.description, null, device.vendorId, device.productId)
+        );
+      } else {
+        const response = await apiFetch('/api/serial-ports', { cache: 'no-store' });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || `Unable to scan COM ports (${response.status})`);
+        }
+
+        const payload = await response.json() as {
+          supported?: boolean;
+          ports?: Array<{
+            path: string;
+            manufacturer?: string | null;
+            serialNumber?: string | null;
+            vendorId?: string | null;
+            productId?: string | null;
+          }>;
+          detected?: boolean;
+          count?: number;
+          error?: string;
+        };
+        serverSupported = payload.supported;
+
+        ports = (payload.ports || [])
+          .filter((port) => typeof port.path === 'string' && port.path.trim().length > 0)
+          .map((port) => createDetectedPort(
+            port.path,
+            port.manufacturer ?? null,
+            port.serialNumber ?? null,
+            port.vendorId ?? null,
+            port.productId ?? null,
+          ))
+          .sort((left, right) => left.path.localeCompare(right.path, undefined, { numeric: true, sensitivity: 'base' }));
       }
 
-      const payload = await response.json() as {
-        supported?: boolean;
-        ports?: Array<{
-          path: string;
-          manufacturer?: string | null;
-          serialNumber?: string | null;
-          vendorId?: string | null;
-          productId?: string | null;
-        }>;
-        detected?: boolean;
-        count?: number;
-        error?: string;
-      };
-
-      const ports = (payload.ports || [])
-        .filter((port) => typeof port.path === 'string' && port.path.trim().length > 0)
-        .map((port) => createDetectedPort(
-          port.path,
-          port.manufacturer ?? null,
-          port.serialNumber ?? null,
-          port.vendorId ?? null,
-          port.productId ?? null,
-        ))
-        .sort((left, right) => left.path.localeCompare(right.path, undefined, { numeric: true, sensitivity: 'base' }));
-
       setAvailablePorts(ports);
+      setPortSource(source);
       setLastPortScan(new Date());
 
       const previousPorts = new Set(previousDetectedPortsRef.current.map((value) => normalizeComPortName(value)));
@@ -527,18 +571,22 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
         });
 
         updateStatus(
-          ports.length === 1 ? '1 COM port detected' : `${ports.length} COM ports detected`,
+          ports.length === 1 ? '1 USB serial device connected' : `${ports.length} USB serial devices connected`,
           'success',
-          `${ports.map((port) => port.path).join(', ')} detected on this machine. The list updates automatically when devices connect or disconnect.`
+          `${ports.map((port) => port.path).join(', ')} detected on ${source === 'server' ? 'the server' : 'this computer'}${source === 'agent' ? ' by the SecureOTA Agent' : ''}. The list updates automatically when devices connect or disconnect.`
         );
       } else {
         setSerialPort('');
         updateStatus(
-          'No COM port detected',
+          'No USB serial device detected',
           'warning',
-          payload.supported === false
-            ? 'Automatic COM detection is unavailable on this host. Use a Windows host for real COM auto-detection.'
-            : 'No connected USB serial COM devices were found. Check cable, drivers, board power, and rescan.'
+          source === 'agent'
+            ? 'The SecureOTA Agent is running but sees no serial device. Plug the board in (check cable and driver); it appears automatically.'
+            : browserSerial
+            ? 'No authorized USB serial device is plugged into this computer. Connect the board and click "Authorize USB device" once; it is then detected automatically.'
+            : serverSupported === false
+              ? 'This browser has no Web Serial support and the server has no USB access. Open the dashboard in Chrome or Edge on the machine the board is plugged into.'
+              : 'No connected USB serial COM devices were found. Check cable, drivers, board power, and rescan.'
         );
       }
 
@@ -561,7 +609,35 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
       scanningRef.current = false;
       setIsScanningPorts(false);
     }
-  }, [appendMonitorEntry, updateStatus]);
+  }, [appendMonitorEntry, browserSerial, updateStatus]);
+
+  // One-time browser prompt that grants this origin access to a USB device.
+  // Afterwards it appears in every scan and connect/disconnect event.
+  const authorizeBrowserPort = async () => {
+    setIsAuthorizingPort(true);
+    setPortScanError(null);
+    try {
+      const device = await requestSerialDevice();
+      if (!device) {
+        updateStatus('No device chosen', 'info', 'The browser port picker was closed without selecting a device.');
+        return;
+      }
+      appendMonitorEntry({
+        mode: 'serial',
+        source: device.label,
+        tone: 'success',
+        message: `Authorized ${device.description} for this dashboard.`,
+      });
+      await scanSerialPorts('manual');
+      setSerialPort(device.label);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to authorize the USB device.';
+      setPortScanError(message);
+      updateStatus('USB authorization failed', 'error', message);
+    } finally {
+      setIsAuthorizingPort(false);
+    }
+  };
 
   const handleModeChange = (value: string) => {
     const nextMode = value as ConnectionMode;
@@ -624,14 +700,22 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
 
     void scanSerialPorts('mount');
 
+    // Browser grants: the OS tells us when a device is plugged or unplugged.
+    // Agent / server: poll, since there is no push channel. The agent is on
+    // loopback so a short interval is cheap.
+    const unsubscribe = browserSerial
+      ? onSerialDevicesChanged(() => { void scanSerialPorts('manual'); })
+      : () => {};
+
     const intervalId = window.setInterval(() => {
       void scanSerialPorts('manual');
-    }, 15000);
+    }, portSource === 'agent' ? 3000 : 15000);
 
     return () => {
+      unsubscribe();
       window.clearInterval(intervalId);
     };
-  }, [connectionMode, scanSerialPorts]);
+  }, [browserSerial, connectionMode, portSource, scanSerialPorts]);
 
   const handleSerialSession = () => {
     setConnectionMode('serial');
@@ -680,6 +764,16 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
         'error',
         'Baud rate must be a numeric value. Pick one of the predefined rates or enter a valid custom rate.'
       );
+      return;
+    }
+
+    if (isBrowserPortPath(activePort) || portSource === 'agent') {
+      updateStatus(
+        'Use the browser serial monitor',
+        'info',
+        `${activePort} is attached to this computer, not the server. Open it with "Serial monitor" in the Flash over USB panel.`
+      );
+      onBrowserPortAction?.();
       return;
     }
 
@@ -735,6 +829,18 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
         'error',
         'The selected COM port is not a valid Windows serial path. Enter a valid port name and try again.'
       );
+      return;
+    }
+
+    // A browser-detected port lives on the viewer's machine; the server's
+    // arduino-cli pipeline cannot reach it. The Web Serial flasher can.
+    if (isBrowserPortPath(activePort) || portSource === 'agent') {
+      updateStatus(
+        'Flash from the browser',
+        'info',
+        `${activePort} is attached to this computer. Use "Connect & Flash" in the Flash over USB panel to write firmware to it.`
+      );
+      onBrowserPortAction?.();
       return;
     }
 
@@ -1019,16 +1125,37 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
                   <p className="text-xs font-semibold uppercase tracking-wide text-foreground/60">Auto-detection</p>
                   <p className="text-sm text-foreground/70">
                     {isScanningPorts
-                      ? 'Scanning the local machine for connected COM devices.'
+                      ? `Scanning ${portSource === 'server' ? 'the server' : 'this computer'} for connected USB serial devices.`
                       : availablePorts.length > 0
-                        ? `${availablePorts.length} port(s) detected and ready.`
-                        : 'No connected USB serial device detected on this machine.'}
+                        ? `${availablePorts.length} device(s) connected to ${portSource === 'server' ? 'the server' : 'this computer'} and ready.`
+                        : portSource === 'agent'
+                          ? 'SecureOTA Agent running - no USB serial device is plugged into this computer.'
+                          : browserSerial
+                            ? 'No authorized USB serial device is connected to this computer.'
+                            : 'No connected USB serial device detected on the server.'}
                   </p>
+                  {portSource === 'agent' ? (
+                    <p className="text-xs text-muted-foreground">
+                      Detected by the SecureOTA Agent on this computer. Ports appear with their real COM names, no permission prompt needed.
+                    </p>
+                  ) : browserSerial ? (
+                    <p className="text-xs text-muted-foreground">
+                      Detected by your browser via Web Serial. Authorize a device once; it is then found automatically whenever it is plugged in.
+                    </p>
+                  ) : null}
                 </div>
-                <Button type="button" variant="outline" className="border-border/60" onClick={() => void scanSerialPorts('manual')} disabled={isScanningPorts}>
-                  {isScanningPorts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                  {isScanningPorts ? 'Scanning' : 'Scan COM Ports'}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {browserSerial && portSource !== 'agent' && (
+                    <Button type="button" className="gap-2" onClick={() => void authorizeBrowserPort()} disabled={isAuthorizingPort || isScanningPorts}>
+                      {isAuthorizingPort ? <Loader2 className="h-4 w-4 animate-spin" /> : <Usb className="h-4 w-4" />}
+                      {isAuthorizingPort ? 'Waiting for picker' : 'Authorize USB device'}
+                    </Button>
+                  )}
+                  <Button type="button" variant="outline" className="border-border/60" onClick={() => void scanSerialPorts('manual')} disabled={isScanningPorts}>
+                    {isScanningPorts ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    {isScanningPorts ? 'Scanning' : 'Rescan'}
+                  </Button>
+                </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1100,20 +1227,25 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
                   </Select>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="serial-firmware">
-                    Firmware Path
-                  </label>
-                  <Input
-                    id="serial-firmware"
-                    value={firmwarePath}
-                    onChange={(event) => setFirmwarePath(event.target.value)}
-                    className="border-border/60 bg-background/60"
-                    placeholder={firmwarePathPlaceholder}
-                  />
-                </div>
+                {/* The sketch path and Wi-Fi provisioning feed the server-side
+                    compile pipeline, which only exists when the dashboard runs
+                    on the machine the board is plugged into. */}
+                {portSource === 'server' && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground" htmlFor="serial-firmware">
+                      Firmware Path
+                    </label>
+                    <Input
+                      id="serial-firmware"
+                      value={firmwarePath}
+                      onChange={(event) => setFirmwarePath(event.target.value)}
+                      className="border-border/60 bg-background/60"
+                      placeholder={firmwarePathPlaceholder}
+                    />
+                  </div>
+                )}
 
-                {supportsWifiProvisioning && (
+                {portSource === 'server' && supportsWifiProvisioning && (
                   <>
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-foreground" htmlFor="serial-wifi-ssid">
@@ -1154,12 +1286,21 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" className="border-border/60" onClick={handleSerialSession}>
-                  Open COM Session
-                </Button>
-                <Button type="button" className="bg-primary hover:bg-primary/90" onClick={handleSerialFlash}>
-                  Flash via COM
-                </Button>
+                {portSource === 'server' ? (
+                  <>
+                    <Button type="button" variant="outline" className="border-border/60" onClick={handleSerialSession}>
+                      Open COM Session
+                    </Button>
+                    <Button type="button" className="bg-primary hover:bg-primary/90" onClick={handleSerialFlash}>
+                      Flash via COM
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="button" className="bg-primary hover:bg-primary/90" onClick={() => onBrowserPortAction?.()} disabled={availablePorts.length === 0}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Flash or monitor {selectedPort || 'this device'}
+                  </Button>
+                )}
               </div>
 
               {uploadStatus !== 'idle' && (
@@ -1385,7 +1526,9 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
         <div className="flex items-start gap-2 text-xs text-foreground/50">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 text-chart-3" />
           <p>
-            COM detection uses real connected USB serial devices from the local host. If your board is not listed, check cable, drivers, board power, and rescan.
+            {browserSerial
+              ? 'Devices are detected by your browser on this computer. If your board is not listed, check cable, drivers and board power, then click "Authorize USB device" and pick it.'
+              : 'COM detection uses real connected USB serial devices from the local host. If your board is not listed, check cable, drivers, board power, and rescan.'}
           </p>
         </div>
       </CardContent>
