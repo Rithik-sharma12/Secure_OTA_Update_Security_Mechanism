@@ -58,7 +58,18 @@ function verifyPassword(password: string, storedHash: string) {
   }
 
   const actual = crypto.scryptSync(password, salt, 64).toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected));
+
+  // timingSafeEqual throws RangeError when the two buffers differ in length,
+  // so a stored hash that was truncated or written by an older format turned
+  // a failed login into an unhandled 500 instead of a clean rejection. A
+  // length mismatch is simply a non-match.
+  const actualBuffer = Buffer.from(actual, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  if (actualBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 function hashToken(token: string) {
@@ -115,9 +126,11 @@ function readCookieValue(request: Request, cookieName: string) {
 
 function readBootstrapCredentials() {
   const username = (process.env.OTA_ADMIN_USERNAME || 'sentinel_admin').trim();
-  // No default. The previous fallback ('SentinelSecure_2026!#') is published in
-  // this repository's git history, so every deployment that did not set
-  // OTA_ADMIN_PASSWORD shared one publicly known admin password.
+  // No default. The previous hardcoded fallback is published in this
+  // repository's git history, so every deployment that did not set
+  // OTA_ADMIN_PASSWORD shared one publicly known admin password. The value
+  // itself is on DISALLOWED_BOOTSTRAP_PASSWORDS above and is listed in
+  // docs/SECURITY_REMEDIATION.md.
   const password = (process.env.OTA_ADMIN_PASSWORD || '').trim();
 
   if (!username || !password) {

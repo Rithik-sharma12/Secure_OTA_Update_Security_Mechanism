@@ -44,9 +44,16 @@ if not API_KEY and not ALLOW_OPEN_WRITES:
 # wildcard meant any origin could drive the gateway from a victim's browser.
 # Origins are now listed explicitly; the wildcard is still reachable but only
 # without credentials.
+_DEFAULT_CORS_ORIGINS = 'http://localhost:3000,http://127.0.0.1:3000'
+
+# os.getenv's default only applies when the variable is *unset*. A .env file
+# that lists the key with no value hands back '', which would leave the origin
+# list empty and block every browser request — so treat blank as unset.
+_CORS_ORIGINS_RAW = os.getenv('OTA_GATEWAY_CORS_ORIGINS', '').strip() or _DEFAULT_CORS_ORIGINS
+
 CORS_ALLOW_ORIGINS: list[str] = [
     origin.strip().rstrip('/')
-    for origin in os.getenv('OTA_GATEWAY_CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000').split(',')
+    for origin in _CORS_ORIGINS_RAW.split(',')
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS: bool = '*' not in CORS_ALLOW_ORIGINS

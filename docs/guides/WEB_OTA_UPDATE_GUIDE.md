@@ -73,7 +73,7 @@ Edit `CODE/frimware_code/esp32_ota_main/ota_config.h`:
 #define BACKEND_URL     "http://192.168.1.20:5000"   // same LAN IP as above
 #define DEVICE_ID       "ESP32_DEVICE_001"
 #define DEVICE_TYPE     "ESP32"
-#define BACKEND_API_KEY "sentinel_ota_secure_gateway_key_2026"  // OTA_GATEWAY_API_KEY
+#define BACKEND_API_KEY "<your OTA_GATEWAY_API_KEY>"  // from .env; never commit the real value
 
 #define OTA_CHECK_INTERVAL_SECONDS 30   // how fast a publish reaches the device
 ```
