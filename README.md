@@ -125,6 +125,25 @@ Note: folder name frimware_code is currently used as-is in this repository.
 
 ## 6. Configuration
 
+### Required before first run
+
+These have no defaults. The gateway refuses to start without an API key, and
+the dashboard refuses to bootstrap its admin account without a password.
+
+```bash
+cp .env.example .env
+openssl rand -hex 32          # use the output as OTA_GATEWAY_API_KEY
+```
+
+| Variable | Why it is required |
+| --- | --- |
+| `OTA_GATEWAY_API_KEY` | Guards every gateway write endpoint, firmware publishing included. Set `OTA_GATEWAY_ALLOW_OPEN_WRITES=true` to run without one on a trusted LAN. |
+| `OTA_ADMIN_USERNAME` / `OTA_ADMIN_PASSWORD` | Bootstraps the dashboard admin. 12+ characters; demo values are rejected. |
+
+Earlier revisions defaulted both to literals committed to this repository. If
+you deployed one of those, see [docs/SECURITY_REMEDIATION.md](docs/SECURITY_REMEDIATION.md)
+— those credentials are public and must be rotated.
+
 ### OTA IDE environment
 
 Reference file:
@@ -386,6 +405,21 @@ python integration_smoke_test.py
 - Local authenticated API wrapper with structured audit logs.
 - Serial upload queue with persisted logs and incremental polling.
 - Runtime command endpoint protected by allowlist and command safety checks.
+
+## 13a. Tests and CI
+
+```bash
+# Gateway
+cd src/implementation && pip install -r requirements.txt pytest httpx && pytest
+
+# Dashboard
+npm ci && npm run lint && npm run typecheck && npm run test
+```
+
+`.github/workflows/ci.yml` runs all of the above on every push and pull
+request, across Python 3.10 and 3.13, plus a production build, a dependency
+audit, and a secret scan that blocks tracked key material and local NeDB
+stores.
 
 ## 14. Troubleshooting
 
