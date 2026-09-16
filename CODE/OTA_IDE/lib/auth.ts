@@ -7,7 +7,14 @@ import {
   type UserRecord,
 } from '@/lib/local-database';
 import { logger, errorTracker } from '@/lib/logger';
-import { OTAError, UnauthorizedError } from '@/lib/error-handler';
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  OTAError,
+  UnauthorizedError,
+  ValidationError,
+} from '@/lib/error-handler';
 
 const SESSION_TTL_HOURS = Number(process.env.OTA_SESSION_TTL_HOURS || 24);
 const DISALLOWED_BOOTSTRAP_USERNAMES = new Set(['admin', 'administrator', 'root']);
@@ -343,4 +350,335 @@ export async function listRecentUsers(limit = 10) {
     errorTracker.track(dbError, 'Auth:DBFind:ListRecentUsers');
     return []; // Return empty array on failure
   }
+}
+// ── User administration ────────────────────────────────────────────
+//
+// `role` was declared on UserRecord from the start but never compared
+// against anything, so every signed-in account had identical power. These
+// helpers are the write side of that model: they enforce the role, and they
+// enforce the two invariants that keep an operator from locking everybody
+// out — you cannot demote, deactivate or delete yourself, and the last
+// active admin cannot be demoted, deactivated or deleted by anyone.
+//
+// Every mutation that changes what an account *is* (its password, its role,
+// whether it is active) revokes that account's live sessions, so a demoted
+// or disabled user cannot keep acting on a token issued before the change.
+
+export type UserRole = UserRecord['role'];
+
+export const USER_ROLES: readonly UserRole[] = ['admin', 'operator', 'viewer'] as const;
+
+/** A user as the API returns it — never carries `passwordHash`. */
+export interface ManagedUser extends PublicUser {
+  isActive: boolean;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+}
+
+const MIN_PASSWORD_LENGTH = 12;
+const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,32}$/;
+
+function sanitizeManagedUser(user: UserRecord): ManagedUser {
+  return {
+    ...sanitizeUser(user),
+    isActive: Boolean(user.isActive),
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+}
+
+/**
+ * Same bar the bootstrap admin has to clear, applied to every password the
+ * dashboard sets afterwards — otherwise `OTA_ADMIN_PASSWORD`'s 12-character
+ * minimum is just theatre that a later "change password" walks straight past.
+ */
+export function assertPasswordPolicy(password: unknown): string {
+  const candidate = typeof password === 'string' ? password : '';
+
+  if (candidate.length < MIN_PASSWORD_LENGTH) {
+    throw new ValidationError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+  }
+
+  if (DISALLOWED_BOOTSTRAP_PASSWORDS.has(candidate.toLowerCase())) {
+    throw new ValidationError('That password is too common. Choose something unique.');
+  }
+
+  return candidate;
+}
+
+function normalizeUsername(raw: unknown): string {
+  const candidate = String(raw ?? '').trim();
+
+  if (!USERNAME_PATTERN.test(candidate)) {
+    throw new ValidationError('Username must be 3-32 characters, using letters, digits, dot, dash or underscore.');
+  }
+
+  if (DISALLOWED_BOOTSTRAP_USERNAMES.has(candidate.toLowerCase())) {
+    throw new ValidationError(`"${candidate}" is a reserved username. Pick something specific to the person.`);
+  }
+
+  return candidate;
+}
+
+function normalizeRole(raw: unknown): UserRole {
+  const candidate = String(raw ?? '').trim() as UserRole;
+
+  if (!USER_ROLES.includes(candidate)) {
+    throw new ValidationError(`Role must be one of: ${USER_ROLES.join(', ')}.`);
+  }
+
+  return candidate;
+}
+
+/** Active admins other than `excludeUserId`. Zero means the excluded one is the last. */
+async function countOtherActiveAdmins(excludeUserId: string): Promise<number> {
+  const admins = await usersStore.find({ role: 'admin', isActive: true });
+  return admins.filter((admin) => String(admin._id) !== String(excludeUserId)).length;
+}
+
+/**
+ * Revoke a user's sessions. `exceptTokenHash` keeps the caller's own session
+ * alive, which is what you want when someone changes their own password:
+ * every other device is signed out, the browser in front of you is not.
+ */
+export async function revokeSessionsForUser(userId: string, exceptTokenHash?: string) {
+  await initializeLocalDatabase();
+
+  try {
+    const sessions = await sessionsStore.find({ userId: String(userId), revoked: false });
+    const doomed = sessions.filter((session) => session.tokenHash !== exceptTokenHash);
+
+    await Promise.all(
+      doomed.map((session) => sessionsStore.update({ _id: session._id }, { $set: { revoked: true } }))
+    );
+  } catch (dbError: unknown) {
+    logger.error('Auth', `Failed to revoke sessions for user ${userId}`, dbError);
+    errorTracker.track(dbError, 'Auth:DBUpdate:RevokeUserSessions');
+    throw new OTAError('Failed to revoke existing sessions.', 'SESSION_REVOKE_FAILED', 500, { userId });
+  }
+}
+
+async function findUserOrThrow(userId: string): Promise<UserRecord> {
+  await initializeLocalDatabase();
+
+  const user = await usersStore.findOne({ _id: String(userId) });
+  if (!user) {
+    throw new NotFoundError('User not found.');
+  }
+
+  return user;
+}
+
+/** The signed-in user's own record, for the profile page. */
+export async function getManagedUser(userId: string): Promise<ManagedUser> {
+  return sanitizeManagedUser(await findUserOrThrow(userId));
+}
+
+export async function listUsers(): Promise<ManagedUser[]> {
+  await ensureDefaultAdminUser();
+
+  const users = await usersStore.find({});
+  return users
+    .map(sanitizeManagedUser)
+    .sort((left, right) => left.username.localeCompare(right.username));
+}
+
+export async function createUser(input: {
+  username: unknown;
+  password: unknown;
+  role: unknown;
+  isActive?: unknown;
+}): Promise<ManagedUser> {
+  await initializeLocalDatabase();
+
+  const username = normalizeUsername(input.username);
+  const role = normalizeRole(input.role);
+  const password = assertPasswordPolicy(input.password);
+
+  if (await usersStore.findOne({ username })) {
+    throw new ConflictError(`A user named "${username}" already exists.`);
+  }
+
+  try {
+    const created = await usersStore.insert({
+      username,
+      passwordHash: hashPassword(password),
+      role,
+      isActive: input.isActive === undefined ? true : Boolean(input.isActive),
+    });
+
+    logger.info('Auth', `Created user ${username} with role ${role}`);
+    return sanitizeManagedUser(created);
+  } catch (dbError: unknown) {
+    // The unique index on `username` is the real race-safe check; the lookup
+    // above only produces a friendlier message in the common case.
+    const message = dbError instanceof Error ? dbError.message : String(dbError);
+    if (/unique/i.test(message)) {
+      throw new ConflictError(`A user named "${username}" already exists.`);
+    }
+
+    logger.error('Auth', `Failed to create user ${username}: ${message}`, dbError);
+    errorTracker.track(dbError, 'Auth:DBInsert:CreateUser');
+    throw new OTAError('Failed to create the user.', 'DB_INSERT_FAILED', 500);
+  }
+}
+
+export async function updateUser(
+  userId: string,
+  patch: { username?: unknown; role?: unknown; isActive?: unknown; password?: unknown },
+  actingUserId: string
+): Promise<ManagedUser> {
+  const user = await findUserOrThrow(userId);
+  const isSelf = String(user._id) === String(actingUserId);
+  const changes: Partial<UserRecord> = {};
+
+  if (patch.username !== undefined) {
+    const username = normalizeUsername(patch.username);
+    if (username !== user.username) {
+      if (await usersStore.findOne({ username })) {
+        throw new ConflictError(`A user named "${username}" already exists.`);
+      }
+      changes.username = username;
+    }
+  }
+
+  if (patch.role !== undefined) {
+    const role = normalizeRole(patch.role);
+    if (role !== user.role) {
+      if (isSelf) {
+        throw new ForbiddenError('You cannot change your own role. Ask another admin.');
+      }
+      if (user.role === 'admin' && (await countOtherActiveAdmins(String(user._id))) === 0) {
+        throw new ForbiddenError('This is the last active admin. Promote another admin first.');
+      }
+      changes.role = role;
+    }
+  }
+
+  if (patch.isActive !== undefined) {
+    const isActive = Boolean(patch.isActive);
+    if (isActive !== user.isActive) {
+      if (!isActive) {
+        if (isSelf) {
+          throw new ForbiddenError('You cannot deactivate your own account.');
+        }
+        if (user.role === 'admin' && (await countOtherActiveAdmins(String(user._id))) === 0) {
+          throw new ForbiddenError('This is the last active admin. Promote another admin first.');
+        }
+      }
+      changes.isActive = isActive;
+    }
+  }
+
+  if (patch.password !== undefined) {
+    changes.passwordHash = hashPassword(assertPasswordPolicy(patch.password));
+  }
+
+  if (Object.keys(changes).length === 0) {
+    return sanitizeManagedUser(user);
+  }
+
+  try {
+    await usersStore.update({ _id: user._id }, { $set: changes });
+  } catch (dbError: unknown) {
+    const message = dbError instanceof Error ? dbError.message : String(dbError);
+    if (/unique/i.test(message)) {
+      throw new ConflictError('That username is already taken.');
+    }
+
+    logger.error('Auth', `Failed to update user ${user._id}: ${message}`, dbError);
+    errorTracker.track(dbError, 'Auth:DBUpdate:UpdateUser');
+    throw new OTAError('Failed to update the user.', 'DB_UPDATE_FAILED', 500);
+  }
+
+  // A new password, a new role, or a deactivation all mean the tokens issued
+  // under the old state must stop working.
+  if (changes.passwordHash || changes.role || changes.isActive === false) {
+    await revokeSessionsForUser(String(user._id));
+  }
+
+  logger.info('Auth', `Updated user ${user.username}: ${Object.keys(changes).join(', ')}`);
+  return sanitizeManagedUser(await findUserOrThrow(String(user._id)));
+}
+
+export async function deleteUser(userId: string, actingUserId: string): Promise<ManagedUser> {
+  const user = await findUserOrThrow(userId);
+
+  if (String(user._id) === String(actingUserId)) {
+    throw new ForbiddenError('You cannot delete your own account.');
+  }
+
+  if (user.role === 'admin' && (await countOtherActiveAdmins(String(user._id))) === 0) {
+    throw new ForbiddenError('This is the last active admin. Promote another admin first.');
+  }
+
+  try {
+    await sessionsStore.remove({ userId: String(user._id) }, { multi: true });
+    await usersStore.remove({ _id: user._id }, {});
+  } catch (dbError: unknown) {
+    logger.error('Auth', `Failed to delete user ${user._id}`, dbError);
+    errorTracker.track(dbError, 'Auth:DBRemove:DeleteUser');
+    throw new OTAError('Failed to delete the user.', 'DB_DELETE_FAILED', 500);
+  }
+
+  logger.info('Auth', `Deleted user ${user.username}`);
+  return sanitizeManagedUser(user);
+}
+
+/**
+ * Self-service credential change. Requires the current password even though
+ * the session is already authenticated, so a borrowed open tab cannot be
+ * turned into a permanent takeover.
+ */
+export async function updateOwnCredentials(
+  auth: AuthContext,
+  input: { username?: unknown; currentPassword?: unknown; newPassword?: unknown }
+): Promise<ManagedUser> {
+  const user = await findUserOrThrow(auth.user.id);
+  const wantsPasswordChange = input.newPassword !== undefined && input.newPassword !== '';
+  const wantsUsernameChange =
+    input.username !== undefined && String(input.username).trim() !== user.username;
+
+  if (!wantsPasswordChange && !wantsUsernameChange) {
+    return sanitizeManagedUser(user);
+  }
+
+  const currentPassword = typeof input.currentPassword === 'string' ? input.currentPassword : '';
+  if (!currentPassword || !verifyPassword(currentPassword, user.passwordHash)) {
+    throw new UnauthorizedError('Current password is incorrect.');
+  }
+
+  const changes: Partial<UserRecord> = {};
+
+  if (wantsUsernameChange) {
+    const username = normalizeUsername(input.username);
+    if (await usersStore.findOne({ username })) {
+      throw new ConflictError(`A user named "${username}" already exists.`);
+    }
+    changes.username = username;
+  }
+
+  if (wantsPasswordChange) {
+    changes.passwordHash = hashPassword(assertPasswordPolicy(input.newPassword));
+  }
+
+  try {
+    await usersStore.update({ _id: user._id }, { $set: changes });
+  } catch (dbError: unknown) {
+    const message = dbError instanceof Error ? dbError.message : String(dbError);
+    if (/unique/i.test(message)) {
+      throw new ConflictError('That username is already taken.');
+    }
+
+    logger.error('Auth', `Failed to update own credentials for ${user._id}: ${message}`, dbError);
+    errorTracker.track(dbError, 'Auth:DBUpdate:OwnCredentials');
+    throw new OTAError('Failed to update your account.', 'DB_UPDATE_FAILED', 500);
+  }
+
+  // Sign out every other device, but keep the session making the request.
+  if (changes.passwordHash) {
+    await revokeSessionsForUser(String(user._id), auth.tokenHash);
+  }
+
+  return sanitizeManagedUser(await findUserOrThrow(String(user._id)));
 }

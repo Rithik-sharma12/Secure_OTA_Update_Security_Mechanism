@@ -20,6 +20,7 @@ import {
   Settings,
   Shield,
   Tag,
+  UserRound,
   Zap,
 } from 'lucide-react';
 import Logo from '@/components/brand/Logo';
@@ -65,6 +66,7 @@ const groups: NavGroup[] = [
     title: 'Config',
     icon: <Settings className="h-4 w-4" />,
     items: [
+      { label: 'Profile', href: '/profile', icon: <UserRound className="h-3.5 w-3.5" /> },
       { label: 'Settings', href: '/settings', icon: <Settings className="h-3.5 w-3.5" /> },
       { label: 'Diagnostics', href: '/diagnostics', icon: <BarChart3 className="h-3.5 w-3.5" /> },
       { label: 'Dead Letter', href: '/dead-letter', icon: <AlertCircle className="h-3.5 w-3.5" /> },
@@ -216,17 +218,19 @@ export default function TopNav() {
             })}
           </div>
 
-          <span
+          <Link
+            href="/profile"
             className="inline-flex h-9 w-9 items-center justify-center rounded-full"
             style={{
               background: 'var(--gradient-cta)',
               color: 'var(--carbon)',
               font: '700 12px/1 var(--font-display)',
             }}
-            title={userName}
+            title={`${userName} — view profile`}
+            aria-label="View your profile"
           >
             {initials || 'AD'}
-          </span>
+          </Link>
 
           <button
             type="button"
