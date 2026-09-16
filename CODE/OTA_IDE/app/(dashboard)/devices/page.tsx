@@ -126,7 +126,10 @@ export default function DevicesPage() {
         }}
       />
 
-      <WebSerialFlashCard />
+      <WebSerialFlashCard
+        releases={snapshot.releases}
+        releasesStatus={isLoading ? 'loading' : snapshot.connection.reachable ? 'ready' : 'unavailable'}
+      />
 
       <DeviceConnectionCard
         workflowHint={workflowHint}

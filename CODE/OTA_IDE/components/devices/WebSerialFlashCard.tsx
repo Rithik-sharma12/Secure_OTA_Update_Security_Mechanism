@@ -17,6 +17,7 @@ import {
 } from '@/lib/web-serial';
 import { getAgentJob, openAgentMonitor, startAgentFlash } from '@/lib/local-agent';
 import { useLocalAgent } from '@/lib/use-local-agent';
+import type { Release } from '@/lib/types';
 
 type Transport = import('esptool-js').Transport;
 type ESPLoader = import('esptool-js').ESPLoader;
@@ -34,6 +35,18 @@ const IMAGE_LAYOUTS = [
 type LayoutId = (typeof IMAGE_LAYOUTS)[number]['id'];
 
 const DEVICE_TYPES = ['ESP32', 'ESP8266'] as const;
+type DeviceTypeId = (typeof DEVICE_TYPES)[number];
+
+/**
+ * Where a published release goes, per architecture. An ESP32 release is the
+ * app image alone, so it belongs at the app partition; an ESP8266 sketch
+ * binary already contains its bootloader and is written from 0x0.
+ */
+const RELEASE_FLASH_ADDRESS: Record<DeviceTypeId, number> = {
+  ESP32: 0x10000,
+  ESP8266: 0x0,
+};
+
 const FLASH_BAUD = 921600;
 const MONITOR_BAUD = 115200;
 const MAX_LOG_LINES = 400;
@@ -47,6 +60,18 @@ type FlashImage = {
   version?: string;
   sha256?: string;
 };
+
+/**
+ * Same arithmetic the gateway and the firmware use for anti-rollback, so
+ * "newest published" here means what it means everywhere else.
+ */
+function versionScore(version: string) {
+  const [major = 0, minor = 0, patch = 0] = version
+    .replace(/^v/i, '')
+    .split('.')
+    .map((part) => Number.parseInt(part, 10) || 0);
+  return major * 10000 + minor * 100 + patch;
+}
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -62,13 +87,26 @@ function formatBytes(bytes: number) {
  * card moves the flash to the machine the board is plugged into: the page is
  * served over HTTPS through the tunnel, Chrome/Edge grants the port, and the
  * bytes never touch the server except when pulling the latest release.
+ *
+ * `releases` is the gateway's published release list (from the runtime
+ * snapshot the page already polls). It is what makes the "latest published
+ * release" source honest: an architecture with nothing published is shown as
+ * such up front, instead of failing at flash time with a 404 from the gateway.
+ * `releasesStatus` keeps an empty list from being read as "nothing published"
+ * while the snapshot is still loading, or when the gateway is unreachable.
  */
-export function WebSerialFlashCard() {
+export function WebSerialFlashCard({
+  releases = [],
+  releasesStatus = 'ready',
+}: {
+  releases?: Release[];
+  releasesStatus?: 'loading' | 'ready' | 'unavailable';
+}) {
   const [supported, setSupported] = React.useState<boolean | null>(null);
   const [phase, setPhase] = React.useState<Phase>('idle');
   const [source, setSource] = React.useState<Source>('file');
   const [layout, setLayout] = React.useState<LayoutId>('app');
-  const [deviceType, setDeviceType] = React.useState<(typeof DEVICE_TYPES)[number]>('ESP32');
+  const [deviceType, setDeviceType] = React.useState<DeviceTypeId>('ESP32');
   const [file, setFile] = React.useState<File | null>(null);
   const [eraseAll, setEraseAll] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
@@ -91,6 +129,41 @@ export function WebSerialFlashCard() {
   React.useEffect(() => {
     setSupported(isWebSerialSupported());
   }, []);
+
+  // Newest published version per architecture. An empty `compatible` list is
+  // universal on the gateway side, so it counts for every architecture here.
+  const publishedByType = React.useMemo(() => {
+    const newest = new Map<DeviceTypeId, string>();
+    releases.forEach((release) => {
+      if (release.status !== 'published') return;
+      const targets: readonly string[] = release.compatible.length > 0 ? release.compatible : DEVICE_TYPES;
+      DEVICE_TYPES.forEach((entry) => {
+        if (!targets.includes(entry)) return;
+        const current = newest.get(entry);
+        if (!current || versionScore(release.version) > versionScore(current)) {
+          newest.set(entry, release.version);
+        }
+      });
+    });
+    return newest;
+  }, [releases]);
+
+  // Every architecture any published release targets — including ones this
+  // flasher cannot write — so a miss can say what the gateway does have.
+  const publishedTargets = React.useMemo(() => {
+    const targets = new Set<string>();
+    releases.forEach((release) => {
+      if (release.status !== 'published') return;
+      release.compatible.forEach((entry) => targets.add(entry));
+    });
+    return [...targets];
+  }, [releases]);
+
+  // Never leave the picker on an architecture with nothing to flash.
+  React.useEffect(() => {
+    if (publishedByType.size === 0) return;
+    setDeviceType((current) => (publishedByType.has(current) ? current : DEVICE_TYPES.find((entry) => publishedByType.has(entry)) ?? current));
+  }, [publishedByType]);
 
   const refreshDevices = React.useCallback(async () => {
     const found = await listAuthorizedDevices();
@@ -194,7 +267,9 @@ export function WebSerialFlashCard() {
 
   const busy = phase === 'connecting' || phase === 'loading' || phase === 'flashing';
   const layoutInfo = IMAGE_LAYOUTS.find((entry) => entry.id === layout) ?? IMAGE_LAYOUTS[0];
-  const canFlash = canUsePort && !busy && !monitoring && (source === 'release' || Boolean(file));
+  const publishedVersion = publishedByType.get(deviceType);
+  const canFlash =
+    canUsePort && !busy && !monitoring && (source === 'release' ? Boolean(publishedVersion) : Boolean(file));
 
   const handleFile = (selected: File | null) => {
     setError(null);
@@ -252,9 +327,10 @@ export function WebSerialFlashCard() {
       const image = await loadImage();
       if (image.bytes.byteLength === 0) throw new Error('The firmware image is empty.');
 
-      // Published releases are app images. Flashing one at 0x0 wipes the
-      // bootloader and leaves the board unable to boot.
-      const address = source === 'release' ? 0x10000 : layoutInfo.address;
+      // A published release is flashed at the offset its architecture expects
+      // (see RELEASE_FLASH_ADDRESS); writing an ESP32 app image at 0x0 would
+      // wipe the bootloader and leave the board unable to boot.
+      const address = source === 'release' ? RELEASE_FLASH_ADDRESS[deviceType] : layoutInfo.address;
       appendLog(`[web-flash] ${image.label} (${formatBytes(image.bytes.byteLength)}) -> 0x${address.toString(16)}`);
       if (image.version) appendLog(`[web-flash] release version ${image.version}`);
 
@@ -579,25 +655,57 @@ export function WebSerialFlashCard() {
           <div className="space-y-2">
             <Label>Target architecture</Label>
             <div className="flex flex-wrap gap-2">
-              {DEVICE_TYPES.map((entry) => (
-                <button
-                  key={entry}
-                  type="button"
-                  onClick={() => setDeviceType(entry)}
-                  aria-pressed={deviceType === entry}
-                  disabled={busy}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    deviceType === entry ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
-                  }`}
-                >
-                  {entry}
-                </button>
-              ))}
+              {DEVICE_TYPES.map((entry) => {
+                const version = publishedByType.get(entry);
+                return (
+                  <button
+                    key={entry}
+                    type="button"
+                    onClick={() => setDeviceType(entry)}
+                    aria-pressed={deviceType === entry}
+                    disabled={busy || !version}
+                    title={
+                      version
+                        ? `Newest published release: v${version}`
+                        : releasesStatus === 'ready'
+                          ? `No release has been published for ${entry}`
+                          : 'Published releases are not known yet'
+                    }
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      deviceType === entry ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
+                    }`}
+                  >
+                    {entry}
+                    {version ? ` · v${version}` : releasesStatus === 'ready' ? ' · nothing published' : ''}
+                  </button>
+                );
+              })}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Pulls the newest release the gateway serves for {deviceType} and writes it to the app partition
-              (0x10000). The board must already have a bootloader - first flash a blank board from a full image.
-            </p>
+            {publishedVersion ? (
+              <p className="text-xs text-muted-foreground">
+                Pulls release v{publishedVersion} for {deviceType} and writes it at 0x
+                {RELEASE_FLASH_ADDRESS[deviceType].toString(16)}
+                {deviceType === 'ESP32'
+                  ? '. The board must already have a bootloader - flash a blank board from a full image first.'
+                  : '. An ESP8266 sketch binary carries its own bootloader, so it starts at 0x0.'}
+              </p>
+            ) : releasesStatus === 'loading' ? (
+              <p className="text-xs text-muted-foreground">Checking which builds the gateway has published…</p>
+            ) : releasesStatus === 'unavailable' ? (
+              <p className="text-xs text-chart-4">
+                The gateway is unreachable, so its published releases cannot be listed. Use a local .bin file until it
+                is back.
+              </p>
+            ) : (
+              <p className="text-xs text-chart-4">
+                No firmware has been published for {deviceType}
+                {publishedTargets.length > 0
+                  ? `. Published releases target ${publishedTargets.join(', ')}.`
+                  : ' - nothing has been published yet.'}{' '}
+                Publish a build on the <a className="underline" href="/releases">Releases page</a>, or switch back to a
+                local .bin file.
+              </p>
+            )}
           </div>
         )}
 

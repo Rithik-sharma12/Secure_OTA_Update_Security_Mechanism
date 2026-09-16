@@ -18,6 +18,7 @@ from ..release import (
     create_release_locked,
     latest_release_for_device_locked,
     manifest_for_release_locked as _manifest_for_release_locked,
+    published_device_types_locked,
 )
 from ..state import STATE, STATE_LOCK, gateway_snapshot, persist_state_locked
 from ..utils import normalize_compatibility, normalize_device_type, utc_now_iso
@@ -157,11 +158,35 @@ def get_manifest(
         with STATE_LOCK:
             release = latest_release_for_device_locked(resolved_type)
             manifest = _manifest_for_release_locked(release) if release else None
+            published_types = published_device_types_locked()
+
+        # A release record with no manifest means the record survived but its
+        # cached binary did not, so nothing can be signed over real bytes. That
+        # is a gateway fault, not "nothing published" — keep the two apart so
+        # the dashboard does not tell the operator to publish a release that
+        # already exists.
+        if release and not manifest:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    'message': (
+                        f'Release {release.get("version", "unknown")} targets {resolved_type}, but its '
+                        'firmware binary is missing from the gateway cache. Re-publish the release.'
+                    ),
+                    'deviceType': resolved_type,
+                    'version': str(release.get('version', '')),
+                    'publishedDeviceTypes': published_types,
+                },
+            )
 
         if not manifest:
             raise HTTPException(
                 status_code=404,
-                detail=f'No release available for device type {resolved_type}.',
+                detail={
+                    'message': f'No release available for device type {resolved_type}.',
+                    'deviceType': resolved_type,
+                    'publishedDeviceTypes': published_types,
+                },
             )
         return manifest
 
