@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { withSecureApi } from '@/lib/api-security';
+import { OPERATOR_ROLES, withSecureApi } from '@/lib/api-security';
 import { auditDb, webhooksDb } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -70,6 +70,6 @@ export async function POST(request: Request, context: RouteContext) {
         message: 'Webhook queued for retry.',
       });
     },
-    { requireAuth: true }
+    { requireRole: OPERATOR_ROLES }
   );
 }

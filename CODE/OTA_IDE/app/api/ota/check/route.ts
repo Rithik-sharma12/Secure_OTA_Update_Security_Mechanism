@@ -1,7 +1,7 @@
 import net from 'node:net';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { withSecureApi } from '@/lib/api-security';
+import { OPERATOR_ROLES, withSecureApi } from '@/lib/api-security';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -126,6 +126,6 @@ export async function POST(request: Request) {
         checkedAt: new Date().toISOString(),
       });
     },
-    { requireAuth: true }
+    { requireRole: OPERATOR_ROLES }
   );
 }

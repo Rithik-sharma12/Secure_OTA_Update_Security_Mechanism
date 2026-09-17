@@ -21,6 +21,21 @@ type SecureApiOptions = {
   requireRole?: readonly UserRole[];
 };
 
+/**
+ * The role policy, in one place.
+ *
+ * Reading is open to anyone signed in, so read-only routes keep plain
+ * `requireAuth`. These two sets cover the writes: fleet operations a trusted
+ * operator runs day to day, and the control-plane actions that can reach the
+ * host or other people's accounts.
+ */
+
+/** Publish, flash, deploy, retry — changes the fleet, not the platform. */
+export const OPERATOR_ROLES = ['admin', 'operator'] as const;
+
+/** Accounts, host command execution, network scanning. */
+export const ADMIN_ROLES = ['admin'] as const;
+
 export async function withSecureApi(
   request: Request,
   routeName: string,
@@ -78,7 +93,13 @@ export async function withSecureApi(
     // An OTAError carries the status the handler meant (400 validation, 403
     // forbidden, 409 conflict...). Flattening those to 500 would tell the UI
     // "server broke" when the real answer is "that username is taken".
-    statusCode = error instanceof OTAError ? error.statusCode : 500;
+    //
+    // A schema rejection is the same story: several routes parse their body
+    // with zod and let it throw, which is malformed input, not a server
+    // fault. Matched by name rather than `instanceof` so a second copy of zod
+    // in the tree cannot silently turn these back into 500s.
+    const isSchemaError = error instanceof Error && error.name === 'ZodError';
+    statusCode = error instanceof OTAError ? error.statusCode : isSchemaError ? 400 : 500;
 
     if (statusCode >= 500) {
       logger.error('ApiSecurity', `Unhandled error in secure API route ${routeName}`, error);
