@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/error/ErrorBoundary';
 import { ErrorFallback } from '@/components/error/ErrorFallback';
 import { logger } from '@/lib/logger';
 import { apiFetch, clearAuthSession, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
+import { CurrentUserProvider } from '@/lib/use-current-user';
 
 function DashboardShell({
   children,
@@ -16,6 +17,9 @@ function DashboardShell({
 }) {
   const router = useRouter();
   const [isCheckingAuth, setIsCheckingAuth] = React.useState(true);
+  // The account this session actually belongs to, straight from the
+  // validation below — what the role-aware UI reads, rather than localStorage.
+  const [currentUser, setCurrentUser] = React.useState<StoredAuthUser | null>(null);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -36,6 +40,7 @@ function DashboardShell({
 
         persistAuthSession(payload.user);
         if (isMounted) {
+          setCurrentUser(payload.user);
           setIsCheckingAuth(false);
         }
       } catch {
@@ -69,18 +74,20 @@ function DashboardShell({
     // The design replaces the left sidebar with a horizontal group nav, so
     // Sidebar and TopBar are no longer mounted; TopNav carries the groups, the
     // sub-nav, density and sign-out.
-    <div className="ds-root flex min-h-svh flex-col bg-background">
-      <TopNav />
+    <CurrentUserProvider user={currentUser}>
+      <div className="ds-root flex min-h-svh flex-col bg-background">
+        <TopNav />
 
-      {/* app-canvas is the design's console ground: carbon, the backdrop
-          photo blended to ember, and a radial scrim. Content is centred in a
-          1152px column to match. */}
-      <main className="app-canvas flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto w-full max-w-[1152px] px-6 py-7">{children}</div>
-      </main>
+        {/* app-canvas is the design's console ground: carbon, the backdrop
+            photo blended to ember, and a radial scrim. Content is centred in
+            a 1152px column to match. */}
+        <main className="app-canvas flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="mx-auto w-full max-w-[1152px] px-6 py-7">{children}</div>
+        </main>
 
-      <StatusBar />
-    </div>
+        <StatusBar />
+      </div>
+    </CurrentUserProvider>
   );
 }
 

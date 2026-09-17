@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { withSecureApi } from '@/lib/api-security';
+import { ADMIN_ROLES, withSecureApi } from '@/lib/api-security';
 import { getLocalNetworks, isAccessGranted, toNetworkCidr } from '@/lib/host-access';
 import { scanNetwork } from '@/lib/network-discovery';
 
@@ -47,6 +47,6 @@ export async function POST(request: Request) {
       const result = await scanNetwork(cidr);
       return NextResponse.json({ ok: true, ...result });
     },
-    { requireAuth: true }
+    { requireRole: ADMIN_ROLES }
   );
 }

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import (
+    ALLOWED_DEVICE_TYPES,
     DEFAULT_RELEASE_ARTIFACT,
     FIRMWARE_CACHE_DIR,
     MANIFEST_FILE,
@@ -175,6 +176,30 @@ def latest_release_for_device_locked(device_type: str) -> dict[str, Any] | None:
             return release
 
     return None
+
+
+def published_device_types_locked() -> list[str]:
+    """Architectures covered by at least one published release.
+
+    Mirrors the matching rule in `latest_release_for_device_locked`: an empty
+    `compatible` list is universal, so such a release contributes every allowed
+    device type. Used to tell a caller asking for an architecture with nothing
+    published what *is* published, instead of a bare 404.
+
+    Must be called under STATE_LOCK.
+    """
+    found: list[str] = []
+
+    for release in STATE.get('releases', []):
+        if str(release.get('status', 'published')) != 'published':
+            continue
+
+        compatible = [str(entry) for entry in release.get('compatible', [])]
+        for entry in compatible or sorted(ALLOWED_DEVICE_TYPES):
+            if entry not in found:
+                found.append(entry)
+
+    return found
 
 
 def create_release_locked(

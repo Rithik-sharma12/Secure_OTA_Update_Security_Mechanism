@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { UploadCloud, CheckCircle2, AlertCircle, Loader2, FileUp } from 'lucide-react';
 import { apiFetch } from '@/lib/client-auth';
+import { useCurrentUser } from '@/lib/use-current-user';
+import { PermissionNotice } from '@/components/auth/PermissionNotice';
 
 const DEVICE_TYPES = ['ESP32', 'ESP8266', 'ATmega328P', 'STM32F103'] as const;
 
@@ -39,8 +41,11 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<PublishResult | null>(null);
 
+  const { can } = useCurrentUser();
+  const mayPublish = can('firmware.publish');
+
   const versionIsValid = /^\d+(\.\d+)*$/.test(version.trim().replace(/^v/i, ''));
-  const canPublish = Boolean(file) && versionIsValid && !isPublishing;
+  const canPublish = mayPublish && Boolean(file) && versionIsValid && !isPublishing;
 
   const handleFile = (selected: File | null) => {
     setError(null);
@@ -129,6 +134,8 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {!mayPublish && <PermissionNotice capability="firmware.publish" action="Publishing firmware" />}
+
         <div className="space-y-2">
           <Label htmlFor="firmware-file">Firmware binary</Label>
           <label
