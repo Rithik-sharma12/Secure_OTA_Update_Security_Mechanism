@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, Lock } from 'lucide-react';
 import { formatUtcDate } from '@/lib/formatters';
 import { executeRuntimeAction, fetchRuntimeActionState } from '@/lib/runtime-actions';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 type GeneratedKeyRecord = {
   id: string;
@@ -37,6 +38,10 @@ function getLocalDateTag(date: Date) {
 }
 
 export default function KeyVaultPage() {
+  // Key material is the root of trust for every manifest the gateway signs,
+  // so minting and inspecting it stays with admins.
+  const { can, reasonFor } = useCurrentUser();
+  const mayManageKeys = can('keys.manage');
   const [generatedKeys, setGeneratedKeys] = React.useState<GeneratedKeyRecord[]>([]);
   const [selectedKeyId, setSelectedKeyId] = React.useState<string | null>(null);
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
@@ -144,7 +149,8 @@ export default function KeyVaultPage() {
         <Button
           className="bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={() => void handleCreateKey()}
-          disabled={busyAction === 'keys.create'}
+          disabled={busyAction === 'keys.create' || !mayManageKeys}
+          title={mayManageKeys ? undefined : reasonFor('keys.manage')}
         >
           <Plus className="w-4 h-4 mr-2" />
           {busyAction === 'keys.create' ? 'Generating...' : 'Add Key'}

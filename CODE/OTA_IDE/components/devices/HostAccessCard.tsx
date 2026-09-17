@@ -35,6 +35,7 @@ import {
 } from '@/lib/web-serial';
 import { useLocalAgent } from '@/lib/use-local-agent';
 import { apiFetch } from '@/lib/client-auth';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 type SerialPort = {
   path: string;
@@ -176,6 +177,11 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
   React.useEffect(() => {
     void loadState();
   }, [loadState]);
+
+  // Consent to use a port or sweep a subnet precedes flashing, so it sits at
+  // the same level: operators and admins.
+  const { can, reasonFor } = useCurrentUser();
+  const mayGrant = can('host.grant');
 
   const grant = async (resourceType: 'serial' | 'network', resourceId: string, label: string) => {
     setPendingResource(`${resourceType}:${resourceId}`);
@@ -540,7 +546,8 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
                       <Button
                         type="button"
                         className="bg-primary hover:bg-primary/90"
-                        disabled={isPending}
+                        disabled={isPending || !mayGrant}
+                        title={mayGrant ? undefined : reasonFor('host.grant')}
                         onClick={() => void grant('serial', port.path, port.description)}
                       >
                         {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unlock className="mr-2 h-4 w-4" />}
@@ -631,7 +638,8 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
                         <Button
                           type="button"
                           className="bg-primary hover:bg-primary/90"
-                          disabled={isPending}
+                          disabled={isPending || !mayGrant}
+                          title={mayGrant ? undefined : reasonFor('host.grant')}
                           onClick={() => void grant('network', network.cidr, `LAN ${network.cidr}`)}
                         >
                           {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Unlock className="mr-2 h-4 w-4" />}

@@ -18,6 +18,8 @@ import {
 import { getAgentJob, openAgentMonitor, startAgentFlash } from '@/lib/local-agent';
 import { useLocalAgent } from '@/lib/use-local-agent';
 import type { Release } from '@/lib/types';
+import { useCurrentUser } from '@/lib/use-current-user';
+import { PermissionNotice } from '@/components/auth/PermissionNotice';
 
 type Transport = import('esptool-js').Transport;
 type ESPLoader = import('esptool-js').ESPLoader;
@@ -121,6 +123,11 @@ export function WebSerialFlashCard({
 
   // Local agent: real COM names, no picker, esptool on the user's machine.
   const { agent, ports: agentPorts, checked: agentChecked } = useLocalAgent();
+
+  // Writing firmware to a board is an operator action; a viewer gets the
+  // monitor and the device list, but not the flash button.
+  const { can } = useCurrentUser();
+  const mayFlash = can('devices.flash');
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const logEndRef = React.useRef<HTMLDivElement>(null);
@@ -269,7 +276,11 @@ export function WebSerialFlashCard({
   const layoutInfo = IMAGE_LAYOUTS.find((entry) => entry.id === layout) ?? IMAGE_LAYOUTS[0];
   const publishedVersion = publishedByType.get(deviceType);
   const canFlash =
-    canUsePort && !busy && !monitoring && (source === 'release' ? Boolean(publishedVersion) : Boolean(file));
+    mayFlash &&
+    canUsePort &&
+    !busy &&
+    !monitoring &&
+    (source === 'release' ? Boolean(publishedVersion) : Boolean(file));
 
   const handleFile = (selected: File | null) => {
     setError(null);
@@ -515,6 +526,8 @@ export function WebSerialFlashCard({
       </CardHeader>
 
       <CardContent className="space-y-5">
+        {!mayFlash && <PermissionNotice capability="devices.flash" action="Flashing a board" />}
+
         {supported === false && !agent && agentChecked && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
