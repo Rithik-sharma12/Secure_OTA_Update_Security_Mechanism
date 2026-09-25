@@ -1,0 +1,33 @@
+# SentinelOTA — LOCAL / LAN deployment
+#
+#   docker compose -f docker-compose.local.yml \
+#     --env-file .env.docker up -d
+#
+# Dashboard : http://localhost:3000
+# Gateway   : http://localhost:5000
+# Devices    : reach the gateway at OTA_LOCAL_URL over your LAN
+#
+# No tunnel, nothing published to the internet. Devices must sit on the same
+# network as this machine. Firmware talks plain HTTP, so no TLS setup and no
+# root CA pinning is required on the ESP32.
+#
+# Switching from cloud mode leaves the tunnel container behind — add
+# --remove-orphans to stop it (see docs/guides/DEPLOYMENT_MODES.md).
+
+name: secure_ota
+
+include:
+  - path: ./docker-compose.yml
+
+services:
+  gateway:
+    environment:
+      # Baked into every manifest as the firmware download URL, so it must be
+      # an address the DEVICE can reach — this machine's LAN IP, never
+      # localhost (which on an ESP32 means the ESP32 itself).
+      # The fallback is a deliberately invalid hostname, not a plausible one:
+      # if --env-file is omitted this value reaches the manifest, and a device
+      # failing against "OTA-LOCAL-URL-NOT-SET" is instantly diagnosable —
+      # whereas a silent fall back to localhost looks fine and breaks every
+      # device. A hard `:?` here would instead break `docker compose ps`.
+      OTA_GATEWAY_PUBLIC_URL: ${OTA_LOCAL_URL:-http://OTA-LOCAL-URL-NOT-SET-PASS-ENV-FILE:5000}

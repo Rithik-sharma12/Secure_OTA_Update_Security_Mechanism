@@ -20,3 +20,21 @@ export const supabaseAdmin = supabaseUrl && (supabaseServiceKey || supabaseAnonK
   : null;
 
 export const isSupabaseConfigured = () => Boolean(supabaseUrl && (supabaseAnonKey || supabaseServiceKey));
+
+export async function checkSupabaseConnection() {
+  if (!supabaseAdmin) {
+    return {
+      configured: false,
+      connected: false,
+      error: 'Supabase environment variables are not configured',
+    };
+  }
+
+  const { error } = await supabaseAdmin.auth.getSession();
+
+  return {
+    configured: true,
+    connected: !error,
+    ...(error ? { error: error.message } : {}),
+  };
+}

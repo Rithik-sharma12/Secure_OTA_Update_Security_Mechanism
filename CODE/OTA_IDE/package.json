@@ -8,6 +8,7 @@
     "start": "next start -p 3000 -H 0.0.0.0",
     "lint": "eslint . --max-warnings=999",
     "typecheck": "tsc --noEmit",
+    "check:supabase": "node scripts/check-supabase.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
