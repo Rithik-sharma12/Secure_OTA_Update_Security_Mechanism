@@ -16,6 +16,26 @@ Target device families:
 - ATmega328P
 - STM32F103
 
+## Project Glimpse
+
+### SecureOTA identity
+
+<p align="center">
+  <img src="CODE/OTA_IDE/public/brand/logo-secureota.png" alt="SecureOTA logo" width="320">
+</p>
+
+### SecureOTA landing experience
+
+<p align="center">
+  <img src="CODE/OTA_IDE/public/brand/landing-bg.jpg" alt="SecureOTA landing page" width="900">
+</p>
+
+### SecureOTA authentication experience
+
+<p align="center">
+  <img src="CODE/OTA_IDE/public/brand/login-bg.jpg" alt="SecureOTA login page" width="900">
+</p>
+
 ## 1. Problem Faced and Problem Solved
 
 ### Problems faced in OTA projects
