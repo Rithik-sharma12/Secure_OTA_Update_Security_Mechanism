@@ -72,3 +72,13 @@ ota_config.h
 # committed private key was rotated out — see git history.
 gateway_keys/
 *.pem
+
+# ── Local NeDB stores ────────────────────────────────────────────────────
+# These hold real credential material: users.db carries scrypt password
+# hashes and sessions.db carries live session token hashes. Several were
+# committed and remain in git history; see docs/SECURITY_REMEDIATION.md for
+# what has to be rotated.
+.data/
+.local-db/
+.local-db-*/
+*.db

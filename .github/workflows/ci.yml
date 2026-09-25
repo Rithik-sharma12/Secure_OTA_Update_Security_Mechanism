@@ -1,0 +1,162 @@
+name: CI
+
+# Runs on every push and pull request. The repository previously had one
+# workflow, firmware-release.yml, which only builds firmware on a tag — so
+# nothing checked the gateway or the dashboard on an ordinary commit.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gateway:
+    name: Gateway (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/implementation
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor the README states; 3.13 catches deprecations early.
+        python-version: ['3.10', '3.13']
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: src/implementation/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+
+      - name: Run tests
+        # tests/conftest.py supplies its own gateway configuration, so nothing
+        # is needed here beyond the dependencies.
+        run: pytest -q
+
+      - name: Check the gateway imports cleanly
+        run: python -c "import gateway; print(gateway.app.title)"
+        env:
+          OTA_GATEWAY_API_KEY: ci-smoke-key-not-a-real-secret
+          OTA_GATEWAY_CACHE_DIR: ${{ runner.temp }}/cache
+          OTA_GATEWAY_KEYS_DIR: ${{ runner.temp }}/keys
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: CODE/OTA_IDE
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: .
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+        env:
+          # next build evaluates modules that read these at import time. They
+          # are placeholders for a build, never used to serve traffic.
+          OTA_ADMIN_USERNAME: ci_build_user
+          OTA_ADMIN_PASSWORD: ci-build-placeholder-not-a-secret
+          NEXT_TELEMETRY_DISABLED: '1'
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    # Advisory: a newly published CVE should be visible without blocking an
+    # unrelated change. Drop continue-on-error once the team wants it gating.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: npm audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: pip-audit (gateway)
+        run: |
+          pip install pip-audit
+          pip-audit -r src/implementation/requirements.txt
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    # This repository has committed a signing key, an API key and an admin
+    # password before (see docs/SECURITY_REMEDIATION.md). This job exists so
+    # the next one is caught on the pull request rather than months later.
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Block key material and local databases
+        run: |
+          set -euo pipefail
+
+          echo "Checking tracked files for key material..."
+          if git ls-files | grep -E '\.(pem|key|p12|pfx)$'; then
+            echo "::error::Private key material is tracked. Remove it and rotate the key."
+            exit 1
+          fi
+
+          echo "Checking tracked files for local database stores..."
+          if git ls-files | grep -E '(^|/)\.(data|local-db[^/]*)/.*\.db$'; then
+            echo "::error::A local NeDB store is tracked; these hold password and session hashes."
+            exit 1
+          fi
+
+          echo "Checking for the credentials that previously leaked..."
+          if git ls-files -z \
+            | xargs -0 grep -l -F -e 'sentinel_ota_secure_gateway_key_2026' \
+                                  -e 'SentinelSecure_2026!#' 2>/dev/null \
+            | grep -v -E '^docs/SECURITY_REMEDIATION\.md$'; then
+            echo "::error::A known-leaked credential is present outside the remediation docs."
+            exit 1
+          fi
+
+          echo "No tracked secrets found."

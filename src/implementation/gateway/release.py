@@ -19,6 +19,7 @@ from .config import (
     SIGNING_KEY_ID,
 )
 from .crypto import sign_firmware_payload
+from .package import is_hex_digest, looks_like_secure_package
 from .state import STATE, push_event_locked, persist_state_locked
 from .utils import (
     firmware_download_url,
@@ -109,6 +110,46 @@ def build_pipeline(
     }
 
 
+def release_is_secure_package(release: dict[str, Any] | None, payload: bytes) -> bool:
+    """Whether the artifact served for this release is an encrypted package.
+
+    Taken from the publisher's explicit `securePackage` flag when present,
+    because a v1 package is indistinguishable from a plain image by inspection.
+    Falls back to the v2 magic, which is reliable.
+    """
+    flag = (release or {}).get('securePackage')
+    if isinstance(flag, bool):
+        return flag
+    return looks_like_secure_package(payload)
+
+
+def image_digest_for_release(release: dict[str, Any] | None, payload: bytes) -> str | None:
+    """The SHA-256 of the PLAINTEXT firmware image, when the gateway knows it.
+
+    `sha256` in the manifest covers the artifact exactly as served. For a plain
+    release that is the firmware image, but for a secure release it covers the
+    whole encrypted package — so a device that decrypts before comparing would
+    never match it. The firmware reads `imageSha256` for that comparison, and
+    this decides what goes in it:
+
+      * whatever the publisher supplied (`tools/create_secure_test_package.py`
+        prints it, and the publish API accepts it as `image_sha256`), or
+      * `sha256` itself, when the release is not a secure package, or
+      * nothing, when it is a package whose plaintext digest was never
+        supplied. The gateway does not hold the AES key, so it cannot derive
+        the digest, and publishing the wrong one would fail every update. The
+        device then falls back to signature-only verification.
+    """
+    supplied = str((release or {}).get('imageSha256', '') or '').strip().lower()
+    if is_hex_digest(supplied):
+        return supplied
+
+    if release_is_secure_package(release, payload):
+        return None
+
+    return sha256_bytes(payload)
+
+
 def manifest_for_release_locked(release: dict[str, Any] | None) -> dict[str, Any] | None:
     """Build the signed manifest for an arbitrary release.
 
@@ -141,7 +182,8 @@ def manifest_for_release_locked(release: dict[str, Any] | None) -> dict[str, Any
         return None
 
     download_url = firmware_download_url(filename)
-    return {
+    image_digest = image_digest_for_release(release, payload)
+    manifest = {
         'version': version,
         'filename': filename,
         'sha256': sha256_bytes(payload),
@@ -155,6 +197,16 @@ def manifest_for_release_locked(release: dict[str, Any] | None) -> dict[str, Any
         'downloadUrl': download_url,
         'compatible': [str(entry) for entry in release.get('compatible', [])],
     }
+
+    # Omitted rather than guessed when the artifact is a package whose
+    # plaintext digest was never published — see image_digest_for_release.
+    if image_digest:
+        manifest['imageSha256'] = image_digest
+
+    if release_is_secure_package(release, payload):
+        manifest['securePackage'] = True
+
+    return manifest
 
 
 def latest_release_for_device_locked(device_type: str) -> dict[str, Any] | None:
@@ -187,6 +239,8 @@ def create_release_locked(
     inferred_download_count: int = 0,
     artifact_bytes: bytes | None = None,
     artifact_label: str | None = None,
+    image_sha256: str | None = None,
+    secure_package: bool | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Create a release, manifest, and pipeline. Must be called under STATE_LOCK.
 
@@ -270,6 +324,20 @@ def create_release_locked(
         'sourceArtifact': source_artifact,
     }
 
+    # Carried on the release, not just the manifest: manifest_for_release_locked
+    # reconstructs older manifests from the release record, and would otherwise
+    # lose the plaintext digest as soon as a newer release superseded this one.
+    normalized_image_digest = str(image_sha256 or '').strip().lower()
+    if normalized_image_digest:
+        if not is_hex_digest(normalized_image_digest):
+            raise ValueError('image_sha256 must be 64 hexadecimal characters.')
+        release['imageSha256'] = normalized_image_digest
+
+    if secure_package is not None:
+        release['securePackage'] = bool(secure_package)
+    elif looks_like_secure_package(firmware_payload):
+        release['securePackage'] = True
+
     # ── Stage 3: sign the manifest ─────────────────────────────────
     stage_begin = datetime.now(timezone.utc)
     signature = sign_firmware_payload(firmware_payload)
@@ -289,6 +357,19 @@ def create_release_locked(
         'downloadUrl': firmware_download_url(filename),
         'compatible': compatible,
     }
+
+    # `sha256` above describes the artifact as served. A secure release serves a
+    # package, so the device needs the plaintext digest separately to bind the
+    # image it flashes to the version it agreed to install.
+    image_digest = image_digest_for_release(release, firmware_payload)
+    if image_digest:
+        manifest['imageSha256'] = image_digest
+
+    # Lets a device without secure keys refuse a package outright rather than
+    # flashing ciphertext and relying on the image-magic check to save it.
+    if release_is_secure_package(release, firmware_payload):
+        manifest['securePackage'] = True
+
     _stage(
         'sign',
         stage_begin,

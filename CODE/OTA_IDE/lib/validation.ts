@@ -123,7 +123,10 @@ export function validateDeviceType(type: string): boolean {
  * Validate firmware filename
  */
 export function validateFirmwareFilename(filename: string): boolean {
-  const firmwareRegex = /^[\w\-\.]+\.bin$/i;
+  // `.` is already literal inside a character class, so the old /[\w\-\.]/
+  // escaped nothing. No separators are permitted, so a traversal segment
+  // cannot survive this test.
+  const firmwareRegex = /^[\w.-]+\.bin$/i;
   return firmwareRegex.test(filename);
 }
 

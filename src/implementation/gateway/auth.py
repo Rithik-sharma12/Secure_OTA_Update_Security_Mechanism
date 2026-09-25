@@ -12,6 +12,8 @@ the later reassignment. Import the real function here instead.
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import Header, HTTPException, Query
 
 from .config import API_KEY
@@ -25,8 +27,12 @@ def require_write_auth(
     """Validate the gateway API key for write operations.
 
     Accepts the key as an `api_key` query parameter, an `x-api-key` header, or
-    an `Authorization: Bearer <key>` header. When no API_KEY is configured the
-    gateway is open by design (local development).
+    an `Authorization: Bearer <key>` header.
+
+    When no API_KEY is configured every write endpoint is unauthenticated —
+    publishing firmware included. config.py refuses to start in that state
+    unless OTA_GATEWAY_ALLOW_OPEN_WRITES is set, so reaching this branch is a
+    deliberate local-development choice rather than an oversight.
     """
     if not API_KEY:
         return
@@ -36,5 +42,11 @@ def require_write_auth(
         bearer = authorization.split(' ', 1)[1].strip()
 
     provided = (api_key or x_api_key or bearer or '').strip()
-    if provided != API_KEY:
+
+    # compare_digest rather than `!=`: a plain string comparison returns as
+    # soon as two bytes differ, which leaks the length of the shared prefix
+    # and lets a caller recover the key one byte at a time from response
+    # timings. Both sides are encoded first because compare_digest rejects
+    # str arguments containing non-ASCII.
+    if not hmac.compare_digest(provided.encode('utf-8'), API_KEY.encode('utf-8')):
         raise HTTPException(status_code=401, detail='Invalid or missing gateway API key.')

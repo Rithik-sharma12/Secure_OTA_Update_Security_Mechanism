@@ -1,6 +1,9 @@
 'use client'
 
-import { useToast } from '@/hooks/use-toast'
+// The hook lives beside this component, not under hooks/. The old path did not
+// resolve, which also left every destructured toast field implicitly `any` —
+// invisible until ignoreBuildErrors was turned off.
+import { useToast } from '@/components/ui/use-toast'
 import {
   Toast,
   ToastClose,

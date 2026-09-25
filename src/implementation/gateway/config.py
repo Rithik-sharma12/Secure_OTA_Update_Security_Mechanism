@@ -24,6 +24,40 @@ PUBLIC_SIGNING_KEY_PATH: Path = KEYS_DIR / 'ed25519_public_key.pem'
 # ── Authentication ────────────────────────────────────────────
 API_KEY: str = os.getenv('OTA_GATEWAY_API_KEY', '').strip()
 
+# Without an API key every write endpoint is open, which on this gateway means
+# anyone who can reach the port can publish firmware to the whole fleet. That
+# is a reasonable default for a laptop and a catastrophic one anywhere else,
+# so it now has to be asked for by name.
+ALLOW_OPEN_WRITES: bool = os.getenv('OTA_GATEWAY_ALLOW_OPEN_WRITES', '').strip().lower() in {'1', 'true', 'yes'}
+
+if not API_KEY and not ALLOW_OPEN_WRITES:
+    raise RuntimeError(
+        'OTA_GATEWAY_API_KEY is not set, so every write endpoint — including '
+        'firmware publishing — would accept unauthenticated requests. Set a key, '
+        'or set OTA_GATEWAY_ALLOW_OPEN_WRITES=true to accept that risk on a '
+        'trusted local network.'
+    )
+
+# ── CORS ──────────────────────────────────────────────────────
+# Previously '*' together with allow_credentials=True. Browsers reject that
+# combination outright, so the permissive intent never worked, and the
+# wildcard meant any origin could drive the gateway from a victim's browser.
+# Origins are now listed explicitly; the wildcard is still reachable but only
+# without credentials.
+_DEFAULT_CORS_ORIGINS = 'http://localhost:3000,http://127.0.0.1:3000'
+
+# os.getenv's default only applies when the variable is *unset*. A .env file
+# that lists the key with no value hands back '', which would leave the origin
+# list empty and block every browser request — so treat blank as unset.
+_CORS_ORIGINS_RAW = os.getenv('OTA_GATEWAY_CORS_ORIGINS', '').strip() or _DEFAULT_CORS_ORIGINS
+
+CORS_ALLOW_ORIGINS: list[str] = [
+    origin.strip().rstrip('/')
+    for origin in _CORS_ORIGINS_RAW.split(',')
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS: bool = '*' not in CORS_ALLOW_ORIGINS
+
 # ── Signing ───────────────────────────────────────────────────
 PUBLIC_BASE_URL: str = os.getenv('OTA_GATEWAY_PUBLIC_URL', '').rstrip('/')
 SIGNING_KEY_ID: str = os.getenv('OTA_GATEWAY_SIGNING_KEY_ID', 'gateway-ed25519-primary').strip() or 'gateway-ed25519-primary'

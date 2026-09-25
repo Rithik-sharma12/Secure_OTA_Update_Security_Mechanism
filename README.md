@@ -1,6 +1,6 @@
-# SentinelOTA: Secure OTA Update Security Mechanism
+# SECUREOTA: A SECURE HETEROGENEOUS OTA UPDATE MECHANISM FOR RESOURCE-CONSTRAINED IOT DEVICES
 
-SentinelOTA (OTA_IOT) is a full-stack secure OTA firmware update platform for heterogeneous IoT devices.
+SecureOTA is a full-stack secure OTA firmware update platform for heterogeneous IoT devices.
 
 The platform combines:
 
@@ -58,7 +58,7 @@ flowchart LR
 
 | Layer | Technology |
 | --- | --- |
-| Control Plane | Next.js 16, React 19, TypeScript |
+| Control Plane | Next.js 16.3, React 19.3, TypeScript 5.9 |
 | UI | Tailwind CSS, Radix UI, Lucide, Recharts |
 | Local Auth/Data | Node crypto, NeDB (nedb-promises) |
 | Serial Engine | arduino-cli via child process |
@@ -114,7 +114,6 @@ OTA_IOT/
 |  |  |- device_simulator.py    # Device simulator for testing
 |  |  `- requirements.txt       # Python dependencies (pinned)
 |  `- server/                   # Prototype server snippets
-|- OTA_UI/                      # Additional UI workspace
 |- firmware_repo/               # Firmware metadata cache/artifacts
 |- gateway_firmware_cache/      # Gateway manifest/cache state
 |- gateway_keys/                # Gateway signing key material
@@ -125,6 +124,25 @@ OTA_IOT/
 Note: folder name frimware_code is currently used as-is in this repository.
 
 ## 6. Configuration
+
+### Required before first run
+
+These have no defaults. The gateway refuses to start without an API key, and
+the dashboard refuses to bootstrap its admin account without a password.
+
+```bash
+cp .env.example .env
+openssl rand -hex 32          # use the output as OTA_GATEWAY_API_KEY
+```
+
+| Variable | Why it is required |
+| --- | --- |
+| `OTA_GATEWAY_API_KEY` | Guards every gateway write endpoint, firmware publishing included. Set `OTA_GATEWAY_ALLOW_OPEN_WRITES=true` to run without one on a trusted LAN. |
+| `OTA_ADMIN_USERNAME` / `OTA_ADMIN_PASSWORD` | Bootstraps the dashboard admin. 12+ characters; demo values are rejected. |
+
+Earlier revisions defaulted both to literals committed to this repository. If
+you deployed one of those, see [docs/SECURITY_REMEDIATION.md](docs/SECURITY_REMEDIATION.md)
+— those credentials are public and must be rotated.
 
 ### OTA IDE environment
 
@@ -387,6 +405,21 @@ python integration_smoke_test.py
 - Local authenticated API wrapper with structured audit logs.
 - Serial upload queue with persisted logs and incremental polling.
 - Runtime command endpoint protected by allowlist and command safety checks.
+
+## 13a. Tests and CI
+
+```bash
+# Gateway
+cd src/implementation && pip install -r requirements.txt pytest httpx && pytest
+
+# Dashboard
+npm ci && npm run lint && npm run typecheck && npm run test
+```
+
+`.github/workflows/ci.yml` runs all of the above on every push and pull
+request, across Python 3.10 and 3.13, plus a production build, a dependency
+audit, and a secret scan that blocks tracked key material and local NeDB
+stores.
 
 ## 14. Troubleshooting
 

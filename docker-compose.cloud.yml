@@ -1,0 +1,53 @@
+# SentinelOTA — CLOUD / INTERNET deployment
+#
+#   docker compose -f docker-compose.cloud.yml \
+#     --env-file .env.docker up -d
+#
+# Dashboard : https://ota.nyx-ctf.tech   (put Cloudflare Access on THIS one)
+# Gateway   : https://gw.nyx-ctf.tech    (must stay open — devices poll it)
+#
+# Adds cloudflared to the same project as the base stack, so one command
+# brings up everything and `docker compose down` takes it all with it.
+# No inbound ports are opened; cloudflared dials out to Cloudflare.
+#
+# Requires on the device side: firmware built with BACKEND_URL set to the
+# https gateway and OTA_ROOT_CA pinned. See
+# docs/guides/CLOUDFLARE_TUNNEL_SETUP.md.
+
+name: secure_ota
+
+include:
+  - path: ./docker-compose.yml
+
+services:
+  gateway:
+    environment:
+      # Public hostname devices download firmware from. No :5000 — Cloudflare
+      # serves 443 and the tunnel maps it to the container port.
+      # Deliberately invalid fallback — see the note in docker-compose.local.yml.
+      OTA_GATEWAY_PUBLIC_URL: ${OTA_PUBLIC_URL:-https://OTA-PUBLIC-URL-NOT-SET-PASS-ENV-FILE}
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: secure_ota_cloudflared
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+      ota_ide:
+        condition: service_healthy
+    # Locally-managed mode: ingress rules live in cloudflared/config.yml in this
+    # repo. Token mode ignores local ingress entirely and answers 503 to every
+    # request, which is a confusing failure — keep this as --config.
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      # config.yml is committed; credentials.json is git-ignored.
+      - ./cloudflared:/etc/cloudflared:ro
+    healthcheck:
+      test: ["CMD", "cloudflared", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - sentinel_network

@@ -265,7 +265,13 @@ export function WebSerialFlashCard() {
         const jobId = await startAgentFlash({
           port: selectedTarget.path,
           address,
-          file: new Blob([image.bytes]),
+          // TypeScript 5.9 made Uint8Array generic over its backing buffer, so
+          // a Uint8Array<ArrayBufferLike> no longer satisfies BlobPart (which
+          // requires ArrayBuffer, not SharedArrayBuffer). The bytes here always
+          // come from a fetch/File read, so the buffer is a plain ArrayBuffer;
+          // slicing produces one with the narrow type and copies only the
+          // region actually in use.
+          file: new Blob([image.bytes.slice().buffer as ArrayBuffer]),
           filename: image.label.endsWith('.bin') ? image.label : 'firmware.bin',
           erase: eraseAll,
         });

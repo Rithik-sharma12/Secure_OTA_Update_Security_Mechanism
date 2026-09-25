@@ -19,8 +19,11 @@ const allowedDevOrigins = Array.from(new Set([
 ]));
 
 const nextConfig = {
+  // Was `ignoreBuildErrors: true`, which shipped whatever tsc complained
+  // about. The tree is clean as of this commit, so the suppression is gone and
+  // a type error fails the build again.
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   turbopack: {
     root: repoRoot,

@@ -42,11 +42,22 @@ static const char OTA_ROOT_CA[] PROGMEM = "";
 // ── ArduinoOTA push (env esp32dev_ota / ESP32_OTA_PASSWORD) ───────────────
 #define OTA_PASSWORD  "CHANGE_ME_OTA_PASSWORD"
 
-// ── Secure package mode (optional). Leave empty for plain-OTA fallback. ───
+// ── Secure package mode. Both must be set together to enable it. ─────────
 // FIRMWARE_ENC_KEY must be exactly 32 characters when set.
 #define FIRMWARE_ENC_KEY  ""
-// PEM public key matching the RSA key used by tools/create_secure_test_package.py
+// PEM public key matching the RSA-2048 key the gateway signs packages with
+// (gateway_keys/firmware_rsa_public.pem, also emitted by
+// tools/create_secure_test_package.py for bench work).
 #define FIRMWARE_PUB_KEY  ""
+
+// ── Security policy escapes. Keep both at 0 for anything deployed. ───────
+// A device with secure keys set never falls back to an unverified flash. A
+// device without them still requires the manifest's sha256 to match the image
+// it downloaded. These two switches exist only so a bench board can be made
+// to talk to a self-signed gateway or flash a locally built image.
+//
+// #define OTA_ALLOW_INSECURE_TLS    1   // skip TLS certificate validation
+// #define OTA_ALLOW_UNVERIFIED_OTA  1   // flash images with no digest to check
 
 // Optional: how often to poll the manifest (default 30)
 // #define OTA_CHECK_INTERVAL_SECONDS 30

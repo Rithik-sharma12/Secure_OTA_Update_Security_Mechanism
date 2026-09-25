@@ -4,8 +4,13 @@
  * Supports:
  *   1) ArduinoOTA push updates (IDE / OTA tools)
  *   2) Backend manifest pull and self-update
- *   3) Secure package mode (AES-256-CBC + RSA signature)
- *   4) Plain package fallback (for development)
+ *   3) Secure package mode (AES-256-CBC + RSA-2048 signature)
+ *   4) Plain package mode, bound to the manifest sha256 (for development)
+ *
+ * Update paths are mutually exclusive and fail closed. A device built with
+ * secure keys never falls back to an unverified flash; a device without them
+ * still refuses any image the manifest cannot vouch for by digest. See
+ * OTA_ALLOW_INSECURE_TLS / OTA_ALLOW_UNVERIFIED_OTA for the bench escapes.
  */
 
 #include <Arduino.h>
@@ -46,6 +51,43 @@
 #define SECURE_IV_BYTES        16U
 #define SECURE_SIGNATURE_BYTES 256U
 #define SECURE_AES_BLOCK_SIZE  16U
+#define SHA256_DIGEST_BYTES    32U
+
+/* Secure package framing. Defined once on the gateway side in
+ * src/implementation/gateway/package.py — keep the two in step.
+ *
+ *   v2  magic(6) | sig_alg(1) | cipher_alg(1) | sig_len(2) | IV(16) | sig | ct
+ *   v1  IV(16) | sig(256) | ct
+ *
+ * SECURE_HEADER_BYTES must stay <= SECURE_IV_BYTES: the v1 branch reads a
+ * header-sized block speculatively and reuses it as the front of the IV.
+ */
+#define SECURE_MAGIC_V2    "SOTAv2"
+#define SECURE_MAGIC_BYTES 6U
+#define SECURE_HEADER_BYTES 10U
+
+#define SECURE_SIG_ALG_RSA2048_SHA256 1U
+#define SECURE_SIG_ALG_ED25519        2U  // reserved; not verifiable in this build
+#define SECURE_CIPHER_ALG_AES256_CBC  1U
+
+/* ── Security policy ───────────────────────────────────────────────────────
+ * Both switches default to the safe value and may be overridden in
+ * ota_config.h for bench work only. A build with either set to 1 must never
+ * be flashed onto a deployed device.
+ *
+ * OTA_ALLOW_INSECURE_TLS   1 = contact an https:// gateway without validating
+ *                              its certificate (WiFiClientSecure::setInsecure).
+ * OTA_ALLOW_UNVERIFIED_OTA 1 = flash a package whose integrity could not be
+ *                              proven, i.e. no secure keys configured AND no
+ *                              sha256 published in the manifest.
+ */
+#ifndef OTA_ALLOW_INSECURE_TLS
+#define OTA_ALLOW_INSECURE_TLS 0
+#endif
+
+#ifndef OTA_ALLOW_UNVERIFIED_OTA
+#define OTA_ALLOW_UNVERIFIED_OTA 0
+#endif
 
 Preferences prefs;
 
@@ -72,6 +114,36 @@ struct ManifestInfo {
   String version;
   String filename;
   String downloadUrl;
+  /*
+   * Two different digests, because in secure mode the bytes on the wire are
+   * not the bytes that get flashed.
+   *
+   *   sha256       digest of the artifact exactly as served. For a plain
+   *                release that IS the firmware image. For a secure release
+   *                it covers the whole package (header, IV, signature and
+   *                ciphertext), so it must never be compared against the
+   *                decrypted image.
+   *
+   *   imageSha256  digest of the PLAINTEXT firmware image. Equal to sha256
+   *                for a plain release; the only one meaningful to the secure
+   *                path. Published by whoever built the package, so it may be
+   *                absent on older releases.
+   *
+   * Both arrive over the authenticated control channel (TLS + x-api-key),
+   * which is what lets either bind an agreed version to specific bytes.
+   * Empty when the gateway published nothing usable.
+   */
+  String sha256;
+  String imageSha256;
+
+  /*
+   * True when the gateway says the artifact is an encrypted package. A device
+   * without secure keys must refuse it: the plain path would happily flash
+   * ciphertext, and only the ESP32 Update library's 0xE9 image-magic check
+   * stands in the way — which a v1 package's random first IV byte passes once
+   * in 256, bricking the board.
+   */
+  bool securePackage = false;
 };
 
 AppState state;
@@ -85,10 +157,13 @@ bool beginRequest(HTTPClient &http, const String &url);
 bool syncTimeForTls();
 
 bool fetchLatestRelease(ManifestInfo &manifestOut);
-bool performHttpUpdate(const String &url);
-bool performSecurePackageUpdate(const String &url);
-bool performPlainPackageUpdate(const String &url);
+bool performHttpUpdate(const ManifestInfo &manifest);
+bool performSecurePackageUpdate(const String &url, const String &expectedSha256);
+bool performPlainPackageUpdate(const String &url, const String &expectedSha256);
 bool isSecureOtaConfigured();
+bool digestMatchesExpected(const uint8_t *digest, const String &expectedHex);
+String digestToHex(const uint8_t *digest);
+void normalizeDigestField(String &value, const char *fieldName);
 
 void adjustHealth(int delta, const char *reason);
 void loadHealth();
@@ -202,10 +277,15 @@ bool syncTimeForTls() {
 /*
  * Open `url` on `http`, selecting the transport from the scheme.
  *
- * https:// requires a synced clock and a trusted root. OTA_ROOT_CA should hold
+ * https:// requires a synced clock and a trusted root. OTA_ROOT_CA must hold
  * the PEM root that the gateway's certificate chains to (see ota_config.h).
- * If it is left empty the connection still succeeds but WITHOUT authenticating
- * the server, which leaves the plain-OTA path open to a swapped binary.
+ *
+ * An empty OTA_ROOT_CA used to silently downgrade to setInsecure(), which
+ * authenticates nothing: any host that can answer the DNS name serves the
+ * manifest and the image. The request is now refused instead, so a
+ * misconfigured build fails loudly at the first poll rather than trusting
+ * whoever answers. Set OTA_ALLOW_INSECURE_TLS to 1 in ota_config.h to get the
+ * old behaviour back on a bench.
  */
 bool beginRequest(HTTPClient &http, const String &url) {
   if (!url.startsWith("https://")) {
@@ -219,8 +299,16 @@ bool beginRequest(HTTPClient &http, const String &url) {
   if (strlen(OTA_ROOT_CA) > 0) {
     secureClient.setCACert(OTA_ROOT_CA);
   } else {
-    Serial.println("[TLS] WARNING: OTA_ROOT_CA is empty — server certificate is NOT verified.");
+#if OTA_ALLOW_INSECURE_TLS
+    Serial.println("[TLS] WARNING: OTA_ROOT_CA is empty and OTA_ALLOW_INSECURE_TLS=1 —");
+    Serial.println("[TLS] WARNING: the server certificate is NOT verified. Bench builds only.");
     secureClient.setInsecure();
+#else
+    Serial.println("[TLS] ERROR: https:// gateway configured but OTA_ROOT_CA is empty.");
+    Serial.println("[TLS] ERROR: refusing to connect without a trusted root. Run");
+    Serial.println("[TLS] ERROR:   python tools/fetch_root_ca.py <host> --out esp32_ota_main/root_ca.h");
+    return false;
+#endif
   }
 
   return http.begin(secureClient, url);
@@ -303,7 +391,7 @@ void checkBackendOTA() {
   Serial.printf("[Backend] Update available: %s\n", manifest.downloadUrl.c_str());
   Serial.println("[Backend] Downloading and flashing...");
 
-  if (performHttpUpdate(manifest.downloadUrl)) {
+  if (performHttpUpdate(manifest)) {
     adjustHealth(+10, "update success");
     Serial.println("[Backend] Update successful. Rebooting.");
     blinkLED(10, 50);
@@ -351,6 +439,13 @@ bool fetchLatestRelease(ManifestInfo &manifestOut) {
 
   manifestOut.version = doc["version"] | "";
   manifestOut.filename = doc["filename"] | "firmware.bin";
+  manifestOut.sha256 = doc["sha256"] | "";
+  normalizeDigestField(manifestOut.sha256, "sha256");
+
+  manifestOut.imageSha256 = doc["imageSha256"] | "";
+  normalizeDigestField(manifestOut.imageSha256, "imageSha256");
+
+  manifestOut.securePackage = doc["securePackage"] | false;
   if (doc["downloadUrl"].is<const char*>()) {
     manifestOut.downloadUrl = doc["downloadUrl"].as<String>();
   } else {
@@ -410,26 +505,126 @@ void sendHeartbeat() {
   http.end();
 }
 
-bool performHttpUpdate(const String &url) {
+/*
+ * Route one update to the correct package handler.
+ *
+ * This function used to fall back to the plain (unauthenticated) path whenever
+ * the secure path returned false — including when the signature check itself
+ * failed. That turned every verification failure into an unverified flash:
+ * flipping one byte of the signature was enough to make the device install
+ * the attacker's image. A device configured for secure OTA now stays on the
+ * secure path and fails the update instead.
+ */
+bool performHttpUpdate(const ManifestInfo &manifest) {
   digitalWrite(LED_STATUS, HIGH);
 
   bool success = false;
-  if (isSecureOtaConfigured()) {
-    Serial.println("[Update] Secure OTA configuration detected");
-    success = performSecurePackageUpdate(url);
-    if (!success) {
-      Serial.println("[Update] Secure OTA failed. Trying plain OTA fallback.");
-    }
-  } else {
-    Serial.println("[Update] Secure OTA not configured. Using plain package mode.");
-  }
 
-  if (!success) {
-    success = performPlainPackageUpdate(url);
+  if (isSecureOtaConfigured()) {
+    /*
+     * The secure path decrypts before it checks, so it must be given the
+     * digest of the PLAINTEXT image. `sha256` describes the package as
+     * served and would never match — passing it here would fail every secure
+     * update and quarantine the device after three tries.
+     */
+    Serial.println("[Update] Secure OTA configuration detected");
+    success = performSecurePackageUpdate(manifest.downloadUrl, manifest.imageSha256);
+    if (!success) {
+      Serial.println("[Update] ERROR: Secure OTA failed. No fallback — the device");
+      Serial.println("[Update] ERROR: keeps its current firmware.");
+    }
+  } else if (manifest.securePackage) {
+    Serial.println("[Update] ERROR: The release is an encrypted package but this");
+    Serial.println("[Update] ERROR: device has no FIRMWARE_ENC_KEY/FIRMWARE_PUB_KEY.");
+    Serial.println("[Update] ERROR: Flashing it would write ciphertext to flash.");
+    success = false;
+  } else if (manifest.sha256.length() == SHA256_DIGEST_BYTES * 2U) {
+    // Plain path: the downloaded bytes are the image, so `sha256` is correct.
+    Serial.println("[Update] Secure keys not configured. Using plain package mode");
+    Serial.println("[Update] with the manifest sha256 as the integrity check.");
+    success = performPlainPackageUpdate(manifest.downloadUrl, manifest.sha256);
+  } else {
+#if OTA_ALLOW_UNVERIFIED_OTA
+    Serial.println("[Update] WARNING: no secure keys and no manifest sha256.");
+    Serial.println("[Update] WARNING: flashing an UNVERIFIED image (bench build).");
+    success = performPlainPackageUpdate(manifest.downloadUrl, String());
+#else
+    Serial.println("[Update] ERROR: no secure keys configured and the manifest");
+    Serial.println("[Update] ERROR: published no sha256. Nothing can vouch for this");
+    Serial.println("[Update] ERROR: image, so the update is refused.");
+    success = false;
+#endif
   }
 
   digitalWrite(LED_STATUS, LOW);
   return success;
+}
+
+/*
+ * Reduce a manifest digest field to either a valid 64-character lowercase hex
+ * string or an empty one, so callers only ever see "usable" or "absent".
+ */
+void normalizeDigestField(String &value, const char *fieldName) {
+  value.trim();
+  value.toLowerCase();
+
+  if (value.length() == 0) {
+    return;
+  }
+
+  if (value.length() != SHA256_DIGEST_BYTES * 2U) {
+    Serial.printf("[Backend] Ignoring malformed manifest %s (%u chars)\n",
+                  fieldName,
+                  static_cast<unsigned int>(value.length()));
+    value = "";
+  }
+}
+
+String digestToHex(const uint8_t *digest) {
+  static const char kHexDigits[] = "0123456789abcdef";
+  String out;
+  out.reserve(SHA256_DIGEST_BYTES * 2U);
+  for (size_t i = 0; i < SHA256_DIGEST_BYTES; ++i) {
+    out += kHexDigits[(digest[i] >> 4) & 0x0F];
+    out += kHexDigits[digest[i] & 0x0F];
+  }
+  return out;
+}
+
+/*
+ * Constant-time-ish comparison of a computed digest against the hex digest the
+ * manifest published. Returns false for a malformed or absent expectation, so
+ * callers must decide separately whether an absent digest is acceptable.
+ */
+bool digestMatchesExpected(const uint8_t *digest, const String &expectedHex) {
+  if (expectedHex.length() != SHA256_DIGEST_BYTES * 2U) {
+    return false;
+  }
+
+  const String actualHex = digestToHex(digest);
+
+  /*
+   * Must be checked before the loop. digestToHex builds its result with 64
+   * String concatenations, and the ESP32 core's String::concat calls
+   * invalidate() when a reallocation fails, leaving length() == 0. Heap
+   * pressure here is not hypothetical: a WiFiClientSecure session and the
+   * Update write buffer are both live during an OTA. Looping to
+   * actualHex.length() would then run zero iterations, leave diff at 0, and
+   * return true for ANY expected digest — a fail-open on the one check the
+   * plain path relies on.
+   */
+  if (actualHex.length() != SHA256_DIGEST_BYTES * 2U) {
+    Serial.println("[Update] ERROR: Could not format digest for comparison (out of memory).");
+    return false;
+  }
+
+  uint8_t diff = 0;
+  for (size_t i = 0; i < actualHex.length(); ++i) {
+    diff |= static_cast<uint8_t>(actualHex[i]) ^
+            static_cast<uint8_t>(tolower(expectedHex[i]));
+  }
+
+  return diff == 0;
 }
 
 bool isSecureOtaConfigured() {
@@ -442,7 +637,7 @@ bool isSecureOtaConfigured() {
   return hasAesKey && hasPubKey;
 }
 
-bool performSecurePackageUpdate(const String &url) {
+bool performSecurePackageUpdate(const String &url, const String &expectedSha256) {
   Serial.println("[Update] Starting secure OTA package flow...");
 
   HTTPClient http;
@@ -470,24 +665,107 @@ bool performSecurePackageUpdate(const String &url) {
     return false;
   }
 
-  const size_t encryptedSize =
-    static_cast<size_t>(contentLength - static_cast<int>(SECURE_IV_BYTES + SECURE_SIGNATURE_BYTES));
+  WiFiClient *stream = http.getStreamPtr();
 
-  if ((encryptedSize % SECURE_AES_BLOCK_SIZE) != 0U) {
-    Serial.printf("[Update] ERROR: Encrypted payload size invalid (%u bytes)\n", static_cast<unsigned int>(encryptedSize));
+  /*
+   * Two package layouts are accepted, distinguished by a magic prefix:
+   *
+   *   v2  "SOTAv2" | sig_alg | cipher_alg | sig_len(be16) | IV | sig | ct
+   *   v1  IV | sig | ct                      (no header; the original format)
+   *
+   * v2 states its algorithms rather than leaving the device to assume them,
+   * so a package signed with something this build cannot verify is rejected
+   * outright instead of being fed to the wrong verifier. v1 is still parsed
+   * so packages built by older tooling keep working.
+   *
+   * Both layouts are defined once, on the gateway side, in
+   * src/implementation/gateway/package.py.
+   */
+  uint8_t header[SECURE_HEADER_BYTES];
+  const size_t headerRead = stream->readBytes(reinterpret_cast<char *>(header), sizeof(header));
+  if (headerRead != sizeof(header)) {
+    Serial.println("[Update] ERROR: Could not read secure package header");
     http.end();
     return false;
   }
 
-  WiFiClient *stream = http.getStreamPtr();
+  const bool isV2 = (memcmp(header, SECURE_MAGIC_V2, SECURE_MAGIC_BYTES) == 0);
+
+  size_t signatureLength = SECURE_SIGNATURE_BYTES;
+  size_t consumedHeader = 0;
 
   uint8_t iv[SECURE_IV_BYTES];
   uint8_t signature[SECURE_SIGNATURE_BYTES];
 
-  const size_t ivRead = stream->readBytes(reinterpret_cast<char *>(iv), sizeof(iv));
-  const size_t sigRead = stream->readBytes(reinterpret_cast<char *>(signature), sizeof(signature));
-  if (ivRead != sizeof(iv) || sigRead != sizeof(signature)) {
-    Serial.println("[Update] ERROR: Could not read secure package header");
+  if (isV2) {
+    const uint8_t signatureAlg = header[SECURE_MAGIC_BYTES];
+    const uint8_t cipherAlg = header[SECURE_MAGIC_BYTES + 1U];
+    signatureLength = (static_cast<size_t>(header[SECURE_MAGIC_BYTES + 2U]) << 8) |
+                      static_cast<size_t>(header[SECURE_MAGIC_BYTES + 3U]);
+
+    Serial.printf("[Update] Package format v2 (sig_alg=%u cipher_alg=%u sig_len=%u)\n",
+                  static_cast<unsigned int>(signatureAlg),
+                  static_cast<unsigned int>(cipherAlg),
+                  static_cast<unsigned int>(signatureLength));
+
+    if (signatureAlg != SECURE_SIG_ALG_RSA2048_SHA256) {
+      Serial.println("[Update] ERROR: Package signed with an algorithm this build");
+      Serial.println("[Update] ERROR: cannot verify. Refusing the update.");
+      http.end();
+      return false;
+    }
+
+    if (cipherAlg != SECURE_CIPHER_ALG_AES256_CBC) {
+      Serial.println("[Update] ERROR: Unsupported package cipher. Refusing the update.");
+      http.end();
+      return false;
+    }
+
+    if (signatureLength != SECURE_SIGNATURE_BYTES) {
+      Serial.printf("[Update] ERROR: Declared signature length %u, expected %u\n",
+                    static_cast<unsigned int>(signatureLength),
+                    static_cast<unsigned int>(SECURE_SIGNATURE_BYTES));
+      http.end();
+      return false;
+    }
+
+    consumedHeader = SECURE_HEADER_BYTES;
+
+    const size_t ivRead = stream->readBytes(reinterpret_cast<char *>(iv), sizeof(iv));
+    const size_t sigRead = stream->readBytes(reinterpret_cast<char *>(signature), signatureLength);
+    if (ivRead != sizeof(iv) || sigRead != signatureLength) {
+      Serial.println("[Update] ERROR: Truncated secure package header");
+      http.end();
+      return false;
+    }
+  } else {
+    // v1: the bytes already read are the start of the IV, not a header.
+    Serial.println("[Update] Package format v1 (legacy, no algorithm header)");
+
+    memcpy(iv, header, SECURE_HEADER_BYTES);
+    const size_t ivRemaining = SECURE_IV_BYTES - SECURE_HEADER_BYTES;
+    const size_t ivRead = stream->readBytes(
+      reinterpret_cast<char *>(iv) + SECURE_HEADER_BYTES, ivRemaining);
+    const size_t sigRead = stream->readBytes(
+      reinterpret_cast<char *>(signature), SECURE_SIGNATURE_BYTES);
+    if (ivRead != ivRemaining || sigRead != SECURE_SIGNATURE_BYTES) {
+      Serial.println("[Update] ERROR: Truncated secure package header");
+      http.end();
+      return false;
+    }
+  }
+
+  const size_t framingBytes = consumedHeader + SECURE_IV_BYTES + signatureLength;
+  if (static_cast<size_t>(contentLength) <= framingBytes) {
+    Serial.println("[Update] ERROR: Secure package has no payload after its header");
+    http.end();
+    return false;
+  }
+
+  const size_t encryptedSize = static_cast<size_t>(contentLength) - framingBytes;
+
+  if ((encryptedSize % SECURE_AES_BLOCK_SIZE) != 0U) {
+    Serial.printf("[Update] ERROR: Encrypted payload size invalid (%u bytes)\n", static_cast<unsigned int>(encryptedSize));
     http.end();
     return false;
   }
@@ -633,6 +911,28 @@ bool performSecurePackageUpdate(const String &url) {
       break;
     }
 
+    /*
+     * The signature proves the image was produced by the holder of the signing
+     * key. It does NOT prove this is the image the manifest promised: a valid
+     * package from an older release is signed just as correctly, so an
+     * attacker who can serve the download URL could answer a v2.5.0 manifest
+     * with a genuinely signed v2.0.0 package and roll the fleet back past the
+     * version check. Binding the flash to the digest the manifest published
+     * over the authenticated channel closes that gap.
+     */
+    if (expectedSha256.length() > 0) {
+      if (!digestMatchesExpected(hash, expectedSha256)) {
+        Serial.println("[Update] ERROR: Image does not match the manifest sha256.");
+        Serial.printf("[Update] ERROR:   expected %s\n", expectedSha256.c_str());
+        Serial.printf("[Update] ERROR:   computed %s\n", digestToHex(hash).c_str());
+        break;
+      }
+      Serial.println("[Update] Manifest sha256 matches the decrypted image.");
+    } else {
+      Serial.println("[Update] NOTE: manifest published no sha256; relying on the");
+      Serial.println("[Update] NOTE: signature alone (no rollback binding).");
+    }
+
     Serial.printf("[Update] Signature verified. Writing %u bytes to flash.\n", static_cast<unsigned int>(totalWritten));
 
     if (!Update.end(true)) {
@@ -655,7 +955,16 @@ bool performSecurePackageUpdate(const String &url) {
   return success;
 }
 
-bool performPlainPackageUpdate(const String &url) {
+/*
+ * Plain (unencrypted) image download.
+ *
+ * The stream is now read in chunks and hashed as it goes, rather than handed
+ * wholesale to Update.writeStream(), so the image can be checked against the
+ * manifest digest before the boot partition is switched. `expectedSha256`
+ * empty means the caller has already decided an unverified flash is
+ * acceptable (OTA_ALLOW_UNVERIFIED_OTA); every other caller passes a digest.
+ */
+bool performPlainPackageUpdate(const String &url, const String &expectedSha256) {
   Serial.println("[Update] Starting plain OTA package flow...");
 
   HTTPClient http;
@@ -677,39 +986,150 @@ bool performPlainPackageUpdate(const String &url) {
   }
 
   const int contentLength = http.getSize();
-  const bool hasKnownLength = contentLength > 0;
 
-  if (hasKnownLength) {
-    if (!Update.begin(static_cast<size_t>(contentLength), U_FLASH)) {
-      Serial.printf("[Update] ERROR: Not enough space for plain update (%u)\n", Update.getError());
-      http.end();
-      return false;
-    }
-    Serial.printf("[Update] Plain package size: %d bytes\n", contentLength);
-  } else {
-    if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
-      Serial.printf("[Update] ERROR: Could not start unknown-size plain update (%u)\n", Update.getError());
-      http.end();
-      return false;
-    }
-    Serial.println("[Update] Plain package length unknown. Streaming until disconnect.");
+  /*
+   * A known Content-Length is required now, where the old writeStream() path
+   * tolerated its absence. Two reasons, both introduced by hashing the stream
+   * ourselves:
+   *
+   *  - Without a length the loop below can only stop when the peer closes or
+   *    the stall timer fires, and the stall timer means failure. HTTPClient
+   *    sends `Connection: keep-alive` by default, so against a keep-alive
+   *    server a completed download would still be aborted.
+   *
+   *  - A response with no Content-Length is almost always chunked, and
+   *    getStreamPtr() hands back the raw socket with the chunk-size lines
+   *    still in it. Those bytes would be hashed and flashed as if they were
+   *    firmware.
+   *
+   * The gateway always sends a length (server.py serves a file from disk), so
+   * this is a clear error rather than a limitation in practice.
+   */
+  if (contentLength <= 0) {
+    Serial.println("[Update] ERROR: Plain package response has no Content-Length.");
+    Serial.println("[Update] ERROR: Refusing to flash a stream of unknown length.");
+    http.end();
+    return false;
   }
 
+  const size_t expectedBytes = static_cast<size_t>(contentLength);
+
+  if (!Update.begin(expectedBytes, U_FLASH)) {
+    Serial.printf("[Update] ERROR: Not enough space for plain update (%u)\n", Update.getError());
+    http.end();
+    return false;
+  }
+  Serial.printf("[Update] Plain package size: %d bytes\n", contentLength);
+
   WiFiClient *stream = http.getStreamPtr();
-  const size_t written = Update.writeStream(*stream);
+
+  mbedtls_md_context_t mdCtx;
+  mbedtls_md_init(&mdCtx);
 
   bool success = true;
-  if (written == 0U) {
+  size_t written = 0;
+
+  if (mbedtls_md_setup(&mdCtx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0) != 0 ||
+      mbedtls_md_starts(&mdCtx) != 0) {
+    Serial.println("[Update] ERROR: SHA-256 context init failed");
+    success = false;
+  }
+
+  if (success) {
+    uint8_t buffer[1024];
+    unsigned long lastDataMs = millis();
+
+    // Bounded by the declared length, so the loop always terminates on a
+    // complete download rather than waiting for a close that keep-alive will
+    // never send.
+    while (written < expectedBytes) {
+      // Checked inside the loop, not in the condition: a peer that closes
+      // after sending everything must still count as success.
+      const bool peerGone = !http.connected();
+
+      const size_t available = stream->available();
+
+      if (available == 0U) {
+        if (peerGone) {
+          Serial.println("[Update] ERROR: Connection closed before the full image arrived");
+          success = false;
+          break;
+        }
+        if (millis() - lastDataMs > 15000UL) {
+          Serial.println("[Update] ERROR: Plain OTA stream stalled");
+          success = false;
+          break;
+        }
+        delay(1);
+        continue;
+      }
+
+      size_t toRead = available > sizeof(buffer) ? sizeof(buffer) : available;
+      const size_t remaining = expectedBytes - written;
+      if (toRead > remaining) {
+        toRead = remaining;  // never read past the declared body
+      }
+
+      const size_t got = stream->readBytes(buffer, toRead);
+      if (got == 0U) {
+        // available() claimed data that could not be read. Without this the
+        // stall timer is unreachable here and the loop could spin forever.
+        if (millis() - lastDataMs > 15000UL) {
+          Serial.println("[Update] ERROR: Plain OTA stream stalled (no readable bytes)");
+          success = false;
+          break;
+        }
+        delay(1);
+        continue;
+      }
+      lastDataMs = millis();
+
+      if (mbedtls_md_update(&mdCtx, buffer, got) != 0) {
+        Serial.println("[Update] ERROR: Hash update failed");
+        success = false;
+        break;
+      }
+
+      if (Update.write(buffer, got) != got) {
+        Serial.printf("[Update] ERROR: Flash write failed in plain flow (%u)\n", Update.getError());
+        success = false;
+        break;
+      }
+
+      written += got;
+    }
+  }
+
+  if (success && written == 0U) {
     Serial.println("[Update] ERROR: Plain OTA stream returned zero bytes");
     success = false;
   }
 
-  if (hasKnownLength && written != static_cast<size_t>(contentLength)) {
+  if (success && written != expectedBytes) {
     Serial.printf("[Update] ERROR: Plain OTA size mismatch wrote=%u expected=%u\n",
                   static_cast<unsigned int>(written),
-                  static_cast<unsigned int>(contentLength));
+                  static_cast<unsigned int>(expectedBytes));
     success = false;
   }
+
+  if (success) {
+    uint8_t digest[SHA256_DIGEST_BYTES];
+    if (mbedtls_md_finish(&mdCtx, digest) != 0) {
+      Serial.println("[Update] ERROR: Hash finalize failed");
+      success = false;
+    } else if (expectedSha256.length() > 0) {
+      if (!digestMatchesExpected(digest, expectedSha256)) {
+        Serial.println("[Update] ERROR: Image does not match the manifest sha256.");
+        Serial.printf("[Update] ERROR:   expected %s\n", expectedSha256.c_str());
+        Serial.printf("[Update] ERROR:   computed %s\n", digestToHex(digest).c_str());
+        success = false;
+      } else {
+        Serial.println("[Update] Manifest sha256 matches the downloaded image.");
+      }
+    }
+  }
+
+  mbedtls_md_free(&mdCtx);
 
   if (!success) {
     Update.abort();
