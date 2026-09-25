@@ -21,7 +21,7 @@ Target device families:
 ### SecureOTA identity
 
 <p align="center">
-  <img src="CODE/OTA_IDE/public/brand/logo-secureota.png" alt="SecureOTA logo" width="320">
+  <img src="Secure_OTA_Update_Security_Mechanism/pics/1.png" alt="SecureOTA logo" width="900">
 </p>
 
 ### SecureOTA landing experience
