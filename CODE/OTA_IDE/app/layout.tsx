@@ -31,7 +31,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'SecureOTA — Firmware Management Control Center',
+  title: 'SECUREOTA: A SECURE HETEROGENEOUS OTA UPDATE MECHANISM FOR RESOURCE-CONSTRAINED IOT DEVICES',
   description: 'Secure OTA firmware delivery for heterogeneous IoT device fleets',
   icons: {
     // Only /icon.svg is referenced. The previous entries pointed at

@@ -1,6 +1,6 @@
-# SentinelOTA: Secure OTA Update Security Mechanism
+# SECUREOTA: A SECURE HETEROGENEOUS OTA UPDATE MECHANISM FOR RESOURCE-CONSTRAINED IOT DEVICES
 
-SentinelOTA (OTA_IOT) is a full-stack secure OTA firmware update platform for heterogeneous IoT devices.
+SecureOTA is a full-stack secure OTA firmware update platform for heterogeneous IoT devices.
 
 The platform combines:
 
