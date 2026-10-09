@@ -9,6 +9,14 @@ import { Input } from '@/components/ui/input';
 import { apiFetch, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
 import Logo from '@/components/brand/Logo';
 
+function postLoginPath() {
+  if (typeof window === 'undefined') return '/dashboard';
+  const next = new URLSearchParams(window.location.search).get('next') || '';
+  return /^\/(?![/\\])[\w\-./?=&%]*$/.test(next) && !next.startsWith('/login')
+    ? next
+    : '/dashboard';
+}
+
 // The design's trust chain. The signature trace draws down the rail and each
 // waypoint stamps a verified tick as it passes; `delay` is when that waypoint
 // lights, timed against the 2.1s trace.
@@ -59,7 +67,7 @@ export default function LoginPage() {
 
         if (payload.ok && payload.user && isMounted) {
           persistAuthSession(payload.user);
-          router.replace('/dashboard');
+          router.replace(postLoginPath());
         }
       } catch {
         // Ignore session check errors on the login page.
@@ -93,7 +101,7 @@ export default function LoginPage() {
           return;
         }
         await setActive({ session: signIn.createdSessionId });
-        router.replace('/dashboard');
+        router.replace(postLoginPath());
         return;
       }
 
@@ -139,7 +147,7 @@ export default function LoginPage() {
       }
 
       persistAuthSession(user);
-      router.replace('/dashboard');
+      router.replace(postLoginPath());
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to login right now.');
     } finally {

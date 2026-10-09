@@ -28,6 +28,8 @@ venv/
 node_modules/
 .next/
 .vercel/
+CODE/OTA_IDE/AGENTS.md
+CODE/OTA_IDE/CLAUDE.md
 
 # ── PlatformIO ────────────────────────────────────
 .pio/

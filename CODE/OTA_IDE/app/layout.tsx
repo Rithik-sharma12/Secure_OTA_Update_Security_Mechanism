@@ -59,16 +59,22 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const app = (
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="ota-ide-theme">
+      {children}
+    </ThemeProvider>
+  )
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${montserrat.variable} ${sourceSans.variable} ${poppins.variable} min-h-svh overflow-x-hidden font-sans antialiased bg-background text-foreground`}
       >
-        <ClerkProvider>
-          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="ota-ide-theme">
-            {children}
-          </ThemeProvider>
-        </ClerkProvider>
+        {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? (
+          <ClerkProvider>{app}</ClerkProvider>
+        ) : (
+          app
+        )}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

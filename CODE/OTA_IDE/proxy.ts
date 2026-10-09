@@ -1,4 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import type { NextFetchEvent, NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 
 const isProtectedRoute = createRouteMatcher([
   '/dashboard(.*)',
@@ -16,15 +18,22 @@ const isPublicApiRoute = createRouteMatcher([
   '/api/health/(.*)',
 ]);
 
-export default clerkMiddleware(async (auth, request) => {
+const protectedMiddleware = clerkMiddleware(async (auth, request) => {
   if (
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
     isProtectedRoute(request) &&
     !isPublicApiRoute(request)
   ) {
     await auth.protect();
   }
 });
+
+export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
+    return NextResponse.next();
+  }
+
+  return protectedMiddleware(request, event);
+}
 
 export const config = {
   matcher: [
