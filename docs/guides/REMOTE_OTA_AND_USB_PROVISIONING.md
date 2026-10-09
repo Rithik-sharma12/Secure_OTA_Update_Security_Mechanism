@@ -124,10 +124,79 @@ Recommended rollout: provision every board with its own token, then set
 `OTA_REQUIRE_DEVICE_TOKEN=true` so a fleet key pulled from one board's flash no
 longer speaks for the others.
 
-## 5. Verifying
+## 5. Fleet operations
+
+### Deployments page (`/deployments`)
+
+Pick a published release, tick boards (incompatible ones are greyed out) or
+**Select all compatible**, and **Deploy**. Each deployment shows every board's
+state live: `pending · downloading` with a progress bar (the firmware reports
+25/50/75 %), `confirmed` once the board heartbeats on the new version, or
+`failed` with the reason (rolled back, quarantined, wrong architecture,
+downgrade, timed out).
+
+* **Cancel pending** stops waiting on boards that have not confirmed and
+  withdraws their queued `update` commands.
+* **Retry failed** creates a new deployment of the same release for the
+  boards that failed or were cancelled; the original keeps its history.
+
+### Device page (`/devices/{id}`)
+
+Opened from the device table. Shows the OTA phase history, telemetry charts
+(health score with the quarantine line, Wi-Fi signal, heap use; firmware
+upgrades drawn as vertical markers) over 1 h / 6 h / 24 h / 7 d, the command
+history, and the audit entries for that board. Buttons: Deploy latest, Check
+update, Identify, Restart.
+
+### Audit trail (`/audit`, operators and admins)
+
+Every state-changing gateway request: who (the signed-in dashboard user,
+passed as `x-actor` and only believed alongside the fleet key), what, which
+device, the HTTP result and the source IP. Refused requests (401/403) are kept
+on purpose. Stored in `history.db` (SQLite) beside the firmware cache;
+`OTA_AUDIT_MAX_ROWS` (50,000) newest rows are kept.
+
+### Telemetry history
+
+Every heartbeat is appended to `history.db` and served bucketed by
+`GET /api/devices/{id}/telemetry?hours=24&points=240`. Kept for
+`OTA_TELEMETRY_RETENTION_DAYS` (7).
+
+### Live updates
+
+The gateway exposes `GET /api/stream` (Server-Sent Events). The dashboard
+relays it at `/api/stream` for signed-in users and every page refreshes the
+moment the gateway changes, instead of every 5 s. The status bar shows
+**Live** or **Polling**; if a proxy buffers SSE the pages fall back to polling
+automatically. Behind nginx, disable buffering for `/api/stream`
+(`proxy_buffering off;`); Cloudflare Tunnel passes SSE as-is.
+
+## 6. Release pipeline
+
+* **One toolchain.** `platformio.ini` pins `espressif32 @ 6.9.0`
+  (Arduino-ESP32 2.0.17). The dashboard's compile-and-flash path checks
+  `arduino-cli core list` and refuses another version
+  (`arduino-cli core install esp32:esp32@2.0.17`, or
+  `OTA_ESP32_CORE_VERSION=any` to opt out).
+* **Fail closed.** A tag without `FIRMWARE_ENC_KEY`/`FIRMWARE_PRIV_KEY`
+  now fails the workflow instead of publishing unsigned binaries. Set the
+  repository *variable* `ALLOW_UNSIGNED_RELEASE=true` for a deliberate plain
+  build.
+* **release-manifest.json.** CI attaches, per asset, the served SHA-256, the
+  plaintext `imageSha256` (recorded before encryption) and `securePackage`.
+* **GitHub → gateway.** Add a repository webhook: URL
+  `https://<gateway>/api/github/webhook`, content type `application/json`,
+  event *Releases*, secret = `OTA_GITHUB_WEBHOOK_SECRET`. On *published* the
+  gateway checks the HMAC and repository, downloads the assets in
+  `OTA_GITHUB_ASSET_MAP`, verifies each against `release-manifest.json`
+  (or `checksums.txt`), and, if `OTA_RELEASE_AES_KEY` +
+  `OTA_RELEASE_RSA_PUBKEY_PATH` are set, decrypts and RSA-verifies every
+  package as a device would. The release is published, not deployed.
+
+## 7. Verifying
 
 ```bash
-cd src/implementation && python -m pytest -q        # 146 tests, incl. tests/test_device_control.py
+cd src/implementation && python -m pytest -q        # 156 tests
 cd CODE/OTA_IDE && npx tsc --noEmit && npx vitest run
 ```
 

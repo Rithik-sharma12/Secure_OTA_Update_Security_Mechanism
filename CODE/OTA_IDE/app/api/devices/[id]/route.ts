@@ -28,10 +28,10 @@ export async function DELETE(request: Request, context: Context) {
   return withSecureApi(
     request,
     '/api/devices/[id]',
-    async () => {
+    async ({ auth }) => {
       const { id } = await context.params;
       if (!DEVICE_ID_PATTERN.test(id)) return invalidDeviceId();
-      return proxyGatewayJson('Devices', `/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      return proxyGatewayJson('Devices', `/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE', auth });
     },
     { requireRole: OPERATOR_ROLES }
   );

@@ -50,8 +50,19 @@ def default_state() -> dict[str, Any]:
     }
 
 
+# Bumped on every persisted change. /api/stream watches it to tell dashboards
+# "something changed, refresh" without them having to poll the full state.
+STATE_REVISION = 0
+
+
+def state_revision() -> int:
+    return STATE_REVISION
+
+
 def persist_state_locked() -> None:
     """Write current STATE to disk atomically. Must be called under STATE_LOCK."""
+    global STATE_REVISION
+    STATE_REVISION += 1
     temp_file = STATE_FILE.with_suffix('.tmp')
     with open(temp_file, 'w', encoding='utf-8') as file:
         json.dump(STATE, file, indent=2)

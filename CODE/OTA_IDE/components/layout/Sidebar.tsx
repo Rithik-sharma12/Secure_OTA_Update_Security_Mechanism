@@ -21,6 +21,8 @@ import {
   Shield,
   Info,
   FlaskConical,
+  Rocket,
+  ScrollText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Logo from '@/components/brand/Logo';
@@ -65,6 +67,7 @@ const navSections: NavSection[] = [
   {
     title: 'Deploy',
     items: [
+      { label: 'Deployments', href: '/deployments', icon: <Rocket className="w-4 h-4" /> },
       { label: 'Pipeline', href: '/pipeline', icon: <GitBranch className="w-4 h-4" /> },
       { label: 'Releases', href: '/releases', icon: <Code className="w-4 h-4" /> },
       { label: 'Manifest', href: '/manifest', icon: <Menu className="w-4 h-4" /> },
@@ -77,6 +80,7 @@ const navSections: NavSection[] = [
       { label: 'TCV Engine', href: '/tcv-engine', icon: <Cpu className="w-4 h-4" /> },
       { label: 'ASH Monitor', href: '/ash-monitor', icon: <Activity className="w-4 h-4" /> },
       { label: 'Key Vault', href: '/key-vault', icon: <Lock className="w-4 h-4" /> },
+      { label: 'Audit Trail', href: '/audit', icon: <ScrollText className="w-4 h-4" /> },
     ],
   },
   {

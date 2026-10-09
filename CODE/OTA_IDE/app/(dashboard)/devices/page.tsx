@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -72,6 +74,7 @@ export default function DevicesPage() {
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const { snapshot, isLoading } = useRuntimeSnapshot();
+  const router = useRouter();
   const { can, reasonFor } = useCurrentUser();
   const mayControlDevices = can('devices.control');
   const mayFlash = can('devices.flash');
@@ -135,6 +138,9 @@ export default function DevicesPage() {
         await removeDevice(deviceId);
         setActionMessage(`${deviceName} removed from the gateway registry.`);
       } else if (command === 'view-details') {
+        router.push(`/devices/${encodeURIComponent(deviceId)}`);
+        return;
+      } else if (command === 'summary') {
         const detail = await getDeviceDetail(deviceId);
         const ota = detail.device?.ota;
         const last = detail.commands[0];
@@ -286,7 +292,9 @@ export default function DevicesPage() {
                     <TableRow key={device.id} className="border-border/50 hover:bg-muted/30">
                       <TableCell className="font-medium text-foreground">
                         <div>
-                          <p>{device.name}</p>
+                          <Link href={`/devices/${encodeURIComponent(device.id)}`} className="hover:underline">
+                            {device.name}
+                          </Link>
                           <p className="text-xs text-foreground/50 mt-1">{device.id}</p>
                         </div>
                       </TableCell>

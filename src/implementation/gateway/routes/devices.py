@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..auth import (
     DeviceCaller,
@@ -29,6 +29,8 @@ from ..auth import (
     new_device_token,
     require_write_auth,
 )
+from ..audit import audit_note
+from ..history import audit_entries, telemetry_series
 from ..commands import (
     COMMAND_TYPES,
     complete_command_locked,
@@ -114,7 +116,7 @@ def get_device(device_id: str) -> dict[str, Any]:
 
 
 @router.post('/api/devices/register')
-def register_device(payload: DeviceRegisterPayload, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def register_device(payload: DeviceRegisterPayload, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     """Issue (or rotate) the device's own token. The token is returned once."""
     device_id = _check_device_id(payload.deviceId)
     device_type = normalize_device_type(payload.deviceType) if payload.deviceType else None
@@ -140,11 +142,12 @@ def register_device(payload: DeviceRegisterPayload, _auth: None = Depends(_requi
         STATE['updatedAt'] = utc_now_iso()
         persist_state_locked()
 
+    audit_note(request, 'device.token_rotated' if rotated else 'device.registered', f'Token issued for {device_id}', device_id)
     return {'ok': True, 'deviceId': device_id, 'deviceType': device_type, 'token': token, 'rotated': rotated}
 
 
 @router.post('/api/devices/{device_id}/revoke-token')
-def revoke_device_token(device_id: str, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def revoke_device_token(device_id: str, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     device_id = _check_device_id(device_id)
     with STATE_LOCK:
         record = STATE.get('deviceCredentials', {}).get(device_id)
@@ -154,11 +157,12 @@ def revoke_device_token(device_id: str, _auth: None = Depends(_require_write_aut
         record['revokedAt'] = utc_now_iso()
         push_event_locked('security', 'warning', 'Device Token Revoked', f'Token for {device_id} revoked.', device_id)
         persist_state_locked()
+    audit_note(request, 'device.token_revoked', None, device_id)
     return {'ok': True}
 
 
 @router.delete('/api/devices/{device_id}')
-def remove_device(device_id: str, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def remove_device(device_id: str, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     """Forget a device: record, queued commands and token.
 
     A board that is still powered and holds the fleet key will reappear on its
@@ -175,6 +179,7 @@ def remove_device(device_id: str, _auth: None = Depends(_require_write_auth)) ->
         push_event_locked('info', 'warning', 'Device Removed', f'Device {device_id} removed from the registry.', device_id)
         STATE['updatedAt'] = utc_now_iso()
         persist_state_locked()
+    audit_note(request, 'device.removed', None, device_id)
     return {'ok': True, 'removed': device_id}
 
 
@@ -193,6 +198,7 @@ def list_device_commands(device_id: str) -> dict[str, Any]:
 def queue_device_command(
     device_id: str,
     payload: DeviceCommandPayload,
+    request: Request,
     _auth: None = Depends(_require_write_auth),
 ) -> dict[str, Any]:
     device_id = _check_device_id(device_id)
@@ -212,11 +218,12 @@ def queue_device_command(
         STATE['updatedAt'] = utc_now_iso()
         persist_state_locked()
 
+    audit_note(request, f'command.{payload.type}', f"Queued {command['id']}", device_id)
     return {'ok': True, 'command': command}
 
 
 @router.post('/api/devices/{device_id}/commands/{command_id}/cancel')
-def cancel_device_command(device_id: str, command_id: str, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def cancel_device_command(device_id: str, command_id: str, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     device_id = _check_device_id(device_id)
     with STATE_LOCK:
         for command in STATE.get('commands', {}).get(device_id, []):
@@ -226,6 +233,7 @@ def cancel_device_command(device_id: str, command_id: str, _auth: None = Depends
                 command['status'] = 'cancelled'
                 command['completedAt'] = utc_now_iso()
                 persist_state_locked()
+                audit_note(request, 'command.cancelled', f"{command.get('type')} {command_id}", device_id)
                 return {'ok': True, 'command': command}
     raise HTTPException(status_code=404, detail='Command not found.')
 
@@ -286,3 +294,30 @@ def report_ota_status(
         persist_state_locked()
 
     return {'ok': True, 'deployments': changed}
+
+
+# ── History ───────────────────────────────────────────────────
+
+@router.get('/api/devices/{device_id}/telemetry')
+def device_telemetry(
+    device_id: str,
+    hours: float = Query(default=24.0, gt=0),
+    points: int = Query(default=240, ge=10, le=1000),
+) -> dict[str, Any]:
+    """Heartbeat history, averaged into at most `points` buckets."""
+    device_id = _check_device_id(device_id)
+    return {'ok': True, **telemetry_series(device_id, hours=hours, points=points)}
+
+
+@router.get('/api/audit')
+def list_audit(
+    limit: int = Query(default=200, ge=1, le=1000),
+    before_id: int | None = Query(default=None),
+    device_id: str | None = Query(default=None),
+    actor: str | None = Query(default=None),
+    action: str | None = Query(default=None),
+    _auth: None = Depends(_require_write_auth),
+) -> dict[str, Any]:
+    """Who changed what. Needs the fleet key: it names operators and IPs."""
+    entries = audit_entries(limit=limit, before_id=before_id, device_id=device_id, actor=actor, action=action)
+    return {'ok': True, 'entries': entries, 'nextBeforeId': entries[-1]['id'] if len(entries) == limit else None}

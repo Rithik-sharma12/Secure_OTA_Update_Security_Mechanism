@@ -30,6 +30,7 @@ export async function POST(request: Request) {
           deviceType: typeof body.deviceType === 'string' ? body.deviceType : undefined,
           label: typeof body.label === 'string' ? body.label.slice(0, 64) : undefined,
         },
+        auth,
       });
       if (!proxied.ok) return proxied;
 

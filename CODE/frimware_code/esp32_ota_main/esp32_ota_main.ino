@@ -178,6 +178,8 @@ String serialLine;
 String rolledBackVersion;   // set when a newer image gave up and the bootloader brought us back
 String rolledBackCommand;
 bool bootReportsDone = false;
+String currentOtaVersion;   // version being downloaded, for progress reports
+int lastReportedQuarter = 0;
 
 enum UpdateOutcome { UPDATE_NOT_NEEDED, UPDATE_INSTALLED, UPDATE_FAILED, UPDATE_CHECK_FAILED };
 
@@ -229,6 +231,7 @@ bool isPlaceholder(const String &value);
 void addAuthHeaders(HTTPClient &http);
 void reportOtaStatus(const char *phase, const String &version, int progress, const String &detail);
 void reportCommandResult(const String &commandId, bool ok, const String &detail);
+void reportDownloadProgress(size_t done, size_t total);
 void processPendingCommands();
 void serviceSerial();
 void handleSerialLine(const String &line);
@@ -511,6 +514,8 @@ UpdateOutcome checkBackendOTA() {
 
   Serial.printf("[Backend] Update available: %s\n", manifest.downloadUrl.c_str());
   Serial.println("[Backend] Downloading and flashing...");
+  currentOtaVersion = manifest.version;
+  lastReportedQuarter = 0;
   reportOtaStatus("downloading", manifest.version, 0, "Download started");
 
   if (performHttpUpdate(manifest)) {
@@ -1077,6 +1082,7 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
         Serial.printf("[Update] Secure OTA %d%%\n", pct);
         lastPct = pct;
       }
+      reportDownloadProgress(totalRead, encryptedSize);
     }
 
     if (streamFailed || totalRead != encryptedSize) {
@@ -1286,6 +1292,7 @@ bool performPlainPackageUpdate(const String &url, const String &expectedSha256) 
       }
 
       written += got;
+      reportDownloadProgress(written, expectedBytes);
     }
   }
 
@@ -1840,4 +1847,65 @@ void handleSerialLine(const String &rawLine) {
   }
 
   Serial.println("SOTA:ERR unknown command");
+}
+
+
+/*
+ * Download progress for the dashboard, at 25 / 50 / 75 %.
+ *
+ * Sent on a second connection while the download stream is still open, so it
+ * is skipped whenever the heap is tight: a TLS session costs ~40 KB and the
+ * download already holds one. Losing a progress tick is harmless; running the
+ * update out of memory is not. The short timeout bounds how long the download
+ * stream sits idle.
+ */
+void reportDownloadProgress(size_t done, size_t total) {
+  if (total == 0 || currentOtaVersion.length() == 0) {
+    return;
+  }
+  const int quarter = static_cast<int>((done * 4UL) / total);
+  if (quarter <= lastReportedQuarter || quarter >= 4) {
+    return;
+  }
+  lastReportedQuarter = quarter;
+  if (ESP.getFreeHeap() < 70000U) {
+    return;
+  }
+
+  JsonDocument doc;
+  doc["phase"] = "downloading";
+  doc["version"] = currentOtaVersion;
+  doc["progress"] = quarter * 25;
+  doc["detail"] = String(static_cast<unsigned>(done / 1024U)) + " / " + static_cast<unsigned>(total / 1024U) + " KB";
+  String body;
+  serializeJson(doc, body);
+
+  // Not beginRequest(): that reuses the shared plainClient/secureClient,
+  // which the download in progress is reading from right now.
+  const String url = cfg.backendUrl + "/api/devices/" + urlEncode(cfg.deviceId) + "/ota/status";
+  HTTPClient http;
+  WiFiClient progressPlain;
+  WiFiClientSecure progressSecure;
+  bool opened = false;
+  if (url.startsWith("https://")) {
+    if (strlen(OTA_ROOT_CA) > 0) {
+      progressSecure.setCACert(OTA_ROOT_CA);
+      opened = http.begin(progressSecure, url);
+    } else {
+#if OTA_ALLOW_INSECURE_TLS
+      progressSecure.setInsecure();
+      opened = http.begin(progressSecure, url);
+#endif
+    }
+  } else {
+    opened = http.begin(progressPlain, url);
+  }
+  if (!opened) {
+    return;
+  }
+  http.addHeader("Content-Type", "application/json");
+  addAuthHeaders(http);
+  http.setTimeout(3000);
+  http.POST(body);
+  http.end();
 }

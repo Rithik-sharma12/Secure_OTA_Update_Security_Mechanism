@@ -32,7 +32,7 @@ export async function POST(request: Request, context: Context) {
   return withSecureApi(
     request,
     '/api/devices/[id]/commands',
-    async () => {
+    async ({ auth }) => {
       const { id } = await context.params;
       if (!DEVICE_ID_PATTERN.test(id)) return invalidDeviceId();
 
@@ -48,6 +48,7 @@ export async function POST(request: Request, context: Context) {
       return proxyGatewayJson('DeviceCommands', `/api/devices/${encodeURIComponent(id)}/commands`, {
         method: 'POST',
         body: { type, params },
+        auth,
       });
     },
     { requireRole: OPERATOR_ROLES }

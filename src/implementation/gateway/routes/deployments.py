@@ -6,9 +6,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ..deployment import create_deployment_locked, expire_stale_deployments_locked
+from ..audit import audit_note
+from ..deployment import (
+    cancel_deployment_locked,
+    create_deployment_locked,
+    expire_stale_deployments_locked,
+    find_deployment_locked,
+    retry_targets,
+)
 from ..models import DeploymentCreatePayload
 from ..state import (
     STATE,
@@ -41,7 +48,7 @@ def list_deployments() -> dict[str, Any]:
 
 
 @router.post('/api/deployments')
-def create_deployment(payload: DeploymentCreatePayload, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def create_deployment(payload: DeploymentCreatePayload, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     with STATE_LOCK:
         releases = STATE.get('releases', [])
         if not releases:
@@ -70,4 +77,52 @@ def create_deployment(payload: DeploymentCreatePayload, _auth: None = Depends(_r
         STATE['updatedAt'] = utc_now_iso()
         persist_state_locked()
 
+    audit_note(
+        request,
+        'deployment.created',
+        f"v{deployment['version']} -> {len(target_device_ids)} device(s): "
+        f"{deployment['pendingCount']} pending, {deployment['failureCount']} refused",
+        target_device_ids[0] if len(target_device_ids) == 1 else None,
+    )
+    return {'ok': True, 'deployment': deployment}
+
+
+@router.post('/api/deployments/{deployment_id}/cancel')
+def cancel_deployment(deployment_id: str, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+    with STATE_LOCK:
+        deployment = find_deployment_locked(deployment_id)
+        if not deployment:
+            raise HTTPException(status_code=404, detail=f'Deployment {deployment_id} not found.')
+        cancelled = cancel_deployment_locked(deployment, request.headers.get('x-actor') or 'dashboard')
+        if not cancelled:
+            raise HTTPException(status_code=409, detail='Nothing to cancel: no target is still pending.')
+        STATE['updatedAt'] = utc_now_iso()
+        persist_state_locked()
+        result = dict(deployment)
+    audit_note(request, 'deployment.cancelled', f'{deployment_id}: {cancelled} target(s) cancelled')
+    return {'ok': True, 'deployment': result, 'cancelled': cancelled}
+
+
+@router.post('/api/deployments/{deployment_id}/retry')
+def retry_deployment(deployment_id: str, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+    """New deployment of the same release for the targets that failed or were cancelled.
+
+    A new record rather than a rewrite, so the history of the first attempt and
+    its failure reasons stays visible.
+    """
+    with STATE_LOCK:
+        previous = find_deployment_locked(deployment_id)
+        if not previous:
+            raise HTTPException(status_code=404, detail=f'Deployment {deployment_id} not found.')
+        device_ids = retry_targets(previous)
+        if not device_ids:
+            raise HTTPException(status_code=409, detail='Nothing to retry: no target failed or was cancelled.')
+        release = next((r for r in STATE.get('releases', []) if r.get('id') == previous.get('releaseId')), None)
+        if not release:
+            raise HTTPException(status_code=404, detail='The release of that deployment no longer exists.')
+        deployment = create_deployment_locked(release, device_ids)
+        deployment['retryOf'] = deployment_id
+        STATE['updatedAt'] = utc_now_iso()
+        persist_state_locked()
+    audit_note(request, 'deployment.retried', f'{deployment_id} -> {deployment["id"]} for {len(device_ids)} device(s)')
     return {'ok': True, 'deployment': deployment}

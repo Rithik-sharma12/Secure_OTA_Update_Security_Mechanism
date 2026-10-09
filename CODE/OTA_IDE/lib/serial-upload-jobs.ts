@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { uploadsStore, uploadLogsStore, type UploadRecord, type UploadLogRecord } from '@/lib/local-database';
 import { logger, errorTracker } from '@/lib/logger';
+import { findInstalledCoreVersion } from '@/lib/toolchain';
 import { detectConnectedSerialPorts, isConnectedComPort, normalizeComPortName } from '@/lib/serial-port-detection';
 
 export type UploadJobStatus = 'queued' | 'compiling' | 'uploading' | 'success' | 'failed';
@@ -343,6 +344,39 @@ async function runProcess(
   });
 }
 
+/**
+ * Toolchain pin. CI builds release firmware with Arduino-ESP32 2.0.17
+ * (platformio.ini pins platform-espressif32 6.9.0); compiling the same sketch
+ * here with a different core produces a binary nobody tested, and the OTA
+ * rollback hook behaves differently between core 2.x and 3.x. Set
+ * OTA_ESP32_CORE_VERSION=any to opt out.
+ */
+const requiredEsp32Core = (process.env.OTA_ESP32_CORE_VERSION || '2.0.17').trim();
+
+async function assertPinnedCore(jobId: string, fqbn: string) {
+  if (!fqbn.startsWith('esp32:esp32') || requiredEsp32Core.toLowerCase() === 'any') return;
+
+  const output = await new Promise<string>((resolve, reject) => {
+    const child = spawn(arduinoCliPath, ['core', 'list', '--format', 'json'], { windowsHide: true });
+    let stdout = '';
+    child.stdout.on('data', (chunk) => (stdout += String(chunk)));
+    child.on('error', reject);
+    child.on('close', () => resolve(stdout));
+  });
+
+  const installed = findInstalledCoreVersion(output, 'esp32:esp32');
+  if (installed === requiredEsp32Core) {
+    await appendUploadLog(jobId, 'info', `ESP32 core ${installed} matches the pinned release toolchain.`);
+    return;
+  }
+  throw new Error(
+    installed
+      ? `ESP32 core ${installed} is installed but releases are built with ${requiredEsp32Core}. ` +
+          `Run: arduino-cli core install esp32:esp32@${requiredEsp32Core}  (or set OTA_ESP32_CORE_VERSION=any to skip this check).`
+      : `The ESP32 Arduino core is not installed. Run: arduino-cli core install esp32:esp32@${requiredEsp32Core}`
+  );
+}
+
 async function runUploadJob(jobId: string, sketchDirectory: string, cleanupRoot?: string) {
   const current = jobs.get(jobId);
   if (!current) {
@@ -356,6 +390,7 @@ async function runUploadJob(jobId: string, sketchDirectory: string, cleanupRoot?
   try {
     updateJob(jobId, { status: 'compiling', progress: 5 });
     await updateUploadRecord(jobId, { status: 'compiling', progress: 5 });
+    await assertPinnedCore(jobId, current.fqbn);
     await appendUploadLog(jobId, 'info', 'Compilation started.');
 
     await runProcess(

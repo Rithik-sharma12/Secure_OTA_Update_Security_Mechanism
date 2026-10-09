@@ -23,7 +23,7 @@ export type DeviceCommand = {
 };
 
 export type DeploymentTarget = {
-  state: 'pending' | 'confirmed' | 'failed';
+  state: 'pending' | 'confirmed' | 'failed' | 'cancelled';
   reason: string | null;
   fromVersion: string | null;
   phase?: string;
@@ -46,7 +46,15 @@ export type DeviceDetail = {
   device: (Record<string, unknown> & {
     fw?: string;
     ota?: { phase: string; version: string; progress: number | null; detail: string | null; at: string };
+    otaHistory?: Array<{ phase: string; version: string; progress: number | null; detail: string | null; at: string }>;
     authMode?: string;
+    arch?: string;
+    ash?: number;
+    status?: string;
+    last_seen?: string;
+    ip?: string;
+    signalStrength?: number;
+    rollbackPending?: boolean;
   }) | null;
   credentials: { registered: boolean; revoked?: boolean; registeredAt?: string };
   commands: DeviceCommand[];
@@ -109,4 +117,84 @@ export async function waitForCommand(deviceId: string, commandId: string, timeou
     if (Date.now() > deadline) return command ?? null;
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
+}
+
+// ── Fleet deployments ──────────────────────────────────────────────────
+
+export type FleetDeployment = Deployment & {
+  releaseId: string;
+  startedAt: string;
+  completedAt: string | null;
+  deadline: string;
+  cancelledCount?: number;
+  retryOf?: string;
+  deviceIds: string[];
+};
+
+export async function listDeployments() {
+  const payload = await request<{ deployments: FleetDeployment[] }>('/api/deployments');
+  return payload.deployments;
+}
+
+export async function cancelDeployment(deploymentId: string) {
+  return request<{ deployment: FleetDeployment; cancelled: number }>(`/api/deployments/${encodeURIComponent(deploymentId)}/cancel`, {
+    method: 'POST',
+  });
+}
+
+export async function retryDeployment(deploymentId: string) {
+  const payload = await request<{ deployment: FleetDeployment }>(`/api/deployments/${encodeURIComponent(deploymentId)}/retry`, {
+    method: 'POST',
+  });
+  return payload.deployment;
+}
+
+// ── History ────────────────────────────────────────────────────────────
+
+export type TelemetryPoint = {
+  t: string;
+  samples: number;
+  ash: number | null;
+  ashMin: number | null;
+  rssi: number | null;
+  memory: number | null;
+  cpu: number | null;
+  uptime: number | null;
+  fw: string | null;
+};
+
+export type TelemetrySeries = {
+  deviceId: string;
+  hours: number;
+  bucketSeconds: number;
+  rawSamples: number;
+  points: TelemetryPoint[];
+  retentionDays: number;
+};
+
+export async function getTelemetry(deviceId: string, hours: number, points = 240) {
+  return request<TelemetrySeries>(`/api/devices/${encodeURIComponent(deviceId)}/telemetry?hours=${hours}&points=${points}`);
+}
+
+export type AuditEntry = {
+  id: number;
+  timestamp: string;
+  actor: string;
+  sourceIp: string | null;
+  method: string;
+  path: string;
+  status: number;
+  action: string | null;
+  detail: string | null;
+  deviceId: string | null;
+};
+
+export async function getAudit(filters: { limit?: number; beforeId?: number; deviceId?: string; actor?: string; action?: string } = {}) {
+  const query = new URLSearchParams();
+  if (filters.limit) query.set('limit', String(filters.limit));
+  if (filters.beforeId) query.set('before_id', String(filters.beforeId));
+  if (filters.deviceId) query.set('device_id', filters.deviceId);
+  if (filters.actor) query.set('actor', filters.actor);
+  if (filters.action) query.set('action', filters.action);
+  return request<{ entries: AuditEntry[]; nextBeforeId: number | null }>(`/api/audit?${query.toString()}`);
 }

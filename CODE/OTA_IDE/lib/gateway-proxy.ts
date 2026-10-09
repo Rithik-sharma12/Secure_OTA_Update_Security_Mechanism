@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import type { AuthContext } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 
 /**
@@ -26,6 +27,19 @@ export const deviceGatewayUrl = (
 
 const TIMEOUT_MS = 15_000;
 
+/**
+ * Names the signed-in operator to the gateway's audit trail. The gateway only
+ * believes it alongside the fleet key, which only this server holds.
+ */
+export function actorHeader(auth: AuthContext | null | undefined): Record<string, string> {
+  if (!auth) return {};
+  return { 'x-actor': `${auth.user.username} (${auth.user.role})`.replace(/[^\w .@:()/-]/g, '').slice(0, 96) };
+}
+
+export function gatewayHeaders(auth?: AuthContext | null): Record<string, string> {
+  return { ...(gatewayApiKey ? { 'x-api-key': gatewayApiKey } : {}), ...actorHeader(auth) };
+}
+
 export const DEVICE_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 function gatewayErrorMessage(parsed: unknown, text: string, status: number) {
@@ -43,10 +57,9 @@ function gatewayErrorMessage(parsed: unknown, text: string, status: number) {
 export async function proxyGatewayJson(
   scope: string,
   path: string,
-  init: { method?: string; body?: unknown } = {}
+  init: { method?: string; body?: unknown; auth?: AuthContext | null } = {}
 ): Promise<NextResponse> {
-  const headers: Record<string, string> = {};
-  if (gatewayApiKey) headers['x-api-key'] = gatewayApiKey;
+  const headers: Record<string, string> = gatewayHeaders(init.auth);
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
 
   const controller = new AbortController();

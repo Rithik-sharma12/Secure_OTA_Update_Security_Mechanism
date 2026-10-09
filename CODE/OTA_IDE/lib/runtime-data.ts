@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { isLiveConnected, subscribeToGatewayChanges } from '@/lib/live-updates';
 import { apiFetch, clearAuthSession } from '@/lib/client-auth';
 import type {
   Certificate,
@@ -269,6 +270,25 @@ function normalizeSnapshot(raw: unknown): RuntimeSnapshot {
   };
 }
 
+/**
+ * Several components (sidebar, top bar, status bar, the page) mount this hook
+ * at once. Concurrent loads share one request instead of each firing its own.
+ */
+let inflightSnapshot: Promise<Response> | null = null;
+
+function fetchSnapshotShared(): Promise<Response> {
+  if (!inflightSnapshot) {
+    inflightSnapshot = apiFetch('/api/runtime/snapshot', { cache: 'no-store' }).finally(() => {
+      inflightSnapshot = null;
+    });
+  }
+  // Each caller reads the body, so hand out clones of the one response.
+  return inflightSnapshot.then((response) => response.clone());
+}
+
+/** While the live stream is up, polling only backstops it at this interval. */
+const LIVE_BACKSTOP_POLL_MS = 30_000;
+
 export function useRuntimeSnapshot(pollMs = 5000) {
   const [snapshot, setSnapshot] = React.useState<RuntimeSnapshot>(emptySnapshot);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -276,7 +296,7 @@ export function useRuntimeSnapshot(pollMs = 5000) {
 
   const loadSnapshot = React.useCallback(async () => {
     try {
-      const response = await apiFetch('/api/runtime/snapshot', { cache: 'no-store' });
+      const response = await fetchSnapshotShared();
       if (!response.ok) {
         if (response.status === 401) {
           logger.warn('RuntimeData', 'Authentication required. Redirecting to login.', { status: response.status });
@@ -314,12 +334,25 @@ export function useRuntimeSnapshot(pollMs = 5000) {
 
   React.useEffect(() => {
     void loadSnapshot();
+    let lastLoad = Date.now();
 
-    const intervalId = window.setInterval(() => {
+    // Push: reload as soon as the gateway reports a change.
+    const unsubscribe = subscribeToGatewayChanges(() => {
+      lastLoad = Date.now();
       void loadSnapshot();
+    });
+
+    // Pull: the normal cadence when the stream is down, a slow backstop when up.
+    const intervalId = window.setInterval(() => {
+      const due = isLiveConnected() ? Math.max(pollMs, LIVE_BACKSTOP_POLL_MS) : pollMs;
+      if (Date.now() - lastLoad >= due - 50) {
+        lastLoad = Date.now();
+        void loadSnapshot();
+      }
     }, pollMs);
 
     return () => {
+      unsubscribe();
       window.clearInterval(intervalId);
     };
   }, [loadSnapshot, pollMs]);

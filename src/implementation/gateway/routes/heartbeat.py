@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import DeviceCaller, authorize_device_locked, device_credentials
+from ..history import record_telemetry
 from ..commands import complete_command_locked, take_commands_for_delivery_locked
 from ..config import MAX_DEVICE_LOG_ENTRIES
 from ..deployment import (
@@ -143,6 +144,16 @@ def receive_heartbeat(payload: dict[str, Any], caller: DeviceCaller = Depends(de
 
         STATE['updatedAt'] = now_iso
         persist_state_locked()
+
+    # Durable history for trend charts; the state file only keeps the latest.
+    record_telemetry(device_id, {
+        'ash': ash_score,
+        'rssi': signal_strength if isinstance(signal_strength, (int, float)) else None,
+        'memory': memory_usage,
+        'cpu': cpu_usage,
+        'uptime': safe_float(payload.get('uptime', 0.0), 0.0),
+        'fw': current_version[:32],
+    })
 
     command = 'ack'
     if (

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   return withSecureApi(
     request,
     '/api/deployments',
-    async () => {
+    async ({ auth }) => {
       const body = (await request.json().catch(() => ({}))) as { releaseId?: unknown; deviceIds?: unknown };
       const releaseId = typeof body.releaseId === 'string' && body.releaseId.trim() ? body.releaseId.trim() : undefined;
 
@@ -39,6 +39,7 @@ export async function POST(request: Request) {
       return proxyGatewayJson('Deployments', '/api/deployments', {
         method: 'POST',
         body: { releaseId, deviceIds },
+        auth,
       });
     },
     { requireRole: OPERATOR_ROLES }

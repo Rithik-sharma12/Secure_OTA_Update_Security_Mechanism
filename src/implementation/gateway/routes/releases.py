@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from ..config import MANIFEST_FILE
@@ -24,6 +24,7 @@ from ..release import (
 from ..state import STATE, STATE_LOCK, gateway_snapshot, persist_state_locked
 from ..utils import normalize_compatibility, normalize_device_type, utc_now_iso
 from ..auth import require_write_auth
+from ..audit import audit_note
 
 import json
 
@@ -46,7 +47,7 @@ def list_releases() -> dict[str, Any]:
 
 
 @router.post('/api/releases')
-def create_release(payload: ReleaseCreatePayload, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def create_release(payload: ReleaseCreatePayload, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     compatibility = normalize_compatibility(payload.compatible)
 
     try:
@@ -68,11 +69,13 @@ def create_release(payload: ReleaseCreatePayload, _auth: None = Depends(_require
         status_code = 409 if 'already exists' in message.lower() else 400
         raise HTTPException(status_code=status_code, detail=message) from error
 
+    audit_note(request, 'release.published', f"v{release.get('version')} for {', '.join(release.get('compatible', [])) or 'all'}")
     return {'ok': True, 'release': release, 'manifest': manifest, 'pipeline': pipeline}
 
 
 @router.post('/api/releases/upload')
 async def upload_release(
+    request: Request,
     file: UploadFile = File(..., description='Compiled firmware .bin'),
     version: str = Form(...),
     description: str = Form('Firmware release uploaded from the OTA dashboard.'),
@@ -125,6 +128,7 @@ async def upload_release(
         status_code = 409 if 'already exists' in message.lower() else 400
         raise HTTPException(status_code=status_code, detail=message) from error
 
+    audit_note(request, 'release.published', f"v{release.get('version')} for {', '.join(release.get('compatible', [])) or 'all'}")
     return {'ok': True, 'release': release, 'manifest': manifest, 'pipeline': pipeline}
 
 
