@@ -17,6 +17,14 @@ export interface Device {
   memoryUsage: number;
   uptime: number; // in hours
   signalStrength?: number;
+  /** LAN address the device last reported. */
+  ip?: string;
+  /** 'token' when the device authenticates with its own token, 'fleet' for the shared key. */
+  authMode?: string;
+  /** True while a freshly installed image is on probation (health gate). */
+  rollbackPending?: boolean;
+  /** Last OTA progress report the device sent (POST /api/devices/{id}/ota/status). */
+  ota?: { phase: string; version: string; progress: number | null; detail: string | null; at: string | null };
 }
 
 // Event Types

@@ -186,6 +186,21 @@ def create_deployment_locked(
 
     _recount(deployment)
 
+    # Nudge every pending target. Without this a device only notices the
+    # assignment on its next poll timer; with it, the next heartbeat (≤15 s)
+    # tells the device to go and fetch its assigned build.
+    from .commands import enqueue_command_locked
+
+    for device_id, target in targets.items():
+        if target.get('state') == 'pending':
+            command = enqueue_command_locked(
+                device_id,
+                'update',
+                {'version': version, 'deploymentId': deployment['id']},
+                requested_by=f"deployment:{deployment['id']}",
+            )
+            target['commandId'] = command['id']
+
     STATE['deployments'].insert(0, deployment)
     STATE['deployments'] = STATE['deployments'][:MAX_RELEASES]
 
@@ -284,5 +299,72 @@ def expire_stale_deployments_locked() -> list[str]:
                     f"{deployment.get('id')}."
                 ),
             )
+
+    return changed
+
+
+# Phases a device reports while it works through an update. They are progress
+# information only: a target is confirmed solely by a heartbeat that reports
+# the new version, exactly as before. 'failed' and 'rolled_back' are the
+# exceptions — the device is telling us the assigned build will not land, so
+# waiting out the deadline would only hide the reason.
+OTA_PHASES = (
+    'checking',
+    'downloading',
+    'verifying',
+    'installing',
+    'rebooting',
+    'health_check',
+    'succeeded',
+    'failed',
+    'rolled_back',
+)
+TERMINAL_FAILURE_PHASES = {'failed', 'rolled_back'}
+
+
+def record_ota_status_locked(
+    device_id: str,
+    phase: str,
+    version: str,
+    progress: int | None,
+    detail: str,
+) -> list[str]:
+    """Attach a device's OTA progress report to its pending deployment targets."""
+    changed: list[str] = []
+    reported_score = version_score(version) if version else None
+    now_iso = utc_now_iso()
+
+    for deployment in STATE.get('deployments', []):
+        if deployment.get('status') != 'in_progress':
+            continue
+        target = deployment.get('targets', {}).get(device_id)
+        if not target or target.get('state') != 'pending':
+            continue
+        # A report about some other version (an auto-update racing the
+        # deployment, say) says nothing about this assignment.
+        if reported_score is not None and reported_score != version_score(str(deployment.get('version', '0.0.0'))):
+            continue
+
+        target['phase'] = phase
+        target['progress'] = progress
+        target['phaseDetail'] = detail or None
+        target['phaseAt'] = now_iso
+
+        if phase in TERMINAL_FAILURE_PHASES:
+            target['state'] = 'failed'
+            target['reason'] = (
+                f"Device rolled back to its previous firmware: {detail}" if phase == 'rolled_back'
+                else f"Device reported update failure: {detail or 'no detail given'}"
+            )
+            _recount(deployment)
+            push_alert_locked(f"Deployment {deployment.get('id')}: {device_id} {phase.replace('_', ' ')} — {detail or 'no detail'}.")
+            push_event_locked(
+                event_type='firmware_update',
+                severity='error',
+                title='Device Update Failed' if phase == 'failed' else 'Device Rolled Back',
+                description=f"{device_id} could not install v{deployment.get('version')}: {detail or 'no detail given'}.",
+                device_id=device_id,
+            )
+        changed.append(str(deployment.get('id')))
 
     return changed

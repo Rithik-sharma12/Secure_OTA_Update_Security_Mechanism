@@ -230,6 +230,54 @@ def latest_release_for_device_locked(device_type: str) -> dict[str, Any] | None:
     return None
 
 
+def assigned_release_for_device_locked(device_id: str, device_type: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Release that an in-progress deployment is waiting for this device to install.
+
+    Returns (release, deployment). The newest deployment wins when a device is
+    pending in more than one. A deployment whose release has since been
+    archived or deleted, or no longer covers the device's architecture, is
+    skipped rather than served.
+
+    Must be called under STATE_LOCK.
+    """
+    releases = {str(release.get('id')): release for release in STATE.get('releases', [])}
+    for deployment in STATE.get('deployments', []):
+        if deployment.get('status') != 'in_progress':
+            continue
+        target = (deployment.get('targets') or {}).get(device_id)
+        if not target or target.get('state') != 'pending':
+            continue
+        release = releases.get(str(deployment.get('releaseId', '')))
+        if not release or str(release.get('status', 'published')) != 'published':
+            continue
+        compatible = [str(entry) for entry in release.get('compatible', [])]
+        if compatible and device_type not in compatible:
+            continue
+        return release, deployment
+    return None, None
+
+
+def release_for_device_locked(device_id: str | None, device_type: str) -> dict[str, Any] | None:
+    """What this device should be running, as far as the gateway is concerned.
+
+    1. A release a dashboard deployment assigned to this device, if any.
+    2. Otherwise, with OTA_AUTO_UPDATE on, the newest compatible release.
+    3. Otherwise nothing — the device stays on what it has.
+
+    Must be called under STATE_LOCK.
+    """
+    from .config import AUTO_UPDATE
+
+    if device_id:
+        assigned, _deployment = assigned_release_for_device_locked(device_id, device_type)
+        if assigned:
+            return assigned
+
+    if AUTO_UPDATE:
+        return latest_release_for_device_locked(device_type)
+    return None
+
+
 def published_device_types_locked() -> list[str]:
     """Architectures covered by at least one published release.
 

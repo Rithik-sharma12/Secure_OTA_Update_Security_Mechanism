@@ -27,6 +27,11 @@ services:
       # Deliberately invalid fallback — see the note in docker-compose.local.yml.
       OTA_GATEWAY_PUBLIC_URL: ${OTA_PUBLIC_URL:-https://OTA-PUBLIC-URL-NOT-SET-PASS-ENV-FILE}
 
+  ota_ide:
+    environment:
+      # Written into boards provisioned over USB from the Devices page.
+      OTA_DEVICE_GATEWAY_URL: ${OTA_DEVICE_GATEWAY_URL:-${OTA_PUBLIC_URL:-}}
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: secure_ota_cloudflared

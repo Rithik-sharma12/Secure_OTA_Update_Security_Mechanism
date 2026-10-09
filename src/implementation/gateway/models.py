@@ -36,3 +36,26 @@ class DeploymentCreatePayload(BaseModel):
 
 class PipelineRunPayload(BaseModel):
     releaseId: str | None = None
+
+
+class DeviceRegisterPayload(BaseModel):
+    deviceId: str
+    deviceType: str | None = None
+    label: str | None = None
+
+
+class DeviceCommandPayload(BaseModel):
+    type: str
+    params: dict = Field(default_factory=dict)
+
+
+class DeviceCommandResultPayload(BaseModel):
+    ok: bool
+    detail: str = ''
+
+
+class DeviceOtaStatusPayload(BaseModel):
+    phase: str
+    version: str = ''
+    progress: int | None = None
+    detail: str = ''

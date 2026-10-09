@@ -8,14 +8,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import require_write_auth
+from ..auth import DeviceCaller, authorize_device_locked, device_credentials
+from ..commands import complete_command_locked, take_commands_for_delivery_locked
 from ..config import MAX_DEVICE_LOG_ENTRIES
 from ..deployment import (
     QUARANTINE_ASH_THRESHOLD,
     confirm_device_version_locked,
     expire_stale_deployments_locked,
 )
-from ..release import latest_release_for_device_locked
+from ..release import release_for_device_locked
 from ..state import (
     STATE,
     STATE_LOCK,
@@ -33,13 +34,14 @@ from ..utils import (
 
 router = APIRouter()
 
-# Real API key guard, imported directly so Depends() captures the actual
-# function (see gateway/auth.py for why this must not be monkey-patched).
-_require_write_auth = require_write_auth
+# Fields the heartbeat does not carry but other routes maintain on the device
+# record. The heartbeat rebuilds the record from scratch each time, so these
+# are copied across or they would vanish every 15 seconds.
+_PRESERVED_DEVICE_FIELDS = ('ota', 'otaHistory', 'registeredAt', 'firstSeen', 'authMode')
 
 
 @router.post('/api/heartbeat')
-def receive_heartbeat(payload: dict[str, Any], _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def receive_heartbeat(payload: dict[str, Any], caller: DeviceCaller = Depends(device_credentials)) -> dict[str, Any]:
     device_id = str(payload.get('device_id', '')).strip()
     if not device_id:
         raise HTTPException(status_code=400, detail='Missing device_id')
@@ -58,6 +60,10 @@ def receive_heartbeat(payload: dict[str, Any], _auth: None = Depends(_require_wr
     now_iso = utc_now_iso()
 
     with STATE_LOCK:
+        # Authorised against this specific device id: a token issued to one
+        # board cannot report as another.
+        auth_mode = authorize_device_locked(STATE, device_id, caller)
+
         previous = STATE['devices'].get(device_id, {})
         previous_ash = safe_int(previous.get('ash', 100), 100) if previous else 100
 
@@ -98,7 +104,14 @@ def receive_heartbeat(payload: dict[str, Any], _auth: None = Depends(_require_wr
             'location': str(payload.get('location', 'Edge Gateway Network'))[:128],
             'signalStrength': signal_strength,
             'ram': 'N/A',
+            'ip': str(payload.get('ip', ''))[:64] or previous.get('ip', ''),
+            'rollbackPending': bool(payload.get('rollback_pending', False)),
         }
+        for field in _PRESERVED_DEVICE_FIELDS:
+            if field in previous:
+                STATE['devices'][device_id][field] = previous[field]
+        STATE['devices'][device_id].setdefault('firstSeen', now_iso)
+        STATE['devices'][device_id]['authMode'] = auth_mode
 
         current_version = str(payload.get('current_version', '0.0.0'))
 
@@ -110,8 +123,23 @@ def receive_heartbeat(payload: dict[str, Any], _auth: None = Depends(_require_wr
         # What this specific device should be offered, honouring the release's
         # target architectures — an ESP8266 must never be pointed at an ESP32
         # build.
-        target_release = latest_release_for_device_locked(device_type)
+        target_release = release_for_device_locked(device_id, device_type)
         latest_version = str(target_release.get('version', '0.0.0')) if target_release else '0.0.0'
+
+        # Queued dashboard commands ride back on this response. A quarantined
+        # device still receives reboot/identify, but never an update.
+        commands = take_commands_for_delivery_locked(device_id)
+        if ash_score <= QUARANTINE_ASH_THRESHOLD:
+            allowed = []
+            for command in commands:
+                if command['type'] in {'update', 'check_update'}:
+                    complete_command_locked(
+                        device_id, command['id'], False,
+                        f'Not delivered: device is quarantined (ASH={ash_score}).',
+                    )
+                else:
+                    allowed.append(command)
+            commands = allowed
 
         STATE['updatedAt'] = now_iso
         persist_state_locked()
@@ -127,4 +155,10 @@ def receive_heartbeat(payload: dict[str, Any], _auth: None = Depends(_require_wr
         # refuses — a pointless download attempt and a confusing device log.
         command = 'update_available'
 
-    return {'command': command, 'gateway_time': now_iso, 'latest_version': latest_version}
+    return {
+        'command': command,
+        'gateway_time': now_iso,
+        'latest_version': latest_version,
+        'target_version': latest_version if command == 'update_available' else current_version,
+        'commands': commands,
+    }

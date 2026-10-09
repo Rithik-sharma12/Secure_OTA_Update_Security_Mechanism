@@ -19,6 +19,7 @@ from ..release import (
     latest_release_for_device_locked,
     manifest_for_release_locked as _manifest_for_release_locked,
     published_device_types_locked,
+    release_for_device_locked,
 )
 from ..state import STATE, STATE_LOCK, gateway_snapshot, persist_state_locked
 from ..utils import normalize_compatibility, normalize_device_type, utc_now_iso
@@ -153,16 +154,33 @@ def get_manifest(
     firmware built before this existed keeps working unchanged.
     """
     resolved_type = ''
+    known_device: dict[str, Any] | None = None
+    if device_id:
+        with STATE_LOCK:
+            found = STATE.get('devices', {}).get(str(device_id))
+            known_device = dict(found) if found else None
     if device_type:
         resolved_type = normalize_device_type(device_type)
-    elif device_id:
-        with STATE_LOCK:
-            known = STATE.get('devices', {}).get(str(device_id))
-            resolved_type = str(known.get('arch', '')) if known else ''
+    elif known_device:
+        resolved_type = str(known_device.get('arch', ''))
 
     if resolved_type:
         with STATE_LOCK:
-            release = latest_release_for_device_locked(resolved_type)
+            if device_id:
+                # Per-device answer: a dashboard deployment assigned to this
+                # board wins over "newest compatible" (see release_for_device_locked).
+                release = release_for_device_locked(str(device_id), resolved_type)
+                if release is None and known_device is not None:
+                    # Auto-update is off and nothing is assigned: tell the
+                    # device it is current rather than failing its poll, which
+                    # the firmware would count against its health score.
+                    return {
+                        'version': str(known_device.get('fw', '0.0.0')),
+                        'updateAvailable': False,
+                        'reason': 'No deployment is assigned to this device.',
+                    }
+            else:
+                release = latest_release_for_device_locked(resolved_type)
             manifest = _manifest_for_release_locked(release) if release else None
             published_types = published_device_types_locked()
 

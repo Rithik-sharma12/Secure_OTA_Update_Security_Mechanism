@@ -6,6 +6,13 @@
  *   2) Backend manifest pull and self-update
  *   3) Secure package mode (AES-256-CBC + RSA-2048 signature)
  *   4) Plain package mode, bound to the manifest sha256 (for development)
+ *   5) Remote control from the dashboard over the internet: commands
+ *      (update / check_update / reboot / identify) arrive in heartbeat
+ *      responses, progress is reported to /api/devices/{id}/ota/status
+ *   6) Post-update health gate with automatic bootloader rollback
+ *   7) USB provisioning: Wi-Fi, gateway URL and device token are written
+ *      over the COM port (SOTA:PROVISION) and kept in NVS, so one released
+ *      binary can be flashed to any board and configured afterwards
  *
  * Update paths are mutually exclusive and fail closed. A device built with
  * secure keys never falls back to an unverified flash; a device without them
@@ -23,14 +30,30 @@
 #include <Update.h>
 #include <time.h>
 
+#include "esp_ota_ops.h"
+
 #include "mbedtls/aes.h"
 #include "mbedtls/md.h"
 #include "mbedtls/pk.h"
 
 #include "ota_config.h"
 
-#define FIRMWARE_VERSION    "2.4.1"
-#define FIRMWARE_VERSION_N  20401  // major*10000 + minor*100 + patch
+// Older ota_config.h files predate these; keep them compiling.
+#ifndef DEVICE_ID
+#define DEVICE_ID "auto"
+#endif
+#ifndef DEVICE_HOSTNAME
+#define DEVICE_HOSTNAME "auto"
+#endif
+#ifndef DEVICE_TOKEN
+#define DEVICE_TOKEN ""
+#endif
+#ifndef BACKEND_API_KEY
+#define BACKEND_API_KEY ""
+#endif
+
+#define FIRMWARE_VERSION    "2.5.0"
+#define FIRMWARE_VERSION_N  20500  // major*10000 + minor*100 + patch
 
 #define HEALTH_QUARANTINE 40
 #define HEALTH_MAX       100
@@ -44,6 +67,18 @@
 #define BACKEND_CHECK_INTERVAL_MS (static_cast<unsigned long>(OTA_CHECK_INTERVAL_SECONDS) * 1000UL)
 #define HEARTBEAT_INTERVAL_MS     (15UL * 1000UL)
 #define ARDUINO_OTA_PORT          3232
+
+// After an OTA reboot the new image must prove itself within this window —
+// Wi-Fi up and one heartbeat accepted by the gateway — or the bootloader is
+// told to go back to the previous image.
+#ifndef OTA_HEALTH_GATE_TIMEOUT_SECONDS
+#define OTA_HEALTH_GATE_TIMEOUT_SECONDS 120
+#endif
+#define HEALTH_GATE_TIMEOUT_MS (static_cast<unsigned long>(OTA_HEALTH_GATE_TIMEOUT_SECONDS) * 1000UL)
+
+#define REPORT_TIMEOUT_MS   6000
+#define MAX_PENDING_COMMANDS 4
+#define SERIAL_LINE_MAX      1024
 
 #define LED_STATUS 2
 #define BTN_OTA    0
@@ -108,7 +143,43 @@ struct AppState {
   int failedAttempts24h = 0;
   unsigned long lastBackendCheck = 0;
   unsigned long lastHeartbeat = 0;
+
+  // Post-update health gate (see confirmHealthyBoot / enforceHealthGate).
+  bool rollbackPending = false;
+  unsigned long bootMillis = 0;
 };
+
+/*
+ * Settings that used to be compile-time only. Each is read from NVS
+ * (namespace "sota-cfg", written by SOTA:PROVISION over USB) and falls back to
+ * the ota_config.h macro, so an existing build behaves exactly as before and a
+ * CI-built release can be configured per board after flashing.
+ */
+struct RuntimeConfig {
+  String wifiSsid;
+  String wifiPassword;
+  String backendUrl;
+  String apiKey;       // fleet key (legacy, shared)
+  String deviceToken;  // per-device token from POST /api/devices/register
+  String deviceId;
+  String hostname;
+};
+
+struct PendingCommand {
+  String id;
+  String type;
+  String version;
+};
+
+RuntimeConfig cfg;
+PendingCommand pendingCommands[MAX_PENDING_COMMANDS];
+int pendingCommandCount = 0;
+String serialLine;
+String rolledBackVersion;   // set when a newer image gave up and the bootloader brought us back
+String rolledBackCommand;
+bool bootReportsDone = false;
+
+enum UpdateOutcome { UPDATE_NOT_NEEDED, UPDATE_INSTALLED, UPDATE_FAILED, UPDATE_CHECK_FAILED };
 
 struct ManifestInfo {
   String version;
@@ -150,8 +221,25 @@ AppState state;
 
 void setupWiFi();
 void setupArduinoOTA();
-void checkBackendOTA();
-void sendHeartbeat();
+UpdateOutcome checkBackendOTA();
+bool sendHeartbeat();
+
+void loadRuntimeConfig();
+bool isPlaceholder(const String &value);
+void addAuthHeaders(HTTPClient &http);
+void reportOtaStatus(const char *phase, const String &version, int progress, const String &detail);
+void reportCommandResult(const String &commandId, bool ok, const String &detail);
+void processPendingCommands();
+void serviceSerial();
+void handleSerialLine(const String &line);
+void detectPendingVerification();
+// Declared up front with C linkage: the .ino preprocessor (arduino-cli and
+// PlatformIO) otherwise generates a C++ prototype for it, which conflicts with
+// the core's weak C symbol this overrides.
+extern "C" bool verifyRollbackLater();
+void confirmHealthyBoot();
+void enforceHealthGate();
+String urlEncode(const String &value);
 
 bool beginRequest(HTTPClient &http, const String &url);
 bool syncTimeForTls();
@@ -182,6 +270,9 @@ void setup() {
 
   Serial.printf("\n[OTA] Firmware v%s starting...\n", FIRMWARE_VERSION);
 
+  state.bootMillis = millis();
+  loadRuntimeConfig();
+  detectPendingVerification();
   loadHealth();
   setupWiFi();
 
@@ -197,6 +288,8 @@ void setup() {
 
 void loop() {
   ArduinoOTA.handle();
+  serviceSerial();
+  enforceHealthGate();
 
   if (isBtnHeld(3000)) {
     Serial.println("[OTA] Manual backend OTA trigger from button");
@@ -207,7 +300,10 @@ void loop() {
 
   if (now - state.lastBackendCheck >= BACKEND_CHECK_INTERVAL_MS) {
     state.lastBackendCheck = now;
-    if (state.inQuarantine) {
+    if (state.rollbackPending) {
+      // Never stack a second update on an image that has not proven itself.
+      Serial.println("[OTA] Skipping backend check until this image passes its health gate.");
+    } else if (state.inQuarantine) {
       Serial.println("[OTA] Skipping backend check. Device quarantined.");
     } else {
       checkBackendOTA();
@@ -216,29 +312,54 @@ void loop() {
 
   if (now - state.lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
     state.lastHeartbeat = now;
-    adjustHealth(+1, "poll success");
-    sendHeartbeat();
+    if (sendHeartbeat()) {
+      adjustHealth(+1, "poll success");
+      confirmHealthyBoot();
+    }
   }
+
+  processPendingCommands();
 
   delay(10);
 }
 
 void setupWiFi() {
-  Serial.printf("[WiFi] Connecting to %s", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  WiFi.setHostname(DEVICE_HOSTNAME);
+  // A release binary built in CI may carry placeholder credentials. Instead
+  // of boot-looping on a network that does not exist, wait here for the
+  // dashboard to provision the board over USB (SOTA:PROVISION).
+  if (isPlaceholder(cfg.wifiSsid)) {
+    Serial.println("[WiFi] No Wi-Fi configured. Waiting for USB provisioning");
+    Serial.println("[WiFi] (dashboard -> Devices -> Provision, or send SOTA:PROVISION {...}).");
+    Serial.printf("SOTA:READY {\"device_id\":\"%s\",\"version\":\"%s\"}\n", cfg.deviceId.c_str(), FIRMWARE_VERSION);
+    for (;;) {
+      serviceSerial();  // restarts the board once provisioned
+      digitalWrite(LED_STATUS, (millis() / 500UL) % 2UL);
+      delay(10);
+    }
+  }
+
+  Serial.printf("[WiFi] Connecting to %s", cfg.wifiSsid.c_str());
+  WiFi.setHostname(cfg.hostname.c_str());
+  WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str());
 
   int tries = 0;
   while (WiFi.status() != WL_CONNECTED && tries < 30) {
-    delay(500);
+    for (int i = 0; i < 50; ++i) {
+      serviceSerial();
+      delay(10);
+    }
     Serial.print('.');
     tries++;
   }
 
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\n[WiFi] Failed. Rebooting in 10s.");
+    Serial.println("\n[WiFi] Failed. Rebooting in 10s (send SOTA:PROVISION to change Wi-Fi).");
     adjustHealth(-1, "network error");
-    delay(10000);
+    const unsigned long until = millis() + 10000UL;
+    while (millis() < until) {
+      serviceSerial();
+      delay(10);
+    }
     ESP.restart();
   }
 
@@ -316,7 +437,7 @@ bool beginRequest(HTTPClient &http, const String &url) {
 
 void setupArduinoOTA() {
   ArduinoOTA.setPort(ARDUINO_OTA_PORT);
-  ArduinoOTA.setHostname(DEVICE_HOSTNAME);
+  ArduinoOTA.setHostname(cfg.hostname.c_str());
   ArduinoOTA.setPassword(OTA_PASSWORD);
 
   ArduinoOTA.onStart([]() {
@@ -359,14 +480,14 @@ void setupArduinoOTA() {
   Serial.printf("[ArduinoOTA] Listening on port %d\n", ARDUINO_OTA_PORT);
 }
 
-void checkBackendOTA() {
+UpdateOutcome checkBackendOTA() {
   Serial.println("[Backend] Checking for firmware update...");
 
   ManifestInfo manifest;
   if (!fetchLatestRelease(manifest)) {
     Serial.println("[Backend] Could not fetch release info");
     adjustHealth(-1, "network error");
-    return;
+    return UPDATE_CHECK_FAILED;
   }
 
   const int remoteVerN = parseVersion(manifest.version);
@@ -380,28 +501,43 @@ void checkBackendOTA() {
   if (remoteVerN == FIRMWARE_VERSION_N) {
     Serial.println("[Backend] Device is up to date");
     adjustHealth(+1, "poll success");
-    return;
+    return UPDATE_NOT_NEEDED;
   }
 
   if (remoteVerN < FIRMWARE_VERSION_N) {
     Serial.println("[Backend] Anti-rollback blocked downgrade package");
-    return;
+    return UPDATE_NOT_NEEDED;
   }
 
   Serial.printf("[Backend] Update available: %s\n", manifest.downloadUrl.c_str());
   Serial.println("[Backend] Downloading and flashing...");
+  reportOtaStatus("downloading", manifest.version, 0, "Download started");
 
   if (performHttpUpdate(manifest)) {
     adjustHealth(+10, "update success");
+    reportOtaStatus("rebooting", manifest.version, 100, "Image verified and written; rebooting into it");
+
+    // The new image reads these after boot: which version it is expected to
+    // be, and which dashboard command (if any) to acknowledge once healthy.
+    prefs.begin("ota-health", false);
+    prefs.putString("expectver", manifest.version);
+    if (pendingCommandCount > 0 && (pendingCommands[0].type == "update" || pendingCommands[0].type == "check_update")) {
+      prefs.putString("ackcmd", pendingCommands[0].id);
+    }
+    prefs.end();
+
     Serial.println("[Backend] Update successful. Rebooting.");
     blinkLED(10, 50);
     delay(500);
     ESP.restart();
-  } else {
-    Serial.println("[Backend] Update failed");
-    state.failedAttempts24h++;
-    adjustHealth(-25, "update failed");
+    return UPDATE_INSTALLED;  // not reached
   }
+
+  Serial.println("[Backend] Update failed");
+  state.failedAttempts24h++;
+  adjustHealth(-25, "update failed");
+  reportOtaStatus("failed", manifest.version, -1, "Download, verification or flash write failed (see serial log)");
+  return UPDATE_FAILED;
 }
 
 bool fetchLatestRelease(ManifestInfo &manifestOut) {
@@ -410,15 +546,16 @@ bool fetchLatestRelease(ManifestInfo &manifestOut) {
   }
 
   HTTPClient http;
-  const String apiUrl = String(BACKEND_URL) + "/releases/latest/manifest";
+  // Identify ourselves so the gateway can answer with the build a dashboard
+  // deployment assigned to *this* board, for *this* architecture.
+  const String apiUrl = cfg.backendUrl + "/releases/latest/manifest?device_id=" + urlEncode(cfg.deviceId) +
+                        "&device_type=" + urlEncode(DEVICE_TYPE);
   if (!beginRequest(http, apiUrl)) {
     Serial.println("[Backend] Could not open manifest endpoint");
     return false;
   }
 
-  if (strlen(BACKEND_API_KEY) > 0) {
-    http.addHeader("x-api-key", BACKEND_API_KEY);
-  }
+  addAuthHeaders(http);
 
   http.setTimeout(10000);
   const int code = http.GET();
@@ -438,6 +575,14 @@ bool fetchLatestRelease(ManifestInfo &manifestOut) {
   }
 
   manifestOut.version = doc["version"] | "";
+
+  // Gateway with OTA_AUTO_UPDATE off and nothing assigned to this board.
+  if (doc["updateAvailable"].is<bool>() && !doc["updateAvailable"].as<bool>()) {
+    manifestOut.version = FIRMWARE_VERSION;
+    manifestOut.downloadUrl = "-";
+    return true;
+  }
+
   manifestOut.filename = doc["filename"] | "firmware.bin";
   manifestOut.sha256 = doc["sha256"] | "";
   normalizeDigestField(manifestOut.sha256, "sha256");
@@ -449,7 +594,7 @@ bool fetchLatestRelease(ManifestInfo &manifestOut) {
   if (doc["downloadUrl"].is<const char*>()) {
     manifestOut.downloadUrl = doc["downloadUrl"].as<String>();
   } else {
-    manifestOut.downloadUrl = String(BACKEND_URL) + "/releases/download/" + manifestOut.filename;
+    manifestOut.downloadUrl = cfg.backendUrl + "/releases/download/" + manifestOut.filename;
   }
 
   if (manifestOut.version.length() == 0 || manifestOut.downloadUrl.length() == 0) {
@@ -460,9 +605,9 @@ bool fetchLatestRelease(ManifestInfo &manifestOut) {
   return true;
 }
 
-void sendHeartbeat() {
+bool sendHeartbeat() {
   if (WiFi.status() != WL_CONNECTED) {
-    return;
+    return false;
   }
 
   const unsigned long uptimeSeconds = millis() / 1000UL;
@@ -474,35 +619,83 @@ void sendHeartbeat() {
       : 0;
 
   HTTPClient http;
-  if (!beginRequest(http, String(BACKEND_URL) + "/api/heartbeat")) {
-    return;
+  if (!beginRequest(http, cfg.backendUrl + "/api/heartbeat")) {
+    return false;
   }
 
   http.addHeader("Content-Type", "application/json");
-  if (strlen(BACKEND_API_KEY) > 0) {
-    http.addHeader("x-api-key", BACKEND_API_KEY);
-  }
+  addAuthHeaders(http);
+  http.setTimeout(10000);
 
   JsonDocument doc;
-  doc["device_id"] = DEVICE_ID;
+  doc["device_id"] = cfg.deviceId;
   doc["device_type"] = DEVICE_TYPE;
   doc["current_version"] = FIRMWARE_VERSION;
   doc["ash_score"] = state.healthScore;
   doc["status"] = state.inQuarantine ? "Quarantined" : "Healthy";
   doc["memoryUsage"] = memoryUsedPct;
   doc["uptime"] = uptimeSeconds;
-  doc["location"] = DEVICE_HOSTNAME;
+  doc["location"] = cfg.hostname;
   doc["signalStrength"] = WiFi.RSSI();
+  doc["ip"] = WiFi.localIP().toString();
+  doc["rollback_pending"] = state.rollbackPending;
 
   JsonArray logs = doc["logs"].to<JsonArray>();
-  logs.add(String("[HB] device=") + DEVICE_ID + " fw=" + FIRMWARE_VERSION + " ash=" + state.healthScore);
+  logs.add(String("[HB] device=") + cfg.deviceId + " fw=" + FIRMWARE_VERSION + " ash=" + state.healthScore);
   logs.add(String("[NET] ip=") + WiFi.localIP().toString() + " rssi=" + WiFi.RSSI() + "dBm");
   logs.add(String("[SYS] uptime=") + uptimeSeconds + "s freeHeap=" + freeHeap + "B mem=" + memoryUsedPct + "% status=" + (state.inQuarantine ? "Quarantined" : "Healthy"));
 
   String payload;
   serializeJson(doc, payload);
-  http.POST(payload);
+  const int code = http.POST(payload);
+  if (code < 200 || code >= 300) {
+    Serial.printf("[HB] Gateway answered %d\n", code);
+    if (code == 401) {
+      Serial.println("[HB] Credentials refused. Re-provision this board from the dashboard.");
+    }
+    http.end();
+    return false;
+  }
+
+  /*
+   * The gateway cannot connect to us (NAT, firewalls), so it answers our
+   * heartbeat with whatever the dashboard queued. Commands are only recorded
+   * here and executed from loop(), outside the HTTP client's lifetime.
+   */
+  JsonDocument reply;
+  const DeserializationError err = deserializeJson(reply, http.getStream());
   http.end();
+  if (err) {
+    return true;  // accepted; an unreadable body is not a health failure
+  }
+
+  JsonArray commands = reply["commands"].as<JsonArray>();
+  for (JsonObject command : commands) {
+    const String id = command["id"] | "";
+    if (id.length() == 0) {
+      continue;
+    }
+    bool known = false;
+    for (int i = 0; i < pendingCommandCount; ++i) {
+      if (pendingCommands[i].id == id) known = true;
+    }
+    if (known || pendingCommandCount >= MAX_PENDING_COMMANDS) {
+      continue;
+    }
+    pendingCommands[pendingCommandCount].id = id;
+    pendingCommands[pendingCommandCount].type = command["type"] | "";
+    pendingCommands[pendingCommandCount].version = command["params"]["version"] | "";
+    pendingCommandCount++;
+    Serial.printf("[CMD] Received '%s' (%s)\n", pendingCommands[pendingCommandCount - 1].type.c_str(), id.c_str());
+  }
+
+  // Legacy signal: the gateway has something newer for us. Act on it now
+  // rather than waiting out the poll timer.
+  const String hint = reply["command"] | "";
+  if (hint == "update_available" && pendingCommandCount == 0 && !state.inQuarantine && !state.rollbackPending) {
+    state.lastBackendCheck = millis() - BACKEND_CHECK_INTERVAL_MS;
+  }
+  return true;
 }
 
 /*
@@ -646,9 +839,7 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
     return false;
   }
 
-  if (strlen(BACKEND_API_KEY) > 0) {
-    http.addHeader("x-api-key", BACKEND_API_KEY);
-  }
+  addAuthHeaders(http);
 
   http.setTimeout(15000);
   const int httpCode = http.GET();
@@ -973,9 +1164,7 @@ bool performPlainPackageUpdate(const String &url, const String &expectedSha256) 
     return false;
   }
 
-  if (strlen(BACKEND_API_KEY) > 0) {
-    http.addHeader("x-api-key", BACKEND_API_KEY);
-  }
+  addAuthHeaders(http);
 
   http.setTimeout(15000);
   const int httpCode = http.GET();
@@ -1225,4 +1414,430 @@ int parseVersion(String ver) {
   }
 
   return major * 10000 + minor * 100 + patch;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+ *  Runtime configuration (NVS "sota-cfg", falls back to ota_config.h)
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+bool isPlaceholder(const String &value) {
+  return value.length() == 0 || value.startsWith("CHANGE_ME") || value.startsWith("YOUR_");
+}
+
+static String macDeviceId() {
+  const uint64_t mac = ESP.getEfuseMac();
+  char id[24];
+  // getEfuseMac() packs the first MAC byte into the lowest bits.
+  snprintf(id, sizeof(id), "esp32-%02x%02x%02x%02x%02x%02x",
+           static_cast<unsigned>(mac & 0xFF), static_cast<unsigned>((mac >> 8) & 0xFF),
+           static_cast<unsigned>((mac >> 16) & 0xFF), static_cast<unsigned>((mac >> 24) & 0xFF),
+           static_cast<unsigned>((mac >> 32) & 0xFF), static_cast<unsigned>((mac >> 40) & 0xFF));
+  return String(id);
+}
+
+void loadRuntimeConfig() {
+  prefs.begin("sota-cfg", false);
+  cfg.wifiSsid = prefs.getString("ssid", WIFI_SSID);
+  cfg.wifiPassword = prefs.getString("pass", WIFI_PASSWORD);
+  cfg.backendUrl = prefs.getString("url", BACKEND_URL);
+  cfg.apiKey = prefs.getString("apikey", BACKEND_API_KEY);
+  cfg.deviceToken = prefs.getString("token", DEVICE_TOKEN);
+  cfg.deviceId = prefs.getString("devid", DEVICE_ID);
+  cfg.hostname = prefs.getString("host", DEVICE_HOSTNAME);
+  prefs.end();
+
+  while (cfg.backendUrl.endsWith("/")) {
+    cfg.backendUrl.remove(cfg.backendUrl.length() - 1);
+  }
+
+  // One CI build is flashed onto many boards, so a shared compile-time id
+  // would make them all report as the same device. "auto" derives a stable,
+  // unique id from the factory-programmed MAC instead.
+  if (cfg.deviceId.length() == 0 || cfg.deviceId == "auto" || isPlaceholder(cfg.deviceId)) {
+    cfg.deviceId = macDeviceId();
+  }
+  if (cfg.hostname.length() == 0 || cfg.hostname == "auto" || isPlaceholder(cfg.hostname)) {
+    cfg.hostname = cfg.deviceId;
+  }
+
+  Serial.printf("[CFG] device=%s gateway=%s auth=%s\n", cfg.deviceId.c_str(), cfg.backendUrl.c_str(),
+                cfg.deviceToken.length() ? "device-token" : (cfg.apiKey.length() ? "fleet-key" : "none"));
+}
+
+/*
+ * Prefer the per-device token: it only lets this board speak for itself,
+ * whereas the fleet key extracted from any one board speaks for all of them.
+ */
+void addAuthHeaders(HTTPClient &http) {
+  if (cfg.deviceToken.length() > 0) {
+    http.addHeader("x-device-token", cfg.deviceToken);
+  } else if (cfg.apiKey.length() > 0 && !isPlaceholder(cfg.apiKey)) {
+    http.addHeader("x-api-key", cfg.apiKey);
+  }
+}
+
+String urlEncode(const String &value) {
+  static const char *hex = "0123456789ABCDEF";
+  String out;
+  out.reserve(value.length() * 3);
+  for (size_t i = 0; i < value.length(); ++i) {
+    const char c = value.charAt(i);
+    if (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out += c;
+    } else {
+      out += '%';
+      out += hex[(static_cast<unsigned char>(c) >> 4) & 0x0F];
+      out += hex[static_cast<unsigned char>(c) & 0x0F];
+    }
+  }
+  return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ *  Reports to the gateway
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+static bool postJson(const String &path, const String &body) {
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+  HTTPClient http;
+  if (!beginRequest(http, cfg.backendUrl + path)) {
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  addAuthHeaders(http);
+  http.setTimeout(REPORT_TIMEOUT_MS);
+  const int code = http.POST(body);
+  http.end();
+  return code >= 200 && code < 300;
+}
+
+void reportOtaStatus(const char *phase, const String &version, int progress, const String &detail) {
+  JsonDocument doc;
+  doc["phase"] = phase;
+  doc["version"] = version;
+  if (progress >= 0) {
+    doc["progress"] = progress;
+  }
+  doc["detail"] = detail;
+  String body;
+  serializeJson(doc, body);
+  const bool ok = postJson("/api/devices/" + urlEncode(cfg.deviceId) + "/ota/status", body);
+  Serial.printf("[Report] ota/status %s v%s %s\n", phase, version.c_str(), ok ? "sent" : "NOT delivered");
+}
+
+void reportCommandResult(const String &commandId, bool ok, const String &detail) {
+  if (commandId.length() == 0) {
+    return;
+  }
+  JsonDocument doc;
+  doc["ok"] = ok;
+  doc["detail"] = detail;
+  String body;
+  serializeJson(doc, body);
+  const bool sent = postJson("/api/devices/" + urlEncode(cfg.deviceId) + "/commands/" + urlEncode(commandId) + "/result", body);
+  Serial.printf("[CMD] %s -> %s (%s)%s\n", commandId.c_str(), ok ? "ok" : "failed", detail.c_str(), sent ? "" : " [report not delivered]");
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ *  Dashboard commands (delivered in heartbeat responses)
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+static void dropFirstCommand() {
+  for (int i = 1; i < pendingCommandCount; ++i) {
+    pendingCommands[i - 1] = pendingCommands[i];
+  }
+  if (pendingCommandCount > 0) {
+    pendingCommandCount--;
+    pendingCommands[pendingCommandCount] = PendingCommand();
+  }
+}
+
+void processPendingCommands() {
+  if (pendingCommandCount == 0) {
+    return;
+  }
+
+  // Index 0 stays in the queue while an update runs, so checkBackendOTA() can
+  // hand its id to the next image to acknowledge after the health gate.
+  const PendingCommand command = pendingCommands[0];
+  Serial.printf("[CMD] Executing '%s'\n", command.type.c_str());
+
+  if (command.type == "reboot") {
+    reportCommandResult(command.id, true, "Rebooting now");
+    dropFirstCommand();
+    delay(300);
+    ESP.restart();
+    return;
+  }
+
+  if (command.type == "identify") {
+    blinkLED(15, 120);
+    reportCommandResult(command.id, true, String("Blinked LED on GPIO ") + LED_STATUS);
+    dropFirstCommand();
+    return;
+  }
+
+  if (command.type == "update" || command.type == "check_update") {
+    if (state.inQuarantine) {
+      reportCommandResult(command.id, false, "Device is quarantined; updates are disabled");
+    } else if (state.rollbackPending) {
+      reportCommandResult(command.id, false, "Current image has not passed its health gate yet");
+    } else {
+      const UpdateOutcome outcome = checkBackendOTA();  // restarts on success
+      state.lastBackendCheck = millis();
+      if (outcome == UPDATE_NOT_NEEDED) {
+        String detail = String("Already on v") + FIRMWARE_VERSION;
+        if (command.version.length() && parseVersion(command.version) > FIRMWARE_VERSION_N) {
+          detail += String("; gateway did not offer v") + command.version + " to this device";
+        }
+        reportCommandResult(command.id, true, detail);
+      } else if (outcome == UPDATE_CHECK_FAILED) {
+        reportCommandResult(command.id, false, "Could not fetch the manifest from the gateway");
+      } else {
+        reportCommandResult(command.id, false, "Update failed; device kept its current firmware");
+      }
+    }
+    dropFirstCommand();
+    return;
+  }
+
+  reportCommandResult(command.id, false, String("Unsupported command '") + command.type + "'");
+  dropFirstCommand();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ *  Post-update health gate and rollback
+ *
+ *  The Arduino core marks every image valid inside initArduino(), before
+ *  setup() runs, unless the sketch defers that decision. Returning true here
+ *  defers it: a freshly installed image boots in PENDING_VERIFY and must prove
+ *  itself (Wi-Fi + an accepted heartbeat) within OTA_HEALTH_GATE_TIMEOUT_SECONDS.
+ *  If it cannot, the bootloader is told to boot the previous image. A hard
+ *  crash/reset loop before validation also lands back on the previous image,
+ *  because the bootloader aborts a PENDING_VERIFY image that resets.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+extern "C" bool verifyRollbackLater() {
+  return true;
+}
+
+void detectPendingVerification() {
+  const esp_partition_t *running = esp_ota_get_running_partition();
+  esp_ota_img_states_t imageState;
+  if (running && esp_ota_get_state_partition(running, &imageState) == ESP_OK &&
+      imageState == ESP_OTA_IMG_PENDING_VERIFY) {
+    state.rollbackPending = true;
+    Serial.printf("[Gate] New image v%s is on probation: %u s to reach the gateway.\n",
+                  FIRMWARE_VERSION, static_cast<unsigned>(OTA_HEALTH_GATE_TIMEOUT_SECONDS));
+  }
+
+  // Left behind by a newer image that failed its gate and rolled back to us.
+  prefs.begin("ota-health", false);
+  rolledBackVersion = prefs.getString("rbver", "");
+  rolledBackCommand = prefs.getString("rbcmd", "");
+  prefs.end();
+  if (rolledBackVersion.length()) {
+    Serial.printf("[Gate] v%s failed its health check; running v%s again.\n", rolledBackVersion.c_str(), FIRMWARE_VERSION);
+  }
+}
+
+void confirmHealthyBoot() {
+  if (state.rollbackPending) {
+    const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    state.rollbackPending = false;
+    Serial.printf("[Gate] Health check passed; image v%s marked valid (%s).\n", FIRMWARE_VERSION, esp_err_to_name(err));
+  }
+
+  if (bootReportsDone) {
+    return;
+  }
+  bootReportsDone = true;
+
+  prefs.begin("ota-health", false);
+  const String expected = prefs.getString("expectver", "");
+  const String ackCommand = prefs.getString("ackcmd", "");
+  prefs.remove("expectver");
+  prefs.remove("ackcmd");
+  prefs.remove("rbver");
+  prefs.remove("rbcmd");
+  prefs.end();
+
+  if (expected.length() && parseVersion(expected) == FIRMWARE_VERSION_N) {
+    reportOtaStatus("succeeded", FIRMWARE_VERSION, 100, "Booted, joined Wi-Fi and reached the gateway");
+    reportCommandResult(ackCommand, true, String("Updated to v") + FIRMWARE_VERSION);
+  }
+
+  if (rolledBackVersion.length()) {
+    reportOtaStatus("rolled_back", rolledBackVersion, -1,
+                    String("v") + rolledBackVersion + " could not reach the gateway within " +
+                    OTA_HEALTH_GATE_TIMEOUT_SECONDS + " s; restored v" + FIRMWARE_VERSION);
+    reportCommandResult(rolledBackCommand, false, String("v") + rolledBackVersion + " rolled back after failing its health check");
+    rolledBackVersion = "";
+    rolledBackCommand = "";
+  }
+}
+
+void enforceHealthGate() {
+  if (!state.rollbackPending || millis() - state.bootMillis < HEALTH_GATE_TIMEOUT_MS) {
+    return;
+  }
+
+  Serial.println("[Gate] Health check FAILED: no accepted heartbeat in time. Rolling back.");
+  prefs.begin("ota-health", false);
+  prefs.putString("rbver", FIRMWARE_VERSION);
+  prefs.putString("rbcmd", prefs.getString("ackcmd", ""));
+  prefs.remove("expectver");
+  prefs.remove("ackcmd");
+  prefs.end();
+  adjustHealth(-25, "rollback");
+
+  // Reboots into the previous image when one exists; returns only on error.
+  const esp_err_t err = esp_ota_mark_app_invalid_rollback_and_reboot();
+  Serial.printf("[Gate] Rollback not possible (%s); keeping this image.\n", esp_err_to_name(err));
+  state.rollbackPending = false;
+  esp_ota_mark_app_valid_cancel_rollback();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ *  USB provisioning protocol (one line per message, 115200 baud)
+ *
+ *    SOTA:PING                     -> SOTA:PONG
+ *    SOTA:INFO                     -> SOTA:INFO {"device_id":...,"version":...}
+ *    SOTA:PROVISION {"ssid":"..","password":"..","backend_url":"..",
+ *                    "device_token":"..","device_id":"..","api_key":".."}
+ *                                  -> SOTA:OK ... then reboot | SOTA:ERR <why>
+ *    SOTA:RESET-CONFIG             -> SOTA:OK ... then reboot
+ *
+ *  Driven by the SecureOTA local agent (POST /provision, GET /device-info).
+ *  Anyone at the USB port can reflash the board anyway, so this adds no new
+ *  exposure; nothing here is reachable over the network.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+void serviceSerial() {
+  while (Serial.available() > 0) {
+    const char c = static_cast<char>(Serial.read());
+    if (c == '\n' || c == '\r') {
+      if (serialLine.length() > 0) {
+        const String line = serialLine;
+        serialLine = "";
+        handleSerialLine(line);
+      }
+    } else if (serialLine.length() < SERIAL_LINE_MAX) {
+      serialLine += c;
+    } else {
+      serialLine = "";  // overlong line: drop it rather than act on a fragment
+    }
+  }
+}
+
+static bool validDeviceId(const String &id) {
+  if (id.length() == 0 || id.length() > 64) return false;
+  for (size_t i = 0; i < id.length(); ++i) {
+    const char c = id.charAt(i);
+    if (!isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_' && c != '.' && c != ':') return false;
+  }
+  return true;
+}
+
+void handleSerialLine(const String &rawLine) {
+  String line = rawLine;
+  line.trim();
+  if (!line.startsWith("SOTA:")) {
+    return;
+  }
+
+  if (line == "SOTA:PING") {
+    Serial.println("SOTA:PONG");
+    return;
+  }
+
+  if (line == "SOTA:INFO") {
+    JsonDocument info;
+    info["device_id"] = cfg.deviceId;
+    info["device_type"] = DEVICE_TYPE;
+    info["version"] = FIRMWARE_VERSION;
+    info["mac"] = WiFi.macAddress();
+    info["chip"] = ESP.getChipModel();
+    info["wifi_configured"] = !isPlaceholder(cfg.wifiSsid);
+    info["wifi_ssid"] = isPlaceholder(cfg.wifiSsid) ? "" : cfg.wifiSsid;
+    info["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+    info["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
+    info["backend_url"] = cfg.backendUrl;
+    info["has_device_token"] = cfg.deviceToken.length() > 0;
+    info["health"] = state.healthScore;
+    info["quarantined"] = state.inQuarantine;
+    String out;
+    serializeJson(info, out);
+    Serial.print("SOTA:INFO ");
+    Serial.println(out);
+    return;
+  }
+
+  if (line == "SOTA:RESET-CONFIG") {
+    prefs.begin("sota-cfg", false);
+    prefs.clear();
+    prefs.end();
+    Serial.println("SOTA:OK config cleared; rebooting");
+    delay(300);
+    ESP.restart();
+    return;
+  }
+
+  if (line.startsWith("SOTA:PROVISION ")) {
+    JsonDocument doc;
+    const DeserializationError err = deserializeJson(doc, line.substring(15));
+    if (err) {
+      Serial.printf("SOTA:ERR invalid JSON (%s)\n", err.c_str());
+      return;
+    }
+
+    const String ssid = doc["ssid"] | "";
+    const String url = doc["backend_url"] | "";
+    const String devid = doc["device_id"] | "";
+    if (doc["ssid"].is<const char *>() && (ssid.length() == 0 || ssid.length() > 32)) {
+      Serial.println("SOTA:ERR ssid must be 1-32 characters");
+      return;
+    }
+    if (doc["backend_url"].is<const char *>() && !(url.startsWith("http://") || url.startsWith("https://"))) {
+      Serial.println("SOTA:ERR backend_url must start with http:// or https://");
+      return;
+    }
+    if (url.startsWith("https://") && strlen(OTA_ROOT_CA) == 0 && !OTA_ALLOW_INSECURE_TLS) {
+      Serial.println("SOTA:ERR this build has no OTA_ROOT_CA, so it cannot verify an https:// gateway");
+      return;
+    }
+    if (doc["device_id"].is<const char *>() && devid.length() && !validDeviceId(devid)) {
+      Serial.println("SOTA:ERR device_id may only contain A-Z a-z 0-9 _ . : -");
+      return;
+    }
+
+    prefs.begin("sota-cfg", false);
+    if (doc["ssid"].is<const char *>()) prefs.putString("ssid", ssid);
+    if (doc["password"].is<const char *>()) prefs.putString("pass", doc["password"].as<String>());
+    if (doc["backend_url"].is<const char *>()) prefs.putString("url", url);
+    if (doc["device_token"].is<const char *>()) prefs.putString("token", doc["device_token"].as<String>());
+    if (doc["api_key"].is<const char *>()) prefs.putString("apikey", doc["api_key"].as<String>());
+    if (doc["device_id"].is<const char *>()) prefs.putString("devid", devid);
+    if (doc["hostname"].is<const char *>()) prefs.putString("host", doc["hostname"].as<String>());
+    prefs.end();
+
+    // A board moved to a new network starts with a clean health record.
+    if (doc["reset_health"] | false) {
+      state.healthScore = HEALTH_MAX;
+      state.inQuarantine = false;
+      state.failedAttempts24h = 0;
+      saveHealth();
+    }
+
+    Serial.println("SOTA:OK provisioned; rebooting");
+    Serial.flush();
+    delay(300);
+    ESP.restart();
+    return;
+  }
+
+  Serial.println("SOTA:ERR unknown command");
 }

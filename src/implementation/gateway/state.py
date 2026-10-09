@@ -43,6 +43,10 @@ def default_state() -> dict[str, Any]:
         'keys': [],
         'certificates': [],
         'deployments': [],
+        # device_id -> list of remote commands (see gateway/commands.py)
+        'commands': {},
+        # device_id -> {'tokenHash', 'createdAt', ...}; never returned by any route
+        'deviceCredentials': {},
     }
 
 
@@ -182,6 +186,10 @@ def load_state() -> None:
             state['releases'] = []
         if not isinstance(state['deployments'], list):
             state['deployments'] = []
+        if not isinstance(state.get('commands'), dict):
+            state['commands'] = {}
+        if not isinstance(state.get('deviceCredentials'), dict):
+            state['deviceCredentials'] = {}
         if not isinstance(state.get('keys'), list):
             state['keys'] = default_state()['keys']
         if not isinstance(state.get('certificates'), list):

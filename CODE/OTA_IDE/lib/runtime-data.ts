@@ -107,6 +107,10 @@ function normalizeSnapshot(raw: unknown): RuntimeSnapshot {
           memoryUsage: Number(item.memoryUsage || 0),
           uptime: Number(item.uptime || 0),
           signalStrength: item.signalStrength !== undefined ? Number(item.signalStrength) : undefined,
+          ip: typeof item.ip === 'string' ? item.ip : undefined,
+          authMode: typeof item.authMode === 'string' ? item.authMode : undefined,
+          rollbackPending: Boolean(item.rollbackPending),
+          ota: item.ota && typeof item.ota === 'object' ? (item.ota as Device['ota']) : undefined,
         } satisfies Device;
       })
     : [];

@@ -46,7 +46,7 @@ def test_version_score_matches_the_firmware_formula(version, expected):
 
 
 def test_version_score_of_the_shipped_firmware_version():
-    """esp32_ota_main.ino hardcodes FIRMWARE_VERSION_N 20401 for v2.4.1."""
+    """The firmware hardcodes FIRMWARE_VERSION_N as major*10000+minor*100+patch (20401 for v2.4.1)."""
     assert version_score('2.4.1') == 20401
 
 
