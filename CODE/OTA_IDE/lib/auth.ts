@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import type { NextResponse } from 'next/server';
 import {
   initializeLocalDatabase,
   sessionsStore,
@@ -15,6 +16,11 @@ import {
   UnauthorizedError,
   ValidationError,
 } from '@/lib/error-handler';
+import {
+  createSupabaseServerClient,
+  isSupabaseAuthConfigured,
+} from '@/lib/supabase-server';
+import { supabaseServiceAdmin } from '@/lib/supabase';
 
 const SESSION_TTL_HOURS = Number(process.env.OTA_SESSION_TTL_HOURS || 24);
 const DISALLOWED_BOOTSTRAP_USERNAMES = new Set(['admin', 'administrator', 'root']);
@@ -155,8 +161,49 @@ function readBootstrapCredentials() {
   return { username, password };
 }
 
+async function syncSupabaseProfile(supabaseUser: {
+  id: string;
+  email?: string;
+  user_metadata?: { role?: unknown; username?: unknown };
+  last_sign_in_at?: string;
+}) {
+  await initializeLocalDatabase();
+  const email = supabaseUser.email || '';
+  const username = String(
+    supabaseUser.user_metadata?.username || email || supabaseUser.id
+  );
+  const metadataRole = supabaseUser.user_metadata?.role;
+  const role: UserRole =
+    metadataRole === 'operator' || metadataRole === 'viewer'
+      ? metadataRole
+      : 'viewer';
+
+  const existing = await usersStore.findOne({ supabaseId: supabaseUser.id });
+  if (existing) {
+    await usersStore.update(
+      { _id: existing._id },
+      { $set: { lastLoginAt: new Date().toISOString(), email } }
+    );
+    return { ...existing, lastLoginAt: new Date().toISOString() };
+  }
+
+  return usersStore.insert({
+    supabaseId: supabaseUser.id,
+    email,
+    username,
+    passwordHash: '',
+    role,
+    isActive: true,
+    lastLoginAt: new Date().toISOString(),
+  });
+}
+
 export async function ensureDefaultAdminUser() {
   await initializeLocalDatabase();
+
+  if (isSupabaseAuthConfigured()) {
+    return;
+  }
 
   const existingUsers = await usersStore.count({});
   if (existingUsers > 0) {
@@ -182,7 +229,39 @@ export async function ensureDefaultAdminUser() {
 
 
 
-export async function loginWithPassword(username: string, password: string) {
+export async function loginWithPassword(
+  username: string,
+  password: string,
+  response?: Pick<NextResponse, 'cookies'>
+) {
+  if (isSupabaseAuthConfigured()) {
+    const normalizedEmail = username.trim().toLowerCase();
+    if (!normalizedEmail || !password.trim()) {
+      return null;
+    }
+
+    const supabase = createSupabaseServerClient(
+      new Request('http://localhost'),
+      response
+    );
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    });
+
+    if (error || !data.user || !data.session) {
+      logger.warn('Auth', `Failed Supabase login for ${normalizedEmail}`);
+      return null;
+    }
+
+    const profile = await syncSupabaseProfile(data.user);
+    return {
+      sessionToken: data.session.access_token,
+      expiresAt: Date.now() + data.session.expires_in * 1000,
+      user: sanitizeUser(profile),
+    };
+  }
+
   await ensureDefaultAdminUser();
 
   const normalizedUsername = username.trim();
@@ -203,7 +282,7 @@ export async function loginWithPassword(username: string, password: string) {
     return null;
   }
 
-  if (!verifyPassword(password, user.passwordHash)) {
+  if (!verifyPassword(password, user.passwordHash || '')) {
     logger.warn('Auth', `Failed login attempt for user: ${normalizedUsername}`);
     return null;
   }
@@ -251,6 +330,27 @@ export async function loginWithPassword(username: string, password: string) {
 }
 
 export async function authenticateRequest(request: Request): Promise<AuthContext | null> {
+  if (isSupabaseAuthConfigured()) {
+    const supabase = createSupabaseServerClient(request);
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) {
+      return null;
+    }
+
+    const profile = await syncSupabaseProfile(data.user);
+    const accessToken = readCookieValue(request, SESSION_COOKIE_NAME) || 'supabase';
+    return {
+      user: sanitizeUser(profile),
+      session: {
+        tokenHash: hashToken(accessToken),
+        userId: String(profile._id),
+        expiresAt: Date.now() + SESSION_TTL_HOURS * 60 * 60 * 1000,
+        revoked: false,
+      },
+      tokenHash: hashToken(accessToken),
+    };
+  }
+
   await ensureDefaultAdminUser();
 
   // Prioritize token from HttpOnly cookie
@@ -494,6 +594,29 @@ export async function getManagedUser(userId: string): Promise<ManagedUser> {
 }
 
 export async function listUsers(): Promise<ManagedUser[]> {
+  if (isSupabaseAuthConfigured()) {
+    if (!supabaseServiceAdmin) {
+      throw new OTAError(
+        'Set SUPABASE_SERVICE_ROLE_KEY to manage users from the dashboard.',
+        'SUPABASE_ADMIN_NOT_CONFIGURED',
+        503
+      );
+    }
+
+    const { data, error } = await supabaseServiceAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
+    if (error) {
+      throw new OTAError('Unable to list Supabase users.', 'SUPABASE_USER_LIST_FAILED', 502);
+    }
+
+    const profiles = await Promise.all(data.users.map(syncSupabaseProfile));
+    return profiles.map(sanitizeManagedUser).sort((left, right) =>
+      left.username.localeCompare(right.username)
+    );
+  }
+
   await ensureDefaultAdminUser();
 
   const users = await usersStore.find({});
@@ -509,6 +632,36 @@ export async function createUser(input: {
   isActive?: unknown;
 }): Promise<ManagedUser> {
   await initializeLocalDatabase();
+
+  if (isSupabaseAuthConfigured()) {
+    if (!supabaseServiceAdmin) {
+      throw new OTAError(
+        'Set SUPABASE_SERVICE_ROLE_KEY to manage users from the dashboard.',
+        'SUPABASE_ADMIN_NOT_CONFIGURED',
+        503
+      );
+    }
+
+    const email = String(input.username ?? '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      throw new ValidationError('Supabase users must use a valid email address.');
+    }
+    const role = normalizeRole(input.role);
+    const password = assertPasswordPolicy(input.password);
+    const { data, error } = await supabaseServiceAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { username: email, role },
+    });
+    if (error || !data.user) {
+      if (error?.message.toLowerCase().includes('already')) {
+        throw new ConflictError(`A user named "${email}" already exists.`);
+      }
+      throw new OTAError('Failed to create the Supabase user.', 'SUPABASE_USER_CREATE_FAILED', 502);
+    }
+    return sanitizeManagedUser(await syncSupabaseProfile(data.user));
+  }
 
   const username = normalizeUsername(input.username);
   const role = normalizeRole(input.role);
@@ -663,7 +816,7 @@ export async function updateOwnCredentials(
   }
 
   const currentPassword = typeof input.currentPassword === 'string' ? input.currentPassword : '';
-  if (!currentPassword || !verifyPassword(currentPassword, user.passwordHash)) {
+  if (!currentPassword || !verifyPassword(currentPassword, user.passwordHash || '')) {
     throw new UnauthorizedError('Current password is incorrect.');
   }
 

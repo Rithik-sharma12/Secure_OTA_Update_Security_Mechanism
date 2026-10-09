@@ -19,6 +19,12 @@ export const supabaseAdmin = supabaseUrl && (supabaseServiceKey || supabaseAnonK
     })
   : null;
 
+export const supabaseServiceAdmin = supabaseUrl && supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null;
+
 export const isSupabaseConfigured = () => Boolean(supabaseUrl && (supabaseAnonKey || supabaseServiceKey));
 
 export async function checkSupabaseConnection() {

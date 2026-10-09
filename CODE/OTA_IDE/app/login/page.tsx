@@ -366,7 +366,8 @@ export default function LoginPage() {
           <div className="mt-8 flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-chart-1" />
             <p className="text-xs leading-relaxed text-foreground/60">
-              Credentials come from OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD. No default login is
+              Sign in with the email address and password configured in Supabase Auth when it is
+              enabled. Otherwise credentials come from OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD. No default login is
               seeded in production mode.
             </p>
           </div>
