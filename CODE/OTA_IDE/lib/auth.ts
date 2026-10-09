@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { NextResponse } from 'next/server';
+import { auth as clerkAuth, currentUser as clerkCurrentUser } from '@clerk/nextjs/server';
 import {
   initializeLocalDatabase,
   sessionsStore,
@@ -198,6 +199,46 @@ async function syncSupabaseProfile(supabaseUser: {
   });
 }
 
+async function syncClerkProfile(clerkUser: {
+  id: string;
+  primaryEmailAddress?: { emailAddress: string } | null;
+  publicMetadata?: { role?: unknown; username?: unknown };
+}) {
+  await initializeLocalDatabase();
+  const email = clerkUser.primaryEmailAddress?.emailAddress || '';
+  const username = String(
+    clerkUser.publicMetadata?.username || email || clerkUser.id
+  );
+  const metadataRole = clerkUser.publicMetadata?.role;
+  const configuredRole: UserRole =
+    metadataRole === 'admin' || metadataRole === 'operator' || metadataRole === 'viewer'
+      ? metadataRole
+      : 'viewer';
+  const role: UserRole =
+    configuredRole === 'viewer' && (await usersStore.count({})) === 0
+      ? 'admin'
+      : configuredRole;
+
+  const existing = await usersStore.findOne({ supabaseId: clerkUser.id });
+  if (existing) {
+    await usersStore.update(
+      { _id: existing._id },
+      { $set: { lastLoginAt: new Date().toISOString(), email, username, role } }
+    );
+    return { ...existing, lastLoginAt: new Date().toISOString(), email, username, role };
+  }
+
+  return usersStore.insert({
+    supabaseId: clerkUser.id,
+    email,
+    username,
+    passwordHash: '',
+    role,
+    isActive: true,
+    lastLoginAt: new Date().toISOString(),
+  });
+}
+
 export async function ensureDefaultAdminUser() {
   await initializeLocalDatabase();
 
@@ -330,6 +371,30 @@ export async function loginWithPassword(
 }
 
 export async function authenticateRequest(request: Request): Promise<AuthContext | null> {
+  if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY) {
+    const { userId } = await clerkAuth();
+    if (!userId) {
+      return null;
+    }
+
+    const user = await clerkCurrentUser();
+    if (!user) {
+      return null;
+    }
+
+    const profile = await syncClerkProfile(user);
+    return {
+      user: sanitizeUser(profile),
+      session: {
+        tokenHash: hashToken(userId),
+        userId: String(profile._id),
+        expiresAt: Date.now() + SESSION_TTL_HOURS * 60 * 60 * 1000,
+        revoked: false,
+      },
+      tokenHash: hashToken(userId),
+    };
+  }
+
   if (isSupabaseAuthConfigured()) {
     const supabase = createSupabaseServerClient(request);
     const { data, error } = await supabase.auth.getUser();

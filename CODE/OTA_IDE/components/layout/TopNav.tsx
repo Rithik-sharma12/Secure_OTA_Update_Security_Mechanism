@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { Show, UserButton } from '@clerk/nextjs';
 import {
   Activity,
   AlertCircle,
@@ -234,6 +235,12 @@ export default function TopNav() {
           >
             {initials || 'AD'}
           </Link>
+
+          {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
+            <Show when="signed-in">
+              <UserButton />
+            </Show>
+          )}
 
           <button
             type="button"

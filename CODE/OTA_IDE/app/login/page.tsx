@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
+import { SignUpButton, useClerk, useSignIn } from '@clerk/nextjs';
 import { Activity, FileCheck2, KeyRound, Loader2, ShieldCheck, User2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,8 @@ const chain = [
 
 export default function LoginPage() {
   const router = useRouter();
+  const { signIn } = useSignIn();
+  const { setActive } = useClerk();
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -76,6 +79,24 @@ export default function LoginPage() {
     setErrorMessage(null);
 
     try {
+      if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+        const result = await signIn.create({
+          identifier: username,
+          password,
+        });
+        if (result.error) {
+          setErrorMessage(result.error.message || 'Unable to sign in with Clerk.');
+          return;
+        }
+        if (signIn.status !== 'complete' || !signIn.createdSessionId) {
+          setErrorMessage('Additional Clerk verification is required to sign in.');
+          return;
+        }
+        await setActive({ session: signIn.createdSessionId });
+        router.replace('/dashboard');
+        return;
+      }
+
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
@@ -366,10 +387,18 @@ export default function LoginPage() {
           <div className="mt-8 flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-chart-1" />
             <p className="text-xs leading-relaxed text-foreground/60">
-              Sign in with the email address and password configured in Supabase Auth when it is
-              enabled. Otherwise credentials come from OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD. No default login is
-              seeded in production mode.
+              Sign in with your Clerk account. Use the sign-up action below to create the
+              first account.
             </p>
+          </div>
+
+          <div className="mt-4 text-center text-sm text-foreground/60">
+            Need an account?{' '}
+            <SignUpButton mode="modal">
+              <button type="button" className="font-medium text-primary hover:underline">
+                Sign up
+              </button>
+            </SignUpButton>
           </div>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono, Montserrat, Poppins, Source_Sans_3 } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { ClerkProvider } from '@clerk/nextjs'
 import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
@@ -63,9 +64,11 @@ export default function RootLayout({
       <body
         className={`${montserrat.variable} ${sourceSans.variable} ${poppins.variable} min-h-svh overflow-x-hidden font-sans antialiased bg-background text-foreground`}
       >
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="ota-ide-theme">
-          {children}
-        </ThemeProvider>
+        <ClerkProvider>
+          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="ota-ide-theme">
+            {children}
+          </ThemeProvider>
+        </ClerkProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
