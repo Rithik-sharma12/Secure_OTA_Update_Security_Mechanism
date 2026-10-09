@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { withSecureApi } from '@/lib/api-security';
+import { OPERATOR_ROLES, withSecureApi } from '@/lib/api-security';
 import { getHostAccessState, grantAccess, revokeAccess } from '@/lib/host-access';
 
 export const runtime = 'nodejs';
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({ ok: true, grant });
     },
-    { requireAuth: true }
+    { requireRole: OPERATOR_ROLES }
   );
 }
 
@@ -69,6 +69,6 @@ export async function DELETE(request: Request) {
 
       return NextResponse.json({ ok: true });
     },
-    { requireAuth: true }
+    { requireRole: OPERATOR_ROLES }
   );
 }

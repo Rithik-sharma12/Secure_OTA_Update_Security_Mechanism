@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { withSecureApi } from '@/lib/api-security';
+import { OPERATOR_ROLES, withSecureApi } from '@/lib/api-security';
 import { logger } from '@/lib/logger';
 
 export const runtime = 'nodejs';
@@ -144,6 +144,6 @@ export async function POST(request: Request) {
         clearTimeout(timeout);
       }
     },
-    { requireAuth: true }
+    { requireRole: OPERATOR_ROLES }
   );
 }

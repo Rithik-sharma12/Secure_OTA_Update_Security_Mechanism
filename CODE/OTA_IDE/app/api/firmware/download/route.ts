@@ -19,6 +19,30 @@ type GatewayManifest = {
 };
 
 /**
+ * The gateway answers a manifest miss with a structured `detail`, so the
+ * dashboard can name the architectures that *do* have firmware instead of
+ * only saying this one has none.
+ */
+type GatewayErrorDetail = {
+  message?: string;
+  deviceType?: string;
+  version?: string;
+  publishedDeviceTypes?: string[];
+};
+
+async function readGatewayDetail(response: Response): Promise<GatewayErrorDetail> {
+  try {
+    const payload = (await response.json()) as { detail?: GatewayErrorDetail | string };
+    const detail = payload?.detail;
+    if (typeof detail === 'string') return { message: detail };
+    return detail && typeof detail === 'object' ? detail : {};
+  } catch {
+    // Non-JSON body (a proxy error page, say) — nothing to add.
+    return {};
+  }
+}
+
+/**
  * Fetch the newest published firmware binary for a device architecture.
  *
  * Used by the in-browser Web Serial flasher: the browser cannot read the
@@ -52,14 +76,28 @@ export async function GET(request: Request) {
         );
 
         if (manifestResponse.status === 404) {
+          const detail = await readGatewayDetail(manifestResponse);
+          const published = (detail.publishedDeviceTypes || []).filter(Boolean);
+          const alternatives = published.length > 0
+            ? ` Published releases target ${published.join(', ')}.`
+            : '';
           return NextResponse.json(
-            { ok: false, error: `No firmware has been published for ${deviceType} yet. Publish a release on the Releases page, or choose a local .bin file.` },
+            {
+              ok: false,
+              error: `No firmware has been published for ${deviceType} yet.${alternatives} Publish a release on the Releases page, or choose a local .bin file.`,
+              publishedDeviceTypes: published,
+            },
             { status: 404 }
           );
         }
         if (!manifestResponse.ok) {
+          const detail = await readGatewayDetail(manifestResponse);
           return NextResponse.json(
-            { ok: false, error: `Gateway manifest request failed (${manifestResponse.status}).` },
+            {
+              ok: false,
+              error: detail.message || `Gateway manifest request failed (${manifestResponse.status}).`,
+              publishedDeviceTypes: (detail.publishedDeviceTypes || []).filter(Boolean),
+            },
             { status: 502 }
           );
         }

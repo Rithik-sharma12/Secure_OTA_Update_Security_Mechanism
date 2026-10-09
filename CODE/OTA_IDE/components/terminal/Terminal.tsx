@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Terminal as TerminalIcon, Trash2, X } from 'lucide-react';
 import { apiFetch } from '@/lib/client-auth';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 interface TerminalCommand {
   id: string;
@@ -36,6 +37,10 @@ const TERMINAL_STAMP = String.raw`Secure_OTA_update
 developed by Priyankaa - Rithik - Ritesh`;
 
 export function Terminal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  // Shell on the host is the strongest thing the dashboard can do; the route
+  // refuses a non-admin session outright, so don't offer the prompt either.
+  const { can, reasonFor } = useCurrentUser();
+  const mayRunCommands = can('runtime.command');
   const [commands, setCommands] = useState<TerminalCommand[]>([]);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
@@ -204,9 +209,10 @@ export function Terminal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
                     executeCommand(input);
                   }
                 }}
-                placeholder="Enter command..."
+                placeholder={mayRunCommands ? 'Enter command...' : 'Host commands require an admin account'}
                 className="flex-1 bg-transparent text-xs text-[#f4e9f6] outline-none placeholder-[#b89ab5]"
-                disabled={isExecuting}
+                disabled={isExecuting || !mayRunCommands}
+                title={mayRunCommands ? undefined : reasonFor('runtime.command')}
                 autoFocus
               />
             </div>
@@ -223,7 +229,8 @@ export function Terminal({ isOpen, onClose }: { isOpen: boolean; onClose: () => 
                 size="sm"
                 className="h-7 bg-[#e95420] text-white hover:bg-[#ff6c37]"
                 onClick={() => executeCommand(input)}
-                disabled={isExecuting || !input.trim()}
+                disabled={isExecuting || !input.trim() || !mayRunCommands}
+                title={mayRunCommands ? undefined : reasonFor('runtime.command')}
               >
                 Execute
               </Button>

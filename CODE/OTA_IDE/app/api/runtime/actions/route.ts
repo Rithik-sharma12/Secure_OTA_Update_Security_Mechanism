@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { NextResponse } from 'next/server';
 import { withSecureApi } from '@/lib/api-security';
+import type { UserRole } from '@/lib/auth';
 import {
   getDefaultRuntimeSettings,
   getRuntimeActionsState,
@@ -226,6 +227,34 @@ async function clearManifestOverride() {
   }
 }
 
+/**
+ * Per-action authorisation for the runtime action multiplexer.
+ *
+ * A single role gate on this route would be either too loose (a viewer saving
+ * the manifest) or too tight (a viewer unable to export the events already on
+ * their screen). The default is the strict one: anything not listed needs an
+ * operator, and only the explicitly read-only actions are open to viewers.
+ */
+const VIEWER_ACTIONS = new Set([
+  'events.export',
+  'releases.download',
+  'reports.generate',
+  'reports.download',
+]);
+
+/** Mints secrets, rewrites platform settings, or is flagged destructive. */
+const ADMIN_ACTIONS = new Set(['keys.create', 'keys.inspect', 'settings.save', 'settings.reset']);
+
+function rolePermitsAction(role: UserRole, action: string): boolean {
+  if (role === 'admin') {
+    return true;
+  }
+  if (action.startsWith('danger.') || ADMIN_ACTIONS.has(action)) {
+    return false;
+  }
+  return role === 'operator' || VIEWER_ACTIONS.has(action);
+}
+
 export async function GET(request: Request) {
   return withSecureApi(
     request,
@@ -251,6 +280,10 @@ export async function POST(request: Request) {
 
       if (!action) {
         return actionError('Action is required.');
+      }
+
+      if (!rolePermitsAction(auth!.user.role, action)) {
+        return actionError(`Your account does not have permission to run '${action}'.`, 403);
       }
 
       if (action === 'events.export') {

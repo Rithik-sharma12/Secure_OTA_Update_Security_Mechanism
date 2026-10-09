@@ -148,6 +148,19 @@ export async function POST(request: Request) {
       );
     }
 
+    // Executing shell on the host is the strongest thing this dashboard can
+    // do, so a session gets through only as an admin. The service token is a
+    // separate out-of-band machine credential and keeps its own path.
+    if (auth && !hasServiceTokenAccess && auth.user.role !== 'admin') {
+      return NextResponse.json(
+        {
+          ok: false,
+          output: 'Running host commands requires an admin account.',
+        },
+        { status: 403 }
+      );
+    }
+
     if (isProduction && !expectedToken && !auth) {
       return NextResponse.json(
         {

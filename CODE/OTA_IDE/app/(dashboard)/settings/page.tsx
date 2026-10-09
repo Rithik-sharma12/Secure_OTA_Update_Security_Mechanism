@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Settings as SettingsIcon, Bell, Lock, Database, Zap, Trash2, Copy } from 'lucide-react';
 import { executeRuntimeAction, fetchRuntimeActionState } from '@/lib/runtime-actions';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 type RuntimeSettingsFormState = {
   autoUpdateFirmware: boolean;
@@ -30,6 +31,8 @@ const defaultSettings: RuntimeSettingsFormState = {
 };
 
 export default function SettingsPage() {
+  const { can, reasonFor } = useCurrentUser();
+  const mayWriteSettings = can('settings.write');
   const [settings, setSettings] = React.useState<RuntimeSettingsFormState>(defaultSettings);
   const [isLoading, setIsLoading] = React.useState(true);
   const [busyAction, setBusyAction] = React.useState<string | null>(null);
@@ -291,7 +294,8 @@ export default function SettingsPage() {
             <Button
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               onClick={() => void handleSaveSettings()}
-              disabled={busyAction === 'settings.save'}
+              disabled={busyAction === 'settings.save' || !mayWriteSettings}
+              title={mayWriteSettings ? undefined : reasonFor('settings.write')}
             >
               Save Network Settings
             </Button>
@@ -312,7 +316,8 @@ export default function SettingsPage() {
               variant="outline"
               className="border-chart-4/50 text-chart-4 hover:bg-chart-4/10 w-full justify-start"
               onClick={() => void handleResetSettings()}
-              disabled={busyAction === 'settings.reset'}
+              disabled={busyAction === 'settings.reset' || !mayWriteSettings}
+              title={mayWriteSettings ? undefined : reasonFor('settings.write')}
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Reset All Settings

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { withSecureApi } from '@/lib/api-security';
+import { OPERATOR_ROLES, withSecureApi } from '@/lib/api-security';
 import { startSerialUpload } from '@/lib/serial-upload-jobs';
 import { isAccessGranted } from '@/lib/host-access';
 
@@ -63,6 +63,6 @@ export async function POST(request: Request) {
         progress: uploadJob.progress,
       });
     },
-    { requireAuth: true }
+    { requireRole: OPERATOR_ROLES }
   );
 }

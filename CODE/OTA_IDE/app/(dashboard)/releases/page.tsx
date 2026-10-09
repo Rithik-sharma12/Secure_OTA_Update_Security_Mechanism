@@ -9,6 +9,7 @@ import { formatNumber, formatUtcDate } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { PublishFirmwareCard } from '@/components/dashboard/publish-firmware-card';
 import { downloadRuntimePayload, executeRuntimeAction, fetchRuntimeActionState, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -24,6 +25,8 @@ function getStatusColor(status: string) {
 }
 
 export default function ReleasesPage() {
+  const { can, reasonFor } = useCurrentUser();
+  const mayArchive = can('firmware.publish');
   const { snapshot, isLoading, refresh } = useRuntimeSnapshot();
   const publishRef = React.useRef<HTMLDivElement>(null);
   const [archivedReleaseIds, setArchivedReleaseIds] = React.useState<string[]>([]);
@@ -243,7 +246,8 @@ export default function ReleasesPage() {
                       variant="outline"
                       className="border-border"
                       onClick={() => void handleArchive(release.id)}
-                      disabled={isBusy}
+                      disabled={isBusy || !mayArchive}
+                      title={mayArchive ? undefined : reasonFor('firmware.publish')}
                     >
                       <Archive className="w-4 h-4 mr-1" />
                       Archive

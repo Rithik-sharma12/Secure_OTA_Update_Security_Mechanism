@@ -26,6 +26,7 @@ import { WebSerialFlashCard } from '@/components/devices/WebSerialFlashCard';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { formatUtcTime } from '@/lib/formatters';
 import { executeRuntimeAction } from '@/lib/runtime-actions';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -63,6 +64,9 @@ export default function DevicesPage() {
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const { snapshot, isLoading } = useRuntimeSnapshot();
+  const { can, reasonFor } = useCurrentUser();
+  const mayControlDevices = can('devices.control');
+  const mayFlash = can('devices.flash');
 
   const scrollToConnectionPanel = () => {
     document.getElementById('device-connection-panel')?.scrollIntoView({
@@ -126,7 +130,10 @@ export default function DevicesPage() {
         }}
       />
 
-      <WebSerialFlashCard />
+      <WebSerialFlashCard
+        releases={snapshot.releases}
+        releasesStatus={isLoading ? 'loading' : snapshot.connection.reachable ? 'ready' : 'unavailable'}
+      />
 
       <DeviceConnectionCard
         workflowHint={workflowHint}
@@ -229,24 +236,32 @@ export default function DevicesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-foreground cursor-pointer"
+                              disabled={!mayFlash}
+                              title={mayFlash ? undefined : reasonFor('devices.flash')}
                               onClick={() => handleConnectionAction(device.name, 'serial')}
                             >
                               Flash via COM Port
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-foreground cursor-pointer"
+                              disabled={!mayFlash}
+                              title={mayFlash ? undefined : reasonFor('devices.flash')}
                               onClick={() => handleConnectionAction(device.name, 'ota')}
                             >
                               Deploy via OTA
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-foreground cursor-pointer"
+                              disabled={!mayControlDevices}
+                              title={mayControlDevices ? undefined : reasonFor('devices.control')}
                               onClick={() => void handleDeviceAction(device.id, device.name, 'restart')}
                             >
                               {busyDeviceId === device.id ? 'Processing...' : 'Restart Device'}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-chart-4 cursor-pointer"
+                              disabled={!mayControlDevices}
+                              title={mayControlDevices ? undefined : reasonFor('devices.control')}
                               onClick={() => void handleDeviceAction(device.id, device.name, 'remove')}
                             >
                               Remove Device
