@@ -1,538 +1,524 @@
-# SECUREOTA: A SECURE HETEROGENEOUS OTA UPDATE MECHANISM FOR RESOURCE-CONSTRAINED IOT DEVICES
-
-SecureOTA is a full-stack secure OTA firmware update platform for heterogeneous IoT devices.
-
-The platform combines:
-
-- Firmware-side update logic
-- Gateway release and telemetry services
-- Web dashboard control plane
-- Security-focused update verification
-
-Target device families:
-
-- ESP32
-- ESP8266
-- ATmega328P
-- STM32F103
-
-## Project Glimpse
-
-### SecureOTA identity
+# SecureOTA — Secure OTA Update Mechanism for Resource-Constrained IoT Devices
 
 <p align="center">
-  <img src="Secure_OTA_Update_Security_Mechanism/pics/1.png" alt="SecureOTA logo" width="900">
+  <img src="pics/1.png" alt="SecureOTA Dashboard" width="900">
 </p>
-
-### SecureOTA landing experience
 
 <p align="center">
-  <img src="CODE/OTA_IDE/public/brand/landing-bg.jpg" alt="SecureOTA landing page" width="900">
+  <strong>A secure, full-stack OTA firmware update platform for heterogeneous IoT devices.</strong>
 </p>
-
-### SecureOTA authentication experience
 
 <p align="center">
-  <img src="CODE/OTA_IDE/public/brand/login-bg.jpg" alt="SecureOTA login page" width="900">
+  Secure firmware delivery • Device monitoring • Release management • Security verification • Serial & OTA deployment
 </p>
 
-## 1. Problem Faced and Problem Solved
+---
 
-### Problems faced in OTA projects
+## Overview
 
-- Multi-board firmware delivery is hard to standardize.
-- Tampered and rollback firmware are major security risks.
-- Teams often need both serial flashing and network OTA in one system.
-- Runtime telemetry, releases, and deployments are usually fragmented.
-- Production-grade orchestration can be expensive.
+**SecureOTA** is a full-stack secure Over-the-Air (OTA) firmware update platform designed for heterogeneous and resource-constrained IoT devices.
 
-### How SentinelOTA solves them
+The platform provides a centralized environment for:
 
-- Unified dashboard for auth, serial upload, runtime snapshot, and deployment actions.
-- Secure package verification with encryption + signature checks.
-- Anti-rollback version comparison in firmware.
-- ASH health score with quarantine behavior for risky devices.
-- API key-protected gateway writes and token-authenticated dashboard APIs.
-- Local-first architecture that works without mandatory paid cloud infrastructure.
+* 🔐 Secure firmware verification
+* 📦 Firmware release management
+* 📡 OTA firmware deployment
+* 🔌 USB/Serial firmware flashing
+* 📊 Device monitoring and telemetry
+* 🛡️ Anti-rollback protection
+* ❤️ Device health scoring
+* 🚨 Automatic device quarantine
+* 🔑 Cryptographic release signing
+* 🧩 Multi-board firmware management
 
-## 2. Workflow Overview
+### Supported Device Families
+
+The current PlatformIO firmware project targets:
+
+* ESP32 DevKit
+* ESP32-S3
+* ESP32-C3
+
+The OTA IDE also includes board profiles for ESP8266, ATmega328P, and
+STM32F103 firmware workflows.
+
+---
+
+# Project Screenshots
+
+### SecureOTA Dashboard
+
+<p align="center">
+  <img src="pics/1.png" alt="SecureOTA Dashboard" width="900">
+</p>
+
+### Device Monitoring
+
+<p align="center">
+  <img src="pics/1.1.png" alt="SecureOTA Device Monitoring" width="900">
+</p>
+
+### Release & Firmware Management
+
+<p align="center">
+  <img src="pics/2.png" alt="SecureOTA Release Management" width="900">
+</p>
+
+### Deployment & OTA Operations
+
+<p align="center">
+  <img src="pics/3.png" alt="SecureOTA Deployment" width="900">
+</p>
+
+### Security / Runtime Monitoring
+
+<p align="center">
+  <img src="pics/4.png" alt="SecureOTA Security Monitoring" width="900">
+</p>
+
+### Interface Walkthrough
+
+The following recording shows the main SecureOTA interface and dashboard
+workflow:
+
+<p align="center">
+  <img src="pics/ss_recording.gif" alt="SecureOTA interface walkthrough" width="900">
+</p>
+
+---
+
+# 1. Problem Statement
+
+Traditional IoT firmware deployment becomes difficult when multiple device types, firmware versions, deployment methods, and security requirements need to be managed together.
+
+Common problems include:
+
+* Different firmware flashing methods for different boards
+* Difficulty managing multiple firmware versions
+* Risk of deploying tampered firmware
+* Firmware downgrade and rollback attacks
+* Lack of centralized device monitoring
+* Fragmented serial and OTA deployment workflows
+* Limited visibility into device health
+* Lack of automated quarantine mechanisms
+* Dependence on expensive cloud infrastructure
+
+SecureOTA addresses these problems through a centralized OTA control platform.
+
+---
+
+# 2. Key Features
+
+## 🔐 Secure Firmware Updates
+
+SecureOTA supports cryptographic verification of firmware packages before flashing.
+
+The secure update pipeline includes:
+
+1. Firmware package download
+2. Package header processing
+3. AES-256-CBC decryption
+4. PKCS7 padding validation
+5. SHA-256 firmware hashing
+6. RSA-2048 signature verification for encrypted device packages
+7. Firmware flashing only after successful verification
+
+Release manifests displayed by the gateway are signed separately with an
+Ed25519 signing key. This keeps the manifest trust chain distinct from the
+RSA-2048 package signature that is verified by the ESP32 firmware.
+
+---
+
+## 🛡️ Anti-Rollback Protection
+
+SecureOTA prevents devices from installing older firmware versions.
+
+Firmware versions are converted into a numerical representation:
+
+```text
+version_score = major × 10000 + minor × 100 + patch
+```
+
+If the incoming firmware version is lower than the currently installed version, the update is rejected.
+
+Example:
+
+```text
+Current Version : 1.5.0
+Incoming Version: 1.4.2
+
+Result: UPDATE BLOCKED
+```
+
+---
+
+## ❤️ Device Health & ASH Score
+
+SecureOTA maintains a device health score between `0` and `100`.
+
+```text
+health(t+1) = clamp(health(t) + Δ, 0, 100)
+```
+
+When the health score becomes too low:
+
+```text
+Health Score < 40
+        ↓
+Device Quarantine
+        ↓
+OTA Update Handling Disabled
+```
+
+The device can leave quarantine once its health score reaches the configured recovery threshold.
+
+---
+
+## 📡 Dual OTA Architecture
+
+SecureOTA supports two firmware update approaches:
+
+### ArduinoOTA Push
+
+The development system can directly push firmware to a device over the network.
+
+### Manifest-Based OTA
+
+The device communicates with the gateway, retrieves the latest firmware manifest, checks the version, downloads the firmware, verifies it, and performs the update.
+
+```text
+Developer
+    │
+    ▼
+SecureOTA Gateway
+    │
+    ▼
+Signed Firmware Manifest
+    │
+    ▼
+IoT Device
+    │
+    ├── Version Check
+    ├── Download Firmware
+    ├── Decrypt
+    ├── Verify Signature
+    └── Flash Firmware
+```
+
+---
+
+# 3. System Architecture
 
 ```mermaid
 flowchart LR
-  A[Developer Builds Firmware] --> B[Create Release in Gateway]
-  B --> C[Gateway Generates Manifest and Signature]
-  C --> D[Device Polls Latest Manifest]
-  D --> E{Version Newer?}
-  E -- No --> F[Keep Current Firmware]
-  E -- Yes --> G[Download Package]
-  G --> H{Secure Mode Configured?}
-  H -- Yes --> I[Decrypt AES-256 and Verify Signature]
-  H -- No --> J[Plain OTA Fallback]
-  I --> K[Flash and Reboot]
-  J --> K[Flash and Reboot]
-  K --> L[Send Heartbeat and Health Data]
-  L --> M[Dashboard Snapshot, Alerts, Deployments]
+
+    A[Developer] --> B[SecureOTA IDE]
+
+    B --> C[OTA Gateway]
+
+    C --> D[Release Manager]
+
+    D --> E[Signed Firmware Manifest]
+
+    E --> F[IoT Device]
+
+    F --> G[Version Check]
+
+    G --> H{Update Required?}
+
+    H -- No --> I[Continue Current Firmware]
+
+    H -- Yes --> J[Download Firmware]
+
+    J --> K[Decrypt & Verify]
+
+    K --> L{Valid Firmware?}
+
+    L -- No --> M[Reject Update]
+
+    L -- Yes --> N[Flash Firmware]
+
+    N --> O[Device Reboot]
+
+    O --> P[Heartbeat / Telemetry]
+
+    P --> C
+
+    C --> Q[Dashboard]
 ```
 
-## 3. Tech Stack
+---
 
-| Layer | Technology |
-| --- | --- |
-| Control Plane | Next.js 16.3, React 19.3, TypeScript 5.9 |
-| UI | Tailwind CSS, Radix UI, Lucide, Recharts |
-| Local Auth/Data | Node crypto, NeDB (nedb-promises) |
-| Serial Engine | arduino-cli via child process |
-| Gateway | FastAPI, Uvicorn, Pydantic |
-| Gateway Signing | Ed25519 (cryptography) |
-| Firmware Runtime | Arduino framework (ESP32 family) |
-| Firmware Security | AES-256-CBC + RSA verification (mbedTLS) |
-| OTA Protocols | ArduinoOTA push + manifest pull OTA |
-| Automation | GitHub workflow for release builds |
+# 4. OTA Workflow
 
-## 4. Dependencies and Requirements
+```mermaid
+flowchart LR
 
-### Core prerequisites
+    A[Build Firmware] --> B[Create Release]
 
-- Node.js 20+
-- pnpm
-- Python 3.10+
-- PlatformIO (recommended) or Arduino IDE 2.x
-- arduino-cli (required for OTA IDE serial upload API)
+    B --> C[Generate Manifest]
 
-### Dependency manifests
+    C --> D[Sign Release]
 
-- OTA IDE: CODE/OTA_IDE/package.json
-- Gateway: src/implementation/requirements.txt
-- Firmware toolchain config: CODE/frimware_code/platformio.ini
+    D --> E[Device Polls Manifest]
 
-## 5. Project Structure
+    E --> F{New Version?}
+
+    F -- No --> G[No Update]
+
+    F -- Yes --> H[Download Package]
+
+    H --> I[Decrypt Package]
+
+    I --> J[Verify Signature]
+
+    J --> K{Verification Successful?}
+
+    K -- No --> L[Reject Firmware]
+
+    K -- Yes --> M[Flash Firmware]
+
+    M --> N[Reboot]
+
+    N --> O[Send Heartbeat]
+
+    O --> P[Dashboard Monitoring]
+```
+
+---
+
+# 5. Technology Stack
+
+| Layer              | Technology                     |
+| ------------------ | ------------------------------ |
+| Dashboard          | Next.js 16.3, React 19.3      |
+| Frontend Language  | TypeScript 5.9                 |
+| Styling/UI         | Tailwind CSS, Radix UI        |
+| Charts             | Recharts                       |
+| Dashboard Storage  | NeDB / nedb-promises           |
+| Gateway            | FastAPI + Uvicorn              |
+| Gateway Language   | Python                         |
+| Validation         | Pydantic                       |
+| Manifest Signing   | Ed25519                        |
+| Package Security   | AES-256-CBC + RSA-2048        |
+| Firmware Hashing   | SHA-256                        |
+| Firmware Tooling   | PlatformIO + Arduino framework |
+| OTA Methods        | ArduinoOTA + manifest pull    |
+| Containerization   | Docker Compose                 |
+
+---
+
+# 6. Project Structure
 
 ```text
-OTA_IOT/
-|- CODE/
-|  |- OTA_IDE/                  # Main Next.js secure OTA dashboard
-|  |- frimware_code/            # Firmware and OTA build/deploy config
-|  `- docs/ota-ide/             # OTA IDE architecture/dev docs
-|- src/
-|  |- implementation/
-|  |  |- gateway/               # FastAPI gateway (modular package)
-|  |  |  |- __init__.py         # App factory and CORS middleware
-|  |  |  |- config.py           # Configuration constants
-|  |  |  |- models.py           # Pydantic request models
-|  |  |  |- utils.py            # Utility functions
-|  |  |  |- crypto.py           # Ed25519 key management and signing
-|  |  |  |- state.py            # Thread-safe state management
-|  |  |  |- release.py          # Release, manifest, pipeline logic
-|  |  |  `- routes/             # API route handlers
-|  |  |     |- health.py        # Root and /healthz
-|  |  |     |- heartbeat.py     # /api/heartbeat
-|  |  |     |- dashboard.py     # /api/dashboard, /api/events
-|  |  |     |- releases.py      # /api/releases, /releases/latest/*
-|  |  |     |- deployments.py   # /api/deployments
-|  |  |     `- operations.py    # Pipeline, sync, firmware download
-|  |  |- edge_gateway.py        # Backwards-compatible entry point
-|  |  |- device_simulator.py    # Device simulator for testing
-|  |  `- requirements.txt       # Python dependencies (pinned)
-|  `- server/                   # Prototype server snippets
-|- firmware_repo/               # Firmware metadata cache/artifacts
-|- gateway_firmware_cache/      # Gateway manifest/cache state
-|- gateway_keys/                # Gateway signing key material
-|- docs/                        # Guides, reports, research, patents, references
-`- README.md
+Secure_OTA_Update_Security_Mechanism/
+│
+├── CODE/
+│   ├── OTA_IDE/
+│   │   ├── app/
+│   │   ├── components/
+│   │   ├── public/
+│   │   ├── package.json
+│   │   └── ...
+│   │
+│   ├── frimware_code/
+│   │   ├── esp32_ota_main/
+│   │   ├── ota_config.h
+│   │   ├── platformio.ini
+│   │   └── ...
+│   │
+│   └── docs/
+│
+├── src/
+│   └── implementation/
+│       ├── gateway/
+│       │   ├── routes/
+│       │   ├── crypto.py
+│       │   ├── models.py
+│       │   ├── release.py
+│       │   ├── state.py
+│       │   └── utils.py
+│       │
+│       ├── edge_gateway.py
+│       ├── device_simulator.py
+│       └── requirements.txt
+│
+├── firmware_repo/
+├── gateway_firmware_cache/
+├── gateway_keys/
+├── docs/
+├── pics/
+│   ├── 1.1.png
+│   ├── 1.png
+│   ├── 2.png
+│   ├── 3.png
+│   └── 4.png
+│
+├── .env.example
+├── docker-compose.yml
+├── docker-compose.hub.yml
+└── README.md
 ```
 
-Note: folder name frimware_code is currently used as-is in this repository.
+> **Note:** The firmware directory is currently named `frimware_code` in the repository.
 
-## 6. Configuration
+---
 
-### Required before first run
+# 7. Getting Started
 
-These have no defaults. The gateway refuses to start without an API key, and
-the dashboard refuses to bootstrap its admin account without a password.
+## Run the gateway and dashboard locally
 
-```bash
-cp .env.example .env
-openssl rand -hex 32          # use the output as OTA_GATEWAY_API_KEY
-```
+1. Copy `.env.example` to `.env` and set the required gateway API key and
+   dashboard administrator credentials.
+2. Install and start the FastAPI gateway:
 
-| Variable | Why it is required |
-| --- | --- |
-| `OTA_GATEWAY_API_KEY` | Guards every gateway write endpoint, firmware publishing included. Set `OTA_GATEWAY_ALLOW_OPEN_WRITES=true` to run without one on a trusted LAN. |
-| `OTA_ADMIN_USERNAME` / `OTA_ADMIN_PASSWORD` | Bootstraps the dashboard admin. 12+ characters; demo values are rejected. |
+   ```powershell
+   cd src/implementation
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   uvicorn gateway:app --host 0.0.0.0 --port 5000
+   ```
 
-Earlier revisions defaulted both to literals committed to this repository. If
-you deployed one of those, see [docs/SECURITY_REMEDIATION.md](docs/SECURITY_REMEDIATION.md)
-— those credentials are public and must be rotated.
+3. In a second terminal, install and start the dashboard:
 
-### OTA IDE environment
+   ```powershell
+   cd CODE/OTA_IDE
+   pnpm install
+   pnpm dev
+   ```
 
-Reference file:
+4. Open `http://localhost:3000`. The gateway health endpoint is available at
+   `http://localhost:5000/healthz`.
 
-- CODE/OTA_IDE/.env.example
+## Run with Docker Compose
 
-Key variables:
-
-- HOSTNAME, PORT
-- OTA_ADMIN_USERNAME, OTA_ADMIN_PASSWORD, OTA_SESSION_TTL_HOURS
-- OTA_LOCAL_DB_DIR
-- EDGE_GATEWAY_URL, EDGE_GATEWAY_API_KEY
-- OTA_RUNTIME_COMMANDS_ENABLED
-- OTA_RUNTIME_COMMAND_TOKEN
-- OTA_RUNTIME_COMMAND_ALLOWLIST
-- OTA_RUNTIME_COMMAND_CWD
-- ARDUINO_CLI_PATH
-- OTA_FQBN_ESP32, OTA_FQBN_ESP8266, OTA_FQBN_ATMEGA328P, OTA_FQBN_STM32F103
-
-### Gateway environment
-
-Defined in src/implementation/edge_gateway.py:
-
-- OTA_GATEWAY_HOST, OTA_GATEWAY_PORT
-- OTA_GATEWAY_CACHE_DIR, OTA_GATEWAY_KEYS_DIR
-- OTA_GATEWAY_API_KEY
-- OTA_GATEWAY_PUBLIC_URL
-- OTA_GATEWAY_SIGNING_KEY_ID
-- OTA_GATEWAY_RELEASE_ARTIFACT
-- OTA_MAX_DEVICE_LOG_ENTRIES, OTA_MAX_EVENTS, OTA_MAX_ALERTS, OTA_MAX_RELEASES
-- OTA_DEFAULT_COMPATIBILITY
-
-### Firmware configuration
-
-Configured in:
-
-- CODE/frimware_code/ota_config.h
-- CODE/frimware_code/esp32_ota_main/ota_config.h
-
-Main firmware macros:
-
-- WIFI_SSID, WIFI_PASSWORD
-- OTA_PASSWORD, DEVICE_HOSTNAME
-- BACKEND_URL, BACKEND_API_KEY
-- DEVICE_ID, DEVICE_TYPE
-- FIRMWARE_ENC_KEY, FIRMWARE_PUB_KEY
-
-Security rule:
-
-- Never commit real credentials or private keys.
-
-## 7. API Management
-
-### OTA IDE internal API routes
-
-| Route | Method | Auth | Purpose |
-| --- | --- | --- | --- |
-| /api/auth/login | POST | No | Create session token |
-| /api/auth/logout | POST | Yes | Revoke current token |
-| /api/auth/session | GET | Yes | Validate session |
-| /api/serial-ports | GET | Yes | Detect host serial ports |
-| /api/serial/upload | POST | Yes | Start serial upload job |
-| /api/serial/upload/[jobId] | GET | Yes | Poll upload state/logs |
-| /api/runtime/snapshot | GET | Yes | Gateway snapshot aggregation |
-| /api/runtime/command | POST | Session or service token | Controlled command execution |
-
-### Edge gateway API routes
-
-| Route | Method | API Key Needed | Purpose |
-| --- | --- | --- | --- |
-| /healthz | GET | No | Health probe |
-| /api/heartbeat | POST | No | Device telemetry ingest |
-| /api/dashboard | GET | Optional | Full runtime data payload |
-| /api/releases | GET | No | List releases |
-| /api/releases | POST | Yes | Create release + manifest + pipeline |
-| /api/releases/latest | GET | No | Latest release and manifest |
-| /api/deployments | GET | No | List deployments |
-| /api/deployments | POST | Yes | Create deployment |
-| /api/pipeline/run | POST | Yes | Re-run pipeline simulation |
-| /api/trigger_sync | POST | Yes | Manual sync request |
-| /releases/latest/manifest | GET | No | OTA manifest endpoint |
-| /releases/latest/public-key | GET | No | Public key endpoint |
-| /releases/download/{filename} | GET | No | Firmware binary download |
-
-## 8. Middleware and Security Controls
-
-### Middleware-like API wrapper
-
-The OTA IDE uses withSecureApi to centralize request handling for Next.js APIs.
-
-It provides:
-
-- Local DB initialization
-- Bootstrap admin validation/creation
-- Optional route authentication
-- API request logging (route, method, status, latency)
-
-### Authentication and session security
-
-- Password hashing with scrypt
-- Token hashing with sha256
-- Session expiration and revocation tracking
-- Rejection of default/demo bootstrap credentials
-
-### Runtime command protection
-
-- Explicit command allowlist
-- Blocklist for destructive command patterns
-- Blocked shell control characters and substitutions
-- Disabled by default in production unless explicitly enabled
-
-## 9. Algorithms Used
-
-### 9.1 Anti-rollback version algorithm
-
-Firmware maps semantic version to integer score:
-
-$$
-version_n = major \times 10000 + minor \times 100 + patch
-$$
-
-If incoming version score is less than current, update is blocked.
-
-### 9.2 ASH score and quarantine algorithm
-
-Health score update model:
-
-$$
-health_{t+1} = \text{clamp}(health_t + \Delta, 0, 100)
-$$
-
-Policy rules:
-
-- If score < 40, device enters quarantine mode.
-- Quarantine disables ArduinoOTA update handling.
-- Quarantine is lifted when score returns to 100.
-
-### 9.3 Secure OTA verification algorithm
-
-Secure package flow in firmware:
-
-1. Download package from gateway URL.
-2. Read package header: 16-byte IV + 256-byte signature.
-3. AES-256-CBC decrypt encrypted payload blocks.
-4. Validate PKCS7 padding on final block.
-5. Compute SHA-256 on decrypted firmware payload.
-6. Verify RSA signature with embedded public key.
-7. Flash only on successful verification.
-
-Fallback behavior:
-
-- If secure mode is not configured or secure flow fails, plain OTA flow is attempted.
-
-### 9.4 Serial upload job algorithm
-
-Upload job lifecycle:
-
-- queued -> compiling -> uploading -> success or failed
-
-Progress is inferred from CLI output patterns and persisted with rolling logs.
-
-## 10. How Components Connect in Program
-
-End-to-end connection path:
-
-1. Device sends heartbeat to gateway at /api/heartbeat.
-2. Gateway updates device registry, events, alerts, and state cache.
-3. OTA IDE calls /api/runtime/snapshot.
-4. Snapshot API fetches gateway /api/dashboard and /releases/latest/manifest.
-5. Frontend renders devices, releases, events, pipeline, keys, and deployments.
-6. Gateway release creation writes firmware artifact + signed manifest.
-7. Firmware polls manifest, applies anti-rollback, then updates if eligible.
-8. Post-update heartbeats feed back into monitoring and ASH scoring.
-
-Closed loop:
-
-observe -> decide -> deploy -> verify -> observe
-
-## 11. How to Execute and Run
-
-### Step 1: Clone repository
-
-```bash
-git clone https://github.com/Rithik-sharma12/Secure_OTA_Update_Security_Mechanism.git
-cd Secure_OTA_Update_Security_Mechanism
-```
-
-### Step 2: Start gateway backend
+After configuring the environment values required by
+[`docker-compose.yml`](docker-compose.yml), start both services with:
 
 ```powershell
-Set-Location src/implementation
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-uvicorn edge_gateway:app --host 0.0.0.0 --port 5000
+docker compose up --build
 ```
 
-### Step 3: Start OTA IDE
+The dashboard is exposed on port `3000` and the gateway on port `5000`.
+
+## Build the firmware
+
+From `CODE/frimware_code`, configure
+`esp32_ota_main/ota_config.h` from the example file, then use PlatformIO:
 
 ```powershell
-Set-Location CODE/OTA_IDE
-pnpm install
-pnpm dev
-```
-
-Open <http://localhost:3000> in browser.
-
-### Step 4: Configure OTA IDE environment
-
-1. Copy CODE/OTA_IDE/.env.example to CODE/OTA_IDE/.env.local.
-2. Set strong OTA_ADMIN_USERNAME and OTA_ADMIN_PASSWORD.
-3. Set EDGE_GATEWAY_URL.
-4. Set EDGE_GATEWAY_API_KEY if gateway write APIs are protected.
-
-### Step 5: Build and flash firmware over USB (first flash)
-
-```powershell
-Set-Location CODE/frimware_code
 pio run -e esp32dev
-pio run -e esp32dev --target upload
+pio run -e esp32dev -t upload
 ```
 
-### Step 6: OTA network update
+The firmware configuration supports local or cloud gateway URLs, authenticated
+heartbeats, ArduinoOTA push updates, and optional encrypted package updates.
 
-```powershell
-$env:ESP32_OTA_HOST="<device-ip>"
-$env:ESP32_OTA_PASSWORD="<ota-password>"
-pio run -e esp32dev_ota --target upload
+---
+
+# 8. Security Architecture
+
+SecureOTA implements multiple security controls throughout the update lifecycle.
+
+### Authentication
+
+* Session-based dashboard authentication
+* Password hashing using `scrypt`
+* Token hashing using `SHA-256`
+* Session expiration
+* Session revocation
+* Strong administrator credentials
+
+### API Security
+
+* Gateway API key protection
+* Authenticated dashboard APIs
+* Protected firmware publishing endpoints
+* Controlled runtime command execution
+* API request logging
+
+### Firmware Security
+
+* AES-256-CBC encryption
+* RSA signature verification
+* SHA-256 hashing
+* Anti-rollback version validation
+* Firmware verification before flashing
+
+### Runtime Security
+
+* Command allowlisting
+* Destructive command blocking
+* Shell control character filtering
+* Runtime command functionality disabled by default
+* Device quarantine
+
+---
+
+# 9. Cryptographic Firmware Verification
+
+The secure firmware package follows this process:
+
+```text
+Firmware
+   │
+   ▼
+Encrypted Package
+   │
+   ├── 16-byte IV
+   ├── 256-byte Signature
+   └── Encrypted Firmware
+          │
+          ▼
+     AES-256-CBC
+          │
+          ▼
+    Decrypted Firmware
+          │
+          ▼
+       SHA-256
+          │
+          ▼
+    RSA Verification
+          │
+          ▼
+    Valid Firmware?
+       /        \
+     NO          YES
+     │            │
+   Reject       Flash
 ```
 
-### Step 7: Optional simulation and smoke tests
+Firmware is flashed only after successful verification.
 
-```powershell
-Set-Location src/implementation
-python device_simulator.py ESP32
-python integration_smoke_test.py
-```
+---
 
-## 12. How to Use (Beginner Flow)
+# 10. API Endpoints
 
-1. Open OTA IDE and login.
-2. Check serial ports in Devices panel.
-3. Upload firmware for first-time provisioning.
-4. Create release in gateway (UI/API path).
-5. Confirm manifest and release visibility.
-6. Let device poll or trigger manual update.
-7. Watch events, ASH score, and deployment status.
-8. Use runtime snapshot for live operational state.
+## OTA IDE APIs
 
-## 13. Extraordinary Features
+| Endpoint                     | Method | Authentication | Purpose                   |
+| ---------------------------- | ------ | -------------- | ------------------------- |
+| `/api/auth/login`            | POST   | No             | Create session            |
+| `/api/auth/logout`           | POST   | Yes            | Revoke session            |
+| `/api/auth/session`          | GET    | Yes            | Validate session          |
+| `/api/serial-ports`          | GET    | Yes            | Detect serial ports       |
+| `/api/serial/upload`         | POST   | Yes            | Start firmware upload     |
+| `/api/serial/upload/[jobId]` | GET    | Yes            | Monitor upload            |
+| `/api/runtime/snapshot`      | GET    | Yes            | Retrieve runtime state    |
+| `/api/runtime/command`       | POST   | Token/Session  | Execute approved commands |
 
-- Dual update model: ArduinoOTA push + backend pull OTA.
-- Secure OTA package processing with encryption and signature checks.
-- Plain OTA fallback for operational continuity.
-- Anti-rollback firmware version policy.
-- Device health scoring with automatic quarantine behavior.
-- Ed25519-signed release metadata and public key endpoint.
-- Unified runtime snapshot with devices, releases, pipeline, keys, and deployments.
-- Local authenticated API wrapper with structured audit logs.
-- Serial upload queue with persisted logs and incremental polling.
-- Runtime command endpoint protected by allowlist and command safety checks.
+## Gateway APIs
 
-## 13a. Tests and CI
-
-```bash
-# Gateway
-cd src/implementation && pip install -r requirements.txt pytest httpx && pytest
-
-# Dashboard
-npm ci && npm run lint && npm run typecheck && npm run test
-```
-
-`.github/workflows/ci.yml` runs all of the above on every push and pull
-request, across Python 3.10 and 3.13, plus a production build, a dependency
-audit, and a secret scan that blocks tracked key material and local NeDB
-stores.
-
-## 14. Troubleshooting
-
-- Device not visible over OTA: confirm host and device share the same network and ArduinoOTA is active.
-
-- Serial upload failure: verify COM port format (example COM3), board FQBN mapping, and arduino-cli path.
-
-- Release creation failure: provide sourceFilePath or set OTA_GATEWAY_RELEASE_ARTIFACT.
-
-- Unauthorized API response: validate OTA IDE bearer session and gateway API key alignment.
-
-- Runtime command rejected: review OTA_RUNTIME_COMMAND_ALLOWLIST and runtime command enable policy.
-
-## 15. Documentation Map
-
-- docs/README.md
-- CODE/README.md
-- CODE/docs/ota-ide/OTA_IDE_ARCH.md
-- CODE/docs/ota-ide/OTA_IDE_Details_Task.md
-- CODE/docs/ota-ide/OTA_IDE_DEV.md
-- CODE/docs/ota-ide/OTA_README.md
-- CODE/frimware_code/SETUP_GUIDE.md
-- src/implementation/README.txt
-
-## 16. Git Sync Commands
-
-### Pull latest
-
-```bash
-git pull origin main
-```
-
-### Commit and push
-
-```bash
-git add -A
-git commit -m "your message"
-git push origin main
-```
-
-### If push is rejected
-
-```bash
-git pull --rebase origin main
-git push origin main
-```
-
-## 17. Docker Container Deployment
-
-Secure_OTA can be containerized for college systems and deployed in two modes:
-
-- Build locally from source with `docker compose`.
-- Pull prebuilt images from Docker Hub and run with `docker compose -f docker-compose.hub.yml`.
-
-### 17.1 Prepare environment file
-
-```powershell
-Copy-Item .env.docker.example .env.docker
-```
-
-Update at least:
-
-- `OTA_ADMIN_PASSWORD`
-- `OTA_GATEWAY_API_KEY`
-- `DOCKERHUB_USER` (for Docker Hub pull mode)
-
-If password contains `#`, keep it quoted.
-
-### 17.2 Run from local source build
-
-```powershell
-docker compose --env-file .env.docker up -d --build
-docker compose ps
-```
-
-### 17.3 Run by pulling from Docker Hub
-
-```powershell
-docker compose -f docker-compose.hub.yml --env-file .env.docker pull
-docker compose -f docker-compose.hub.yml --env-file .env.docker up -d
-docker compose -f docker-compose.hub.yml --env-file .env.docker ps
-```
-
-### 17.4 Publish images to Docker Hub
-
-```powershell
-docker login
-docker build -t <dockerhub-user>/secure-ota-gateway:latest ./src/implementation
-docker push <dockerhub-user>/secure-ota-gateway:latest
-docker build -t <dockerhub-user>/secure-ota-ide:latest ./CODE/OTA_IDE
-docker push <dockerhub-user>/secure-ota-ide:latest
-```
-
-### 17.5 Detailed guide
-
-See `docs/guides/DOCKER_DEPLOYMENT.md` for full steps, update workflows, and operational notes.
+| Endpoint               | Method | Authentication | Purpose           |
+| ---------------------- | ------ | -------------- | ----------------- |
+| `/healthz`             | GET    | No             | Health check      |
+| `/api/heartbeat`       | POST   | No             | Device telemetry  |
+| `/api/dashboard`       | GET    | Optional       | Runtime dashboard |
+| `/api/releases`        | GET    | No             | List releases     |
+| `/api/releases`        | POST   | API Key        | Create release    |
+| `/api/releases/latest` | GET    | No             | Latest release    |
+| `/api/deployments`     | GET    | No             | List deployments  |
+| `/api/deployments`     | POST   | API Key        | Create deployment |
+| `/api/pipeline/run`    | POST   |                |                   |
