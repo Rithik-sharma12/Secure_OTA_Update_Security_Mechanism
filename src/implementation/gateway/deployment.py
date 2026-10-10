@@ -56,20 +56,24 @@ def _recount(deployment: dict[str, Any]) -> None:
     confirmed = states.count('confirmed')
     failed = states.count('failed')
     pending = states.count('pending')
+    cancelled = states.count('cancelled')
 
     deployment['successCount'] = confirmed
     deployment['failureCount'] = failed
     deployment['pendingCount'] = pending
+    deployment['cancelledCount'] = cancelled
 
     if pending:
         deployment['status'] = 'in_progress'
         deployment['completedAt'] = None
         return
 
-    if confirmed and failed:
+    if confirmed and (failed or cancelled):
         deployment['status'] = 'partial'
     elif confirmed:
         deployment['status'] = 'success'
+    elif cancelled and not failed:
+        deployment['status'] = 'cancelled'
     else:
         deployment['status'] = 'failed'
 
@@ -186,6 +190,21 @@ def create_deployment_locked(
 
     _recount(deployment)
 
+    # Nudge every pending target. Without this a device only notices the
+    # assignment on its next poll timer; with it, the next heartbeat (≤15 s)
+    # tells the device to go and fetch its assigned build.
+    from .commands import enqueue_command_locked
+
+    for device_id, target in targets.items():
+        if target.get('state') == 'pending':
+            command = enqueue_command_locked(
+                device_id,
+                'update',
+                {'version': version, 'deploymentId': deployment['id']},
+                requested_by=f"deployment:{deployment['id']}",
+            )
+            target['commandId'] = command['id']
+
     STATE['deployments'].insert(0, deployment)
     STATE['deployments'] = STATE['deployments'][:MAX_RELEASES]
 
@@ -286,3 +305,119 @@ def expire_stale_deployments_locked() -> list[str]:
             )
 
     return changed
+
+
+# Phases a device reports while it works through an update. They are progress
+# information only: a target is confirmed solely by a heartbeat that reports
+# the new version, exactly as before. 'failed' and 'rolled_back' are the
+# exceptions — the device is telling us the assigned build will not land, so
+# waiting out the deadline would only hide the reason.
+OTA_PHASES = (
+    'checking',
+    'downloading',
+    'verifying',
+    'installing',
+    'rebooting',
+    'health_check',
+    'succeeded',
+    'failed',
+    'rolled_back',
+)
+TERMINAL_FAILURE_PHASES = {'failed', 'rolled_back'}
+
+
+def record_ota_status_locked(
+    device_id: str,
+    phase: str,
+    version: str,
+    progress: int | None,
+    detail: str,
+) -> list[str]:
+    """Attach a device's OTA progress report to its pending deployment targets."""
+    changed: list[str] = []
+    reported_score = version_score(version) if version else None
+    now_iso = utc_now_iso()
+
+    for deployment in STATE.get('deployments', []):
+        if deployment.get('status') != 'in_progress':
+            continue
+        target = deployment.get('targets', {}).get(device_id)
+        if not target or target.get('state') != 'pending':
+            continue
+        # A report about some other version (an auto-update racing the
+        # deployment, say) says nothing about this assignment.
+        if reported_score is not None and reported_score != version_score(str(deployment.get('version', '0.0.0'))):
+            continue
+
+        target['phase'] = phase
+        target['progress'] = progress
+        target['phaseDetail'] = detail or None
+        target['phaseAt'] = now_iso
+
+        if phase in TERMINAL_FAILURE_PHASES:
+            target['state'] = 'failed'
+            target['reason'] = (
+                f"Device rolled back to its previous firmware: {detail}" if phase == 'rolled_back'
+                else f"Device reported update failure: {detail or 'no detail given'}"
+            )
+            _recount(deployment)
+            push_alert_locked(f"Deployment {deployment.get('id')}: {device_id} {phase.replace('_', ' ')} — {detail or 'no detail'}.")
+            push_event_locked(
+                event_type='firmware_update',
+                severity='error',
+                title='Device Update Failed' if phase == 'failed' else 'Device Rolled Back',
+                description=f"{device_id} could not install v{deployment.get('version')}: {detail or 'no detail given'}.",
+                device_id=device_id,
+            )
+        changed.append(str(deployment.get('id')))
+
+    return changed
+
+
+def find_deployment_locked(deployment_id: str) -> dict[str, Any] | None:
+    return next((d for d in STATE.get('deployments', []) if d.get('id') == deployment_id), None)
+
+
+def cancel_deployment_locked(deployment: dict[str, Any], actor: str = 'dashboard') -> int:
+    """Stop waiting on every pending target and withdraw its queued command.
+
+    A device that already started downloading cannot be stopped mid-flash —
+    that is the device's decision — so a target that later reports the new
+    version still shows as cancelled here, and the device record shows the
+    truth. Returns how many targets were cancelled.
+    """
+    from .commands import OPEN_STATES
+
+    cancelled = 0
+    for device_id, target in deployment.get('targets', {}).items():
+        if target.get('state') != 'pending':
+            continue
+        target['state'] = 'cancelled'
+        target['reason'] = f'Cancelled by {actor} before the device confirmed.'
+        cancelled += 1
+        command_id = target.get('commandId')
+        for command in STATE.get('commands', {}).get(device_id, []):
+            if command.get('id') == command_id and command.get('status') == 'queued':
+                command['status'] = 'cancelled'
+                command['completedAt'] = utc_now_iso()
+            elif command.get('id') == command_id and command.get('status') in OPEN_STATES:
+                command['result'] = 'Deployment cancelled after the device received this command.'
+
+    if cancelled:
+        _recount(deployment)
+        push_event_locked(
+            event_type='deployment',
+            severity='warning',
+            title='Deployment Cancelled',
+            description=f"{cancelled} pending target(s) of {deployment.get('id')} cancelled by {actor}.",
+        )
+    return cancelled
+
+
+def retry_targets(deployment: dict[str, Any]) -> list[str]:
+    """Device ids worth another attempt: those that failed or were cancelled."""
+    return [
+        device_id
+        for device_id, target in deployment.get('targets', {}).items()
+        if target.get('state') in {'failed', 'cancelled'}
+    ]

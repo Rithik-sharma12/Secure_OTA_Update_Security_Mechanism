@@ -3,11 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, AlertCircle, CheckCircle, GitBranch } from 'lucide-react';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { subscribeToLiveStatus } from '@/lib/live-updates';
 
 export default function StatusBar() {
   const [mounted, setMounted] = useState(false);
   const [time, setTime] = useState('');
   const { snapshot } = useRuntimeSnapshot(5000);
+  const [live, setLive] = useState(false);
+  useEffect(() => subscribeToLiveStatus(setLive), []);
 
   const onlineCount = snapshot.devices.filter((device) => device.status === 'online').length;
   const offlineCount = snapshot.devices.filter((device) => device.status === 'offline' || device.status === 'error').length;
@@ -69,6 +72,13 @@ export default function StatusBar() {
         </div>
 
         <div className="flex items-center justify-between gap-4 sm:justify-end">
+          <div
+            className="flex items-center gap-2"
+            title={live ? 'Updates are pushed from the gateway as they happen.' : 'Live stream unavailable; refreshing every few seconds.'}
+          >
+            <div className={`h-2 w-2 rounded-full ${live ? 'bg-chart-1 animate-pulse' : 'bg-muted-foreground'}`} />
+            <span className="text-foreground/70">{live ? 'Live' : 'Polling'}</span>
+          </div>
           <div className="flex items-center gap-2">
             <AlertCircle className="w-3 h-3 text-yellow-500" />
             <span className="text-foreground/70">{warningCount} Warning{warningCount === 1 ? '' : 's'}</span>

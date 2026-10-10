@@ -31,3 +31,8 @@ services:
       # whereas a silent fall back to localhost looks fine and breaks every
       # device. A hard `:?` here would instead break `docker compose ps`.
       OTA_GATEWAY_PUBLIC_URL: ${OTA_LOCAL_URL:-http://OTA-LOCAL-URL-NOT-SET-PASS-ENV-FILE:5000}
+
+  ota_ide:
+    environment:
+      # Written into boards provisioned over USB from the Devices page.
+      OTA_DEVICE_GATEWAY_URL: ${OTA_DEVICE_GATEWAY_URL:-${OTA_LOCAL_URL:-}}

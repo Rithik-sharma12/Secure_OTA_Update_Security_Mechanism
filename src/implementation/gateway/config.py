@@ -38,6 +38,25 @@ if not API_KEY and not ALLOW_OPEN_WRITES:
         'trusted local network.'
     )
 
+# ── Device credentials and remote control ─────────────────────
+# Per-device tokens are issued by POST /api/devices/register. While this is
+# false, a device that has no token yet may still authenticate with the fleet
+# key, so boards flashed before registration existed keep reporting. Set it to
+# true once every board has been provisioned with its own token.
+REQUIRE_DEVICE_TOKEN: bool = os.getenv('OTA_REQUIRE_DEVICE_TOKEN', '').strip().lower() in {'1', 'true', 'yes'}
+
+# When true (the historical behaviour) every healthy device is offered the
+# newest compatible release on its own. When false, a device is only offered
+# firmware that a deployment created from the dashboard assigned to it.
+AUTO_UPDATE: bool = os.getenv('OTA_AUTO_UPDATE', 'true').strip().lower() not in {'0', 'false', 'no'}
+
+# Remote commands (update / reboot / identify / check_update) that a device has
+# not picked up within this window are marked expired, so a board that was
+# offline for a day does not reboot the moment it comes back.
+COMMAND_TTL_MINUTES: int = int(os.getenv('OTA_COMMAND_TTL_MINUTES', '30'))
+MAX_COMMANDS_PER_DEVICE: int = int(os.getenv('OTA_MAX_COMMANDS_PER_DEVICE', '50'))
+MAX_OTA_HISTORY: int = int(os.getenv('OTA_MAX_OTA_HISTORY', '30'))
+
 # ── CORS ──────────────────────────────────────────────────────
 # Previously '*' together with allow_credentials=True. Browsers reject that
 # combination outright, so the permissive intent never worked, and the

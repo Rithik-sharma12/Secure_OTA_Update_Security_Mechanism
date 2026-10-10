@@ -11,6 +11,10 @@ and the dashboard page talks to it directly from the browser:
     POST /flash                        multipart: file, port, address, [baud], [erase]
     GET  /jobs/<id>                    flash job status, progress, log tail
     GET  /monitor?port=COM7&baud=115200  Server-Sent Events stream of serial output
+    GET  /device-info?port=COM7        ask SecureOTA firmware (>= 2.5.0) who it is
+    POST /provision                    JSON: port, config{ssid, password, backend_url,
+                                       device_token, device_id, ...} -> written to
+                                       the board's NVS over USB, board reboots
 
 Security: only browser origins in ALLOWED_ORIGINS may call it (the browser
 guarantees the Origin header), and an optional shared token can be required
@@ -54,7 +58,7 @@ _ensure("esptool", "esptool")
 import serial  # noqa: E402
 from serial.tools import list_ports  # noqa: E402
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION = "1.1.0"
 DEFAULT_PORT = 17317
 ALLOWED_ORIGINS = {
     "https://ota.nyx-ctf.tech",
@@ -218,6 +222,86 @@ class FlashJob:
 JOBS: dict[str, FlashJob] = {}
 JOBS_LOCK = threading.Lock()
 
+
+def port_busy_with_flash(port: str) -> bool:
+    with JOBS_LOCK:
+        return any(job.port == port and job.status in {"queued", "running"} for job in JOBS.values())
+
+# ------------------------------------------------------------------ USB provisioning
+#
+# SecureOTA firmware 2.5.0+ answers a small line protocol on its USB serial
+# port (see esp32_ota_main.ino, "USB provisioning protocol"):
+#
+#   SOTA:INFO                 -> SOTA:INFO {"device_id": ..., "version": ...}
+#   SOTA:PROVISION {json}     -> SOTA:OK ... (then reboots) | SOTA:ERR reason
+#
+# Wi-Fi password and device token travel browser -> 127.0.0.1 -> USB cable
+# only; nothing here is exposed beyond this machine.
+
+PROVISION_KEYS = {
+    "ssid": 32, "password": 64, "backend_url": 200, "device_token": 128,
+    "device_id": 64, "api_key": 128, "hostname": 32,
+}
+SERIAL_EXCHANGE_SECONDS = 12.0
+
+
+def open_quietly(port: str, baud: int) -> "serial.Serial":
+    """Open without toggling DTR/RTS where the driver allows it.
+
+    On most ESP32 dev boards DTR/RTS drive EN/IO0, so a plain open resets the
+    chip. Some drivers reset it anyway; the exchange below retries long enough
+    to ride out a reboot.
+    """
+    ser = serial.Serial()
+    ser.port = port
+    ser.baudrate = baud
+    ser.timeout = 0.2
+    ser.dtr = False
+    ser.rts = False
+    ser.open()
+    return ser
+
+
+def serial_exchange(port: str, baud: int, request: str, accept: tuple[str, ...],
+                    timeout: float = SERIAL_EXCHANGE_SECONDS) -> tuple[str | None, list[str]]:
+    """Send `request` (re-sent every ~1.5 s) until a line starting with one of
+    `accept` arrives. Returns (matching line or None, recent output lines)."""
+    seen: deque[str] = deque(maxlen=40)
+    ser = open_quietly(port, baud)
+    try:
+        time.sleep(0.3)
+        ser.reset_input_buffer()
+        deadline = time.time() + timeout
+        next_send = 0.0
+        pending = b""
+        while time.time() < deadline:
+            if time.time() >= next_send:
+                ser.write((request + "\n").encode("utf-8"))
+                ser.flush()
+                next_send = time.time() + 1.5
+            chunk = ser.read(512)
+            if not chunk:
+                continue
+            pending += chunk
+            while b"\n" in pending:
+                raw, pending = pending.split(b"\n", 1)
+                line = raw.decode("utf-8", "replace").strip()
+                if not line:
+                    continue
+                seen.append(line)
+                if line.startswith(accept):
+                    return line, list(seen)
+        return None, list(seen)
+    finally:
+        ser.close()
+
+
+def _parse_tagged_json(line: str, tag: str) -> dict:
+    try:
+        return json.loads(line[len(tag):].strip() or "{}")
+    except json.JSONDecodeError:
+        return {}
+
 # ------------------------------------------------------------------ HTTP
 
 class Handler(BaseHTTPRequestHandler):
@@ -276,7 +360,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/health":
             return self._json(200, {"ok": True, "agent": "secureota-agent", "version": AGENT_VERSION,
-                                    "platform": sys.platform, "esptool": bool(ESPTOOL), "tokenRequired": bool(self.token)})
+                                    "platform": sys.platform, "esptool": bool(ESPTOOL), "tokenRequired": bool(self.token),
+                                    "features": ["flash", "monitor", "device-info", "provision"]})
         if url.path == "/ports":
             ports = describe_ports()
             return self._json(200, {"ok": True, "supported": True, "ports": ports, "count": len(ports)})
@@ -290,12 +375,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "job": job.to_dict(since)})
         if url.path == "/monitor":
             return self._monitor(parse_qs(url.query))
+        if url.path == "/device-info":
+            return self._device_info(parse_qs(url.query))
         self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
         if not self._authorized():
             return
         url = urlparse(self.path)
+        if url.path == "/provision":
+            return self._provision()
         if url.path != "/flash":
             return self._json(404, {"ok": False, "error": "not found"})
 
@@ -323,6 +412,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"ok": False, "error": "empty firmware image"})
         if not ESPTOOL:
             return self._json(500, {"ok": False, "error": "esptool not found - pip install esptool"})
+        if port_busy_with_flash(port):
+            return self._json(409, {"ok": False, "error": f"{port} is already being flashed"})
 
         tmp = Path(tempfile.gettempdir()) / f"secureota-{uuid.uuid4().hex}.bin"
         tmp.write_bytes(data)
@@ -331,6 +422,79 @@ class Handler(BaseHTTPRequestHandler):
             JOBS[job.id] = job
         threading.Thread(target=job.run, daemon=True).start()
         self._json(202, {"ok": True, "jobId": job.id, "bytes": len(data)})
+
+    # -- USB provisioning
+    def _read_json_body(self) -> dict | None:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 16 * 1024:
+            self._json(413, {"ok": False, "error": "JSON body missing or larger than 16 KB"})
+            return None
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            self._json(400, {"ok": False, "error": "application/json expected"})
+            return None
+        try:
+            body = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError:
+            self._json(400, {"ok": False, "error": "invalid JSON"})
+            return None
+        if not isinstance(body, dict):
+            self._json(400, {"ok": False, "error": "JSON object expected"})
+            return None
+        return body
+
+    def _device_info(self, query: dict):
+        port = (query.get("port") or [""])[0].strip()
+        baud = int((query.get("baud") or ["115200"])[0])
+        if not PORT_NAME_RE.match(port):
+            return self._json(400, {"ok": False, "error": f"invalid port '{port}'"})
+        if port_busy_with_flash(port):
+            return self._json(409, {"ok": False, "error": f"{port} is being flashed"})
+        try:
+            line, seen = serial_exchange(port, baud, "SOTA:INFO", ("SOTA:INFO ",), timeout=8.0)
+        except serial.SerialException as exc:
+            return self._json(409, {"ok": False, "error": f"cannot open {port} (close any serial monitor first): {exc}"})
+        if not line:
+            return self._json(504, {"ok": False, "error": "No answer from the board. It needs SecureOTA firmware 2.5.0 or newer "
+                                    "and must not be in download mode.", "output": seen[-10:]})
+        return self._json(200, {"ok": True, "device": _parse_tagged_json(line, "SOTA:INFO")})
+
+    def _provision(self):
+        body = self._read_json_body()
+        if body is None:
+            return
+        port = str(body.get("port", "")).strip()
+        baud = int(body.get("baud") or 115200)
+        config = body.get("config")
+        if not PORT_NAME_RE.match(port):
+            return self._json(400, {"ok": False, "error": f"invalid port '{port}'"})
+        if not isinstance(config, dict) or not config:
+            return self._json(400, {"ok": False, "error": "config object is required"})
+
+        clean: dict = {}
+        for key, value in config.items():
+            if key == "reset_health":
+                clean[key] = bool(value)
+                continue
+            if key not in PROVISION_KEYS:
+                return self._json(400, {"ok": False, "error": f"unknown config key '{key}'"})
+            if not isinstance(value, str) or len(value) > PROVISION_KEYS[key] or "\n" in value or "\r" in value:
+                return self._json(400, {"ok": False, "error": f"'{key}' must be a single-line string of at most {PROVISION_KEYS[key]} characters"})
+            clean[key] = value
+        if port_busy_with_flash(port):
+            return self._json(409, {"ok": False, "error": f"{port} is being flashed"})
+
+        request = "SOTA:PROVISION " + json.dumps(clean, separators=(",", ":"))
+        try:
+            line, seen = serial_exchange(port, baud, request, ("SOTA:OK", "SOTA:ERR"))
+        except serial.SerialException as exc:
+            return self._json(409, {"ok": False, "error": f"cannot open {port} (close any serial monitor first): {exc}"})
+        if not line:
+            return self._json(504, {"ok": False, "error": "The board did not confirm. It needs SecureOTA firmware 2.5.0 or newer.",
+                                    "output": seen[-10:]})
+        if line.startswith("SOTA:ERR"):
+            return self._json(422, {"ok": False, "error": line[len("SOTA:ERR"):].strip() or "rejected by the board"})
+        # Never echo the secrets back; report which fields were written.
+        return self._json(200, {"ok": True, "message": line[len("SOTA:OK"):].strip(), "written": sorted(clean.keys())})
 
     # -- serial monitor as SSE
     def _monitor(self, query: dict):

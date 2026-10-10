@@ -12,7 +12,9 @@ type StoreBaseRecord = {
 export interface UserRecord {
   _id?: string;
   username: string;
-  passwordHash: string;
+  email?: string;
+  supabaseId?: string;
+  passwordHash?: string;
   role: 'admin' | 'operator' | 'viewer';
   isActive: boolean;
   lastLoginAt?: Timestamp;

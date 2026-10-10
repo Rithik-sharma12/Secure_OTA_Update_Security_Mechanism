@@ -43,11 +43,26 @@ def default_state() -> dict[str, Any]:
         'keys': [],
         'certificates': [],
         'deployments': [],
+        # device_id -> list of remote commands (see gateway/commands.py)
+        'commands': {},
+        # device_id -> {'tokenHash', 'createdAt', ...}; never returned by any route
+        'deviceCredentials': {},
     }
+
+
+# Bumped on every persisted change. /api/stream watches it to tell dashboards
+# "something changed, refresh" without them having to poll the full state.
+STATE_REVISION = 0
+
+
+def state_revision() -> int:
+    return STATE_REVISION
 
 
 def persist_state_locked() -> None:
     """Write current STATE to disk atomically. Must be called under STATE_LOCK."""
+    global STATE_REVISION
+    STATE_REVISION += 1
     temp_file = STATE_FILE.with_suffix('.tmp')
     with open(temp_file, 'w', encoding='utf-8') as file:
         json.dump(STATE, file, indent=2)
@@ -182,6 +197,10 @@ def load_state() -> None:
             state['releases'] = []
         if not isinstance(state['deployments'], list):
             state['deployments'] = []
+        if not isinstance(state.get('commands'), dict):
+            state['commands'] = {}
+        if not isinstance(state.get('deviceCredentials'), dict):
+            state['deviceCredentials'] = {}
         if not isinstance(state.get('keys'), list):
             state['keys'] = default_state()['keys']
         if not isinstance(state.get('certificates'), list):

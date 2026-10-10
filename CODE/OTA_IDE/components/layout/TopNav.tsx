@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { Show, UserButton } from '@clerk/nextjs';
 import {
   Activity,
   AlertCircle,
@@ -17,6 +18,7 @@ import {
   LayoutList,
   Lock,
   Rocket,
+  ScrollText,
   Settings,
   Shield,
   Tag,
@@ -47,6 +49,7 @@ const groups: NavGroup[] = [
     title: 'Deploy',
     icon: <Rocket className="h-4 w-4" />,
     items: [
+      { label: 'Deployments', href: '/deployments', icon: <Rocket className="h-3.5 w-3.5" /> },
       { label: 'Pipeline', href: '/pipeline', icon: <GitBranch className="h-3.5 w-3.5" /> },
       { label: 'Releases', href: '/releases', icon: <Code className="h-3.5 w-3.5" /> },
       { label: 'Manifest', href: '/manifest', icon: <LayoutList className="h-3.5 w-3.5" /> },
@@ -60,6 +63,7 @@ const groups: NavGroup[] = [
       { label: 'TCV Engine', href: '/tcv-engine', icon: <Cpu className="h-3.5 w-3.5" /> },
       { label: 'ASH Monitor', href: '/ash-monitor', icon: <Activity className="h-3.5 w-3.5" /> },
       { label: 'Key Vault', href: '/key-vault', icon: <Lock className="h-3.5 w-3.5" /> },
+      { label: 'Audit trail', href: '/audit', icon: <ScrollText className="h-3.5 w-3.5" /> },
     ],
   },
   {
@@ -231,6 +235,12 @@ export default function TopNav() {
           >
             {initials || 'AD'}
           </Link>
+
+          {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
+            <Show when="signed-in">
+              <UserButton />
+            </Show>
+          )}
 
           <button
             type="button"

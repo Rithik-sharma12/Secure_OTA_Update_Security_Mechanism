@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { OPERATOR_ROLES, withSecureApi } from '@/lib/api-security';
+import { actorHeader } from '@/lib/gateway-proxy';
 import { logger } from '@/lib/logger';
 
 export const runtime = 'nodejs';
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
   return withSecureApi(
     request,
     '/api/firmware/publish',
-    async () => {
+    async ({ auth }) => {
       let form: FormData;
       try {
         form = await request.formData();
@@ -81,7 +82,7 @@ export async function POST(request: Request) {
       outbound.set('changelog', String(form.get('changelog') || '').trim() || 'Security and reliability updates.');
       outbound.set('compatible', String(form.get('compatible') || '').trim());
 
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = { ...actorHeader(auth) };
       if (gatewayApiKey) {
         headers['x-api-key'] = gatewayApiKey;
       }

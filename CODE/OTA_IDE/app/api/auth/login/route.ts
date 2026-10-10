@@ -8,7 +8,8 @@ export async function POST(request: Request) {
   try {
     const { username, password } = await request.json();
 
-    const authResult = await loginWithPassword(username, password);
+    const cookieResponse = NextResponse.json({}, { status: 200 });
+    const authResult = await loginWithPassword(username, password, cookieResponse);
 
     if (!authResult) {
       return errorResponse('Invalid credentials', 401);
@@ -17,23 +18,28 @@ export async function POST(request: Request) {
     const { sessionToken, expiresAt, user } = authResult;
 
     // Create a response and set the HttpOnly cookie
-    const response = NextResponse.json({
+    const result = NextResponse.json({
       success: true,
-      data: { user }, // Only send public user data to client
+      data: { user },
       timestamp: new Date().toISOString(),
     }, { status: 200 });
 
-    response.cookies.set({
-      name: SESSION_COOKIE_NAME,
-      value: sessionToken,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Use secure in production
-      sameSite: 'lax',
-      expires: new Date(expiresAt),
-      path: '/',
-    });
+    for (const cookie of cookieResponse.cookies.getAll()) {
+      result.cookies.set(cookie);
+    }
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+      result.cookies.set({
+        name: SESSION_COOKIE_NAME,
+        value: sessionToken,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        expires: new Date(expiresAt),
+        path: '/',
+      });
+    }
 
-    return response;
+    return result;
 
   } catch (error: unknown) {
     logger.error('AuthAPI', 'Login failed', error);

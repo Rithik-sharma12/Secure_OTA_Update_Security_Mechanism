@@ -205,6 +205,15 @@ IoT Device
     └── Flash Firmware
 ```
 
+### Remote control over the internet and USB provisioning
+
+Deployments, restarts and update checks started on the website reach a board
+wherever it is: the gateway hands them over in the response to the board's
+next heartbeat, the board reports progress back, and a post-update health
+gate rolls a bad image back automatically. Over the COM port, the local agent
+flashes the board and provisions its Wi-Fi, gateway URL and its own device
+token. See [docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md](docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md).
+
 ---
 
 # 3. System Architecture

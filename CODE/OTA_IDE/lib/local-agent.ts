@@ -211,3 +211,68 @@ export function openAgentMonitor(
 
   return () => controller.abort();
 }
+
+// ── USB provisioning (agent >= 1.1.0, firmware >= 2.5.0) ──────────────────
+
+/** What SecureOTA firmware reports about itself over USB (SOTA:INFO). */
+export type AgentDeviceInfo = {
+  device_id: string;
+  device_type?: string;
+  version?: string;
+  mac?: string;
+  chip?: string;
+  wifi_configured?: boolean;
+  wifi_ssid?: string;
+  wifi_connected?: boolean;
+  ip?: string;
+  backend_url?: string;
+  has_device_token?: boolean;
+  health?: number;
+  quarantined?: boolean;
+};
+
+export type ProvisionConfig = {
+  ssid?: string;
+  password?: string;
+  backend_url?: string;
+  device_token?: string;
+  device_id?: string;
+  hostname?: string;
+  reset_health?: boolean;
+};
+
+async function agentJsonError(response: Response, fallback: string) {
+  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+  if (response.status === 404) {
+    return new Error('This SecureOTA Agent is too old for USB provisioning. Download the current agent and restart it.');
+  }
+  return new Error(payload?.error || `${fallback} (${response.status})`);
+}
+
+/** Ask the board on `port` who it is. Takes a few seconds; the board may reset. */
+export async function getAgentDeviceInfo(port: string, baud = 115200): Promise<AgentDeviceInfo> {
+  const response = await agentFetch(`/device-info?port=${encodeURIComponent(port)}&baud=${baud}`, {}, 15000);
+  if (!response.ok) throw await agentJsonError(response, 'Could not read the board');
+  const payload = (await response.json()) as { device?: AgentDeviceInfo };
+  if (!payload.device?.device_id) throw new Error('The board answered without a device id.');
+  return payload.device;
+}
+
+/**
+ * Write Wi-Fi, gateway URL and device token into the board's NVS over USB.
+ * The values go browser -> 127.0.0.1 -> USB cable; the board reboots after.
+ */
+export async function provisionAgentDevice(port: string, config: ProvisionConfig, baud = 115200): Promise<string[]> {
+  const response = await agentFetch(
+    '/provision',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port, baud, config }),
+    },
+    20000
+  );
+  if (!response.ok) throw await agentJsonError(response, 'Provisioning failed');
+  const payload = (await response.json()) as { written?: string[] };
+  return payload.written || [];
+}

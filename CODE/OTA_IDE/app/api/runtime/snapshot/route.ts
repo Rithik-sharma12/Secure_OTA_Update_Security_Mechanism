@@ -17,6 +17,10 @@ type GatewayDevice = {
   uptime?: number;
   location?: string;
   signalStrength?: number;
+  ip?: string;
+  rollbackPending?: boolean;
+  authMode?: string;
+  ota?: { phase?: string; version?: string; progress?: number | null; detail?: string | null; at?: string };
 };
 
 type GatewayEvent = Record<string, unknown>;
@@ -244,6 +248,18 @@ export async function GET(request: Request) {
       memoryUsage: typeof device.memoryUsage === 'number' ? device.memoryUsage : 0,
       uptime: typeof device.uptime === 'number' ? device.uptime : 0,
       signalStrength: typeof device.signalStrength === 'number' ? device.signalStrength : undefined,
+      ip: device.ip || undefined,
+      authMode: device.authMode || undefined,
+      rollbackPending: Boolean(device.rollbackPending),
+      ota: device.ota?.phase
+        ? {
+            phase: device.ota.phase,
+            version: device.ota.version || '',
+            progress: typeof device.ota.progress === 'number' ? device.ota.progress : null,
+            detail: device.ota.detail || null,
+            at: device.ota.at || null,
+          }
+        : undefined,
     };
   });
 

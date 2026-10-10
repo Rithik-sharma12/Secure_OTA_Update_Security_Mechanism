@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,9 +25,17 @@ import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff } from 
 import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard';
 import { HostAccessCard } from '@/components/devices/HostAccessCard';
 import { WebSerialFlashCard } from '@/components/devices/WebSerialFlashCard';
+import { UsbProvisionCard } from '@/components/devices/UsbProvisionCard';
+import {
+  type DeviceCommandType,
+  deployToDevices,
+  getDeviceDetail,
+  queueDeviceCommand,
+  removeDevice,
+  waitForCommand,
+} from '@/lib/device-control';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { formatUtcTime } from '@/lib/formatters';
-import { executeRuntimeAction } from '@/lib/runtime-actions';
 import { useCurrentUser } from '@/lib/use-current-user';
 
 function getStatusIcon(status: string) {
@@ -64,6 +74,7 @@ export default function DevicesPage() {
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const { snapshot, isLoading } = useRuntimeSnapshot();
+  const router = useRouter();
   const { can, reasonFor } = useCurrentUser();
   const mayControlDevices = can('devices.control');
   const mayFlash = can('devices.flash');
@@ -80,20 +91,111 @@ export default function DevicesPage() {
     scrollToConnectionPanel();
   };
 
+  /**
+   * Remote commands travel dashboard -> gateway -> device's next heartbeat
+   * response, so they work wherever the board is on the internet. The result
+   * the device reports is followed in the background and shown when it lands.
+   */
+  const COMMAND_LABELS: Record<DeviceCommandType, string> = {
+    reboot: 'Restart',
+    identify: 'Identify (blink LED)',
+    check_update: 'Update check',
+    update: 'Update',
+  };
+
+  const sendCommand = async (deviceId: string, deviceName: string, type: DeviceCommandType) => {
+    const label = COMMAND_LABELS[type];
+    const command = await queueDeviceCommand(deviceId, type);
+    setActionMessage(`${label} queued for ${deviceName}. It is delivered with the device's next heartbeat (about 15 s).`);
+    void waitForCommand(deviceId, command.id, 90_000).then((final) => {
+      if (!final || final.status === 'queued' || final.status === 'delivered') {
+        setActionMessage(`${label} for ${deviceName} is still waiting - the device has not checked in. Is it online?`);
+      } else if (final.status === 'succeeded') {
+        setActionError(null);
+        setActionMessage(`${label} on ${deviceName}: ${final.result || 'done'}.`);
+      } else {
+        setActionError(`${label} on ${deviceName} ${final.status}: ${final.result || 'no detail'}.`);
+      }
+    }).catch(() => undefined);
+  };
+
   const handleDeviceAction = async (deviceId: string, deviceName: string, command: string) => {
     setBusyDeviceId(deviceId);
     setActionError(null);
     setActionMessage(null);
 
     try {
-      const response = await executeRuntimeAction('devices.action', {
-        deviceId,
-        deviceName,
-        command,
-      });
-      setActionMessage(response.message || `${command} executed for ${deviceName}.`);
+      if (command === 'restart') {
+        await sendCommand(deviceId, deviceName, 'reboot');
+      } else if (command === 'identify') {
+        await sendCommand(deviceId, deviceName, 'identify');
+      } else if (command === 'check-update') {
+        await sendCommand(deviceId, deviceName, 'check_update');
+      } else if (command === 'remove') {
+        if (!window.confirm(`Remove ${deviceName} from the gateway? Its token and queued commands are deleted. A board that is still running with the fleet key will reappear on its next heartbeat.`)) {
+          return;
+        }
+        await removeDevice(deviceId);
+        setActionMessage(`${deviceName} removed from the gateway registry.`);
+      } else if (command === 'view-details') {
+        router.push(`/devices/${encodeURIComponent(deviceId)}`);
+        return;
+      } else if (command === 'summary') {
+        const detail = await getDeviceDetail(deviceId);
+        const ota = detail.device?.ota;
+        const last = detail.commands[0];
+        setActionMessage(
+          [
+            `${deviceName}: firmware v${detail.device?.fw ?? '?'}`,
+            detail.credentials.registered
+              ? `own device token${detail.credentials.revoked ? ' (revoked)' : ''}`
+              : 'authenticates with the fleet key',
+            ota ? `last OTA: ${ota.phase} v${ota.version}${ota.detail ? ` - ${ota.detail}` : ''}` : 'no OTA reported yet',
+            last ? `last command: ${last.type} ${last.status}${last.result ? ` (${last.result})` : ''}` : 'no commands sent',
+          ].join(' · ')
+        );
+      }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : `Unable to execute ${command}.`);
+    } finally {
+      setBusyDeviceId(null);
+    }
+  };
+
+  /**
+   * Assign the newest compatible release to one device. The gateway refuses
+   * an incompatible board, a quarantined one or a downgrade, and otherwise
+   * nudges the device to fetch it on its next heartbeat.
+   */
+  const handleDeployOta = async (deviceId: string, deviceName: string) => {
+    setBusyDeviceId(deviceId);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      // Releases arrive newest first; take the newest published one this
+      // board's architecture can run. The gateway re-checks all of this.
+      const device = snapshot.devices.find((entry) => entry.id === deviceId);
+      const compatible = snapshot.releases.find(
+        (release) =>
+          release.status === 'published' &&
+          (release.compatible.length === 0 || !device || release.compatible.includes(device.type))
+      );
+      const deployment = await deployToDevices([deviceId], compatible?.id);
+      const target = deployment.targets[deviceId];
+      if (!target) {
+        setActionError(`The gateway did not create a target for ${deviceName}.`);
+      } else if (target.state === 'failed') {
+        setActionError(`Not deployed to ${deviceName}: ${target.reason || 'refused by the gateway'}.`);
+      } else if (target.state === 'confirmed') {
+        setActionMessage(`${deviceName} is already running v${deployment.version}.`);
+      } else {
+        setActionMessage(
+          `v${deployment.version} assigned to ${deviceName}. It starts the download on its next heartbeat (about 15 s); ` +
+            'progress shows in the Status column and the deployment confirms when the device reports the new version.'
+        );
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Deployment failed.');
     } finally {
       setBusyDeviceId(null);
     }
@@ -134,6 +236,8 @@ export default function DevicesPage() {
         releases={snapshot.releases}
         releasesStatus={isLoading ? 'loading' : snapshot.connection.reachable ? 'ready' : 'unavailable'}
       />
+
+      <UsbProvisionCard />
 
       <DeviceConnectionCard
         workflowHint={workflowHint}
@@ -188,7 +292,9 @@ export default function DevicesPage() {
                     <TableRow key={device.id} className="border-border/50 hover:bg-muted/30">
                       <TableCell className="font-medium text-foreground">
                         <div>
-                          <p>{device.name}</p>
+                          <Link href={`/devices/${encodeURIComponent(device.id)}`} className="hover:underline">
+                            {device.name}
+                          </Link>
                           <p className="text-xs text-foreground/50 mt-1">{device.id}</p>
                         </div>
                       </TableCell>
@@ -198,6 +304,16 @@ export default function DevicesPage() {
                           {getStatusIcon(device.status)}
                           <span className="text-sm capitalize text-foreground/80">{device.status}</span>
                         </div>
+                        {device.ota && (
+                          <p
+                            className={`text-xs mt-1 ${device.ota.phase === 'failed' || device.ota.phase === 'rolled_back' ? 'text-chart-4' : 'text-foreground/50'}`}
+                            title={device.ota.detail || undefined}
+                          >
+                            OTA {device.ota.phase.replace('_', ' ')} v{device.ota.version}
+                            {typeof device.ota.progress === 'number' && device.ota.phase === 'downloading' ? ` · ${device.ota.progress}%` : ''}
+                          </p>
+                        )}
+                        {device.rollbackPending && <p className="text-xs mt-1 text-chart-3">Health check pending</p>}
                       </TableCell>
                       <TableCell className="text-foreground/80">
                         <div className="flex items-center gap-2">
@@ -246,9 +362,33 @@ export default function DevicesPage() {
                               className="text-foreground cursor-pointer"
                               disabled={!mayFlash}
                               title={mayFlash ? undefined : reasonFor('devices.flash')}
+                              onClick={() => void handleDeployOta(device.id, device.name)}
+                            >
+                              {busyDeviceId === device.id ? 'Processing...' : 'Deploy latest via OTA'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-foreground cursor-pointer"
+                              disabled={!mayControlDevices}
+                              title={mayControlDevices ? undefined : reasonFor('devices.control')}
+                              onClick={() => void handleDeviceAction(device.id, device.name, 'check-update')}
+                            >
+                              Check for update now
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-foreground cursor-pointer"
+                              disabled={!mayControlDevices}
+                              title={mayControlDevices ? undefined : reasonFor('devices.control')}
+                              onClick={() => void handleDeviceAction(device.id, device.name, 'identify')}
+                            >
+                              Identify (blink LED)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-foreground cursor-pointer"
+                              disabled={!mayFlash}
+                              title={mayFlash ? undefined : reasonFor('devices.flash')}
                               onClick={() => handleConnectionAction(device.name, 'ota')}
                             >
-                              Deploy via OTA
+                              ArduinoOTA push (LAN)
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-foreground cursor-pointer"

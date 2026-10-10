@@ -3,19 +3,22 @@ import { revokeRequestToken, SESSION_COOKIE_NAME } from '@/lib/auth';
 import { errorResponse } from '@/lib/api-response';
 import { logger, errorTracker } from '@/lib/logger';
 import { OTAError } from '@/lib/error-handler';
+import { isSupabaseAuthConfigured, signOutSupabase } from '@/lib/supabase-server';
 
 export async function POST(request: Request) {
   try {
-    await revokeRequestToken(request);
-
-    // Create a response and clear the HttpOnly cookie
     const response = NextResponse.json({
       success: true,
       message: 'Logged out successfully',
       timestamp: new Date().toISOString(),
     }, { status: 200 });
 
-    response.cookies.delete(SESSION_COOKIE_NAME);
+    if (isSupabaseAuthConfigured()) {
+      await signOutSupabase(request, response);
+    } else {
+      await revokeRequestToken(request);
+      response.cookies.delete(SESSION_COOKIE_NAME);
+    }
 
     return response;
 

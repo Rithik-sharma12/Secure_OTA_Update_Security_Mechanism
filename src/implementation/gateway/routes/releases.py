@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from cryptography.hazmat.primitives import serialization
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from ..config import MANIFEST_FILE
@@ -19,10 +19,12 @@ from ..release import (
     latest_release_for_device_locked,
     manifest_for_release_locked as _manifest_for_release_locked,
     published_device_types_locked,
+    release_for_device_locked,
 )
 from ..state import STATE, STATE_LOCK, gateway_snapshot, persist_state_locked
 from ..utils import normalize_compatibility, normalize_device_type, utc_now_iso
 from ..auth import require_write_auth
+from ..audit import audit_note
 
 import json
 
@@ -45,7 +47,7 @@ def list_releases() -> dict[str, Any]:
 
 
 @router.post('/api/releases')
-def create_release(payload: ReleaseCreatePayload, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def create_release(payload: ReleaseCreatePayload, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     compatibility = normalize_compatibility(payload.compatible)
 
     try:
@@ -67,11 +69,13 @@ def create_release(payload: ReleaseCreatePayload, _auth: None = Depends(_require
         status_code = 409 if 'already exists' in message.lower() else 400
         raise HTTPException(status_code=status_code, detail=message) from error
 
+    audit_note(request, 'release.published', f"v{release.get('version')} for {', '.join(release.get('compatible', [])) or 'all'}")
     return {'ok': True, 'release': release, 'manifest': manifest, 'pipeline': pipeline}
 
 
 @router.post('/api/releases/upload')
 async def upload_release(
+    request: Request,
     file: UploadFile = File(..., description='Compiled firmware .bin'),
     version: str = Form(...),
     description: str = Form('Firmware release uploaded from the OTA dashboard.'),
@@ -124,6 +128,7 @@ async def upload_release(
         status_code = 409 if 'already exists' in message.lower() else 400
         raise HTTPException(status_code=status_code, detail=message) from error
 
+    audit_note(request, 'release.published', f"v{release.get('version')} for {', '.join(release.get('compatible', [])) or 'all'}")
     return {'ok': True, 'release': release, 'manifest': manifest, 'pipeline': pipeline}
 
 
@@ -153,16 +158,33 @@ def get_manifest(
     firmware built before this existed keeps working unchanged.
     """
     resolved_type = ''
+    known_device: dict[str, Any] | None = None
+    if device_id:
+        with STATE_LOCK:
+            found = STATE.get('devices', {}).get(str(device_id))
+            known_device = dict(found) if found else None
     if device_type:
         resolved_type = normalize_device_type(device_type)
-    elif device_id:
-        with STATE_LOCK:
-            known = STATE.get('devices', {}).get(str(device_id))
-            resolved_type = str(known.get('arch', '')) if known else ''
+    elif known_device:
+        resolved_type = str(known_device.get('arch', ''))
 
     if resolved_type:
         with STATE_LOCK:
-            release = latest_release_for_device_locked(resolved_type)
+            if device_id:
+                # Per-device answer: a dashboard deployment assigned to this
+                # board wins over "newest compatible" (see release_for_device_locked).
+                release = release_for_device_locked(str(device_id), resolved_type)
+                if release is None and known_device is not None:
+                    # Auto-update is off and nothing is assigned: tell the
+                    # device it is current rather than failing its poll, which
+                    # the firmware would count against its health score.
+                    return {
+                        'version': str(known_device.get('fw', '0.0.0')),
+                        'updateAvailable': False,
+                        'reason': 'No deployment is assigned to this device.',
+                    }
+            else:
+                release = latest_release_for_device_locked(resolved_type)
             manifest = _manifest_for_release_locked(release) if release else None
             published_types = published_device_types_locked()
 

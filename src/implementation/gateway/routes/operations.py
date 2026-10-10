@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from ..config import FIRMWARE_CACHE_DIR
@@ -21,6 +21,7 @@ from ..state import (
 )
 from ..utils import safe_cache_path, safe_int, utc_now_iso
 from ..auth import require_write_auth
+from ..audit import audit_note
 
 router = APIRouter()
 
@@ -31,7 +32,7 @@ _require_write_auth = require_write_auth
 
 
 @router.post('/api/pipeline/run')
-def run_pipeline(payload: PipelineRunPayload, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def run_pipeline(payload: PipelineRunPayload, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     with STATE_LOCK:
         releases = STATE.get('releases', [])
         if not releases:
@@ -55,11 +56,12 @@ def run_pipeline(payload: PipelineRunPayload, _auth: None = Depends(_require_wri
         )
         persist_state_locked()
 
+    audit_note(request, 'pipeline.run', f"release {selected_release.get('version', 'unknown')}")
     return {'ok': True, 'pipeline': pipeline}
 
 
 @router.post('/api/trigger_sync')
-def trigger_sync(_auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+def trigger_sync(request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
     with STATE_LOCK:
         # 'releases' is always present but may be empty on a fresh gateway, so
         # a dict default on .get() never fires — index defensively instead.
@@ -77,6 +79,7 @@ def trigger_sync(_auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
         STATE['updatedAt'] = utc_now_iso()
         persist_state_locked()
 
+    audit_note(request, 'gateway.sync')
     return {'ok': True, 'message': 'Sync request accepted.'}
 
 

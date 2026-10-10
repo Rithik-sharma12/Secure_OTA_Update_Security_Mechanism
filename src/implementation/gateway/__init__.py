@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .auth import require_write_auth  # noqa: F401  (re-exported for callers/tests)
 from .config import CORS_ALLOW_CREDENTIALS, CORS_ALLOW_ORIGINS, HOST, PORT
 from .state import load_state
+from .audit import install_audit_middleware
 from .routes import register_routes
 
 
@@ -37,6 +38,9 @@ def create_app() -> FastAPI:
 
     # Route modules import the real write-auth dependency directly from
     # gateway.auth, so there is nothing to wire up here.
+
+    # Who changed what: one audit row per state-changing request.
+    install_audit_middleware(application)
 
     # Register all routes
     register_routes(application)
