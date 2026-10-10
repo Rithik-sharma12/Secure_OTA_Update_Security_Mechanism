@@ -31,6 +31,7 @@ import Logo from '@/components/brand/Logo';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { clearAuthSession, getStoredAuthUser } from '@/lib/client-auth';
 import { useGuidedMode } from '@/lib/use-guided-mode';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 type NavItem = { label: string; href: string; icon: React.ReactNode };
 type NavGroup = { title: string; icon: React.ReactNode; items: NavItem[] };
@@ -223,6 +224,8 @@ export default function TopNav() {
               );
             })}
           </div>
+
+          <ThemeToggle compact />
 
           <Link
             href="/profile"

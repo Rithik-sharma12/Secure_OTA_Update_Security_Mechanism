@@ -1,3 +1,7 @@
+'use client';
+
+import { useTheme } from 'next-themes';
+
 /**
  * Chart theme.
  *
@@ -67,3 +71,51 @@ export const chartTooltipStyle = {
 export const chartTooltipLabelStyle = {
   color: '#ffffff',
 } as const;
+
+// ── Light theme ──────────────────────────────────────────────────────────
+// Recharts writes literal colours onto SVG attributes, so the light palette
+// also has to exist as literals. Mirrors the `.light` --chart-* tokens in
+// app/globals.css: carbon for "ok", deep amber / deep ember for status, so
+// marks hold contrast against white cards.
+
+export const chartColorsLight = {
+  success: '#181818',
+  info: '#6b6b66',
+  warning: '#b85600',
+  error: '#d42000',
+  accent: '#8a1700',
+} as const;
+
+export const chartAxisLight = {
+  grid: 'rgba(24,24,24,0.1)',
+  stroke: 'rgba(24,24,24,0.6)',
+  tick: { fontSize: '12px' },
+} as const;
+
+export const chartTooltipStyleLight = {
+  backgroundColor: 'rgba(255,255,255,0.98)',
+  border: '1px solid rgba(24,24,24,0.12)',
+  borderRadius: '10px',
+  boxShadow: '0 12px 32px -14px rgba(24,24,24,0.3)',
+  color: '#181818',
+} as const;
+
+export const chartTooltipLabelStyleLight = {
+  color: '#181818',
+} as const;
+
+/** The chart palette for the theme currently on screen. */
+export function useChartTheme() {
+  const { resolvedTheme } = useTheme();
+  const light = resolvedTheme === 'light';
+  return {
+    light,
+    chartColors: light ? chartColorsLight : chartColors,
+    chartAxis: light ? chartAxisLight : chartAxis,
+    chartTooltipStyle: light ? chartTooltipStyleLight : chartTooltipStyle,
+    chartTooltipLabelStyle: light ? chartTooltipLabelStyleLight : chartTooltipLabelStyle,
+    /** Text that sits on the chart surface (tooltip items, labels). */
+    chartInk: light ? '#181818' : '#ffffff',
+    chartSurface: light ? '#ffffff' : '#212121',
+  };
+}

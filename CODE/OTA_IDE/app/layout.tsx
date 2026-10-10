@@ -51,7 +51,10 @@ export const metadata: Metadata = {
 // themeColor belongs on the viewport export in the App Router; putting it in
 // metadata is deprecated and warns at build time.
 export const viewport: Viewport = {
-  themeColor: '#020617',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f6f4f1' },
+    { media: '(prefers-color-scheme: dark)', color: '#0d0d0d' },
+  ],
 }
 
 /**
@@ -59,17 +62,18 @@ export const viewport: Viewport = {
  * ember/carbon palette, so they read as part of the console.
  */
 const clerkAppearance = {
+  // CSS variables, so the dialog follows the light/dark switch live.
   variables: {
     colorPrimary: '#ff2803',
-    colorDanger: '#ff2803',
-    colorBackground: '#181818',
-    colorForeground: '#ffffff',
-    colorMutedForeground: 'rgba(255,255,255,0.72)',
-    colorMuted: '#212121',
-    colorInput: '#0d0d0d',
-    colorInputForeground: '#ffffff',
-    colorNeutral: '#f0f0ee',
-    colorBorder: 'rgba(255,255,255,0.12)',
+    colorDanger: '#d42000',
+    colorBackground: 'var(--card)',
+    colorForeground: 'var(--foreground)',
+    colorMutedForeground: 'var(--muted-foreground)',
+    colorMuted: 'var(--muted)',
+    colorInput: 'var(--input)',
+    colorInputForeground: 'var(--foreground)',
+    colorNeutral: 'var(--foreground)',
+    colorBorder: 'var(--border)',
     borderRadius: '10px',
     fontFamily: 'var(--font-source-sans), system-ui, sans-serif',
   },
@@ -81,7 +85,14 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   const app = (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="ota-ide-theme">
+    <ThemeProvider
+      attribute="class"
+      themes={['light', 'dark']}
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+      storageKey="ota-ide-theme"
+    >
       {children}
     </ThemeProvider>
   )

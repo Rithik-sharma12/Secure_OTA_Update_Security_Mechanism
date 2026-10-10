@@ -105,10 +105,10 @@
   /* The console's page ground: carbon, an ember colour-blend over the
      backdrop photo, and a radial scrim. Applied by .app-canvas below. */
   --app-bg-scrim: radial-gradient(
-    70% 60% at 4% 40%,
-    rgba(255, 40, 3, 0.2) 0%,
-    rgba(24, 24, 24, 0.72) 46%,
-    rgba(13, 13, 13, 0.92) 100%
+    90% 70% at 0% 0%,
+    rgba(255, 40, 3, 0.14) 0%,
+    rgba(255, 151, 66, 0.05) 32%,
+    rgba(18, 18, 18, 0) 62%
   );
 
   --elevation-1: var(--app-elev);
@@ -124,6 +124,16 @@
 
   --glass-bg: rgba(33, 33, 33, 0.72);
   --glass-border: var(--app-line);
+  --glass-lg-bg: rgba(33, 33, 33, 0.88);
+
+  --app-canvas-ground: #121212;
+  --app-ring-hole: radial-gradient(120% 120% at 50% 0%, #1c1c1c, #0b0b0b);
+  --app-ring-hole-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.9);
+  --app-ring-glow: rgba(240, 240, 238, 0.6);
+  --app-ring-muted: #c9c6c1;
+  --app-inv-bg: #ffffff;
+  --app-inv-ink: #181818;
+  --logo-ink: #ffffff;
 
   --ease-out-quart: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 140ms;
@@ -131,9 +141,10 @@
   --duration-slow: 520ms;
 }
 
-/* Theme is dark-only (ThemeProvider: defaultTheme="dark" enableSystem={false}).
-   .dark is an alias so the class the provider sets resolves to the same values
-   rather than falling through to an undefined palette. */
+/* Two themes. next-themes puts `dark` or `light` on <html> (default: the
+   visitor's OS setting; the switch in the header overrides and remembers).
+   :root above is the dark palette, so pages render dark before hydration
+   and when JavaScript is off; .dark repeats it and .light below replaces it. */
 .dark {
   --background: #0d0d0d;
   --foreground: #ffffff;
@@ -167,6 +178,102 @@
   --sidebar-accent-foreground: #181818;
   --sidebar-border: rgba(255, 255, 255, 0.12);
   --sidebar-ring: rgba(255, 40, 3, 0.55);
+}
+
+/* ── Light theme ─────────────────────────────────────────────────────────
+   Same brand ramp, inverted ground: bone page, white cards, carbon ink.
+   Ember and amber are deepened one step where they carry TEXT, so status
+   labels and links keep >= 4.5:1 contrast on white; filled controls keep the
+   bright ember. Status stays non-green: ok is carbon (neutral), warning is
+   deep amber, error is deep ember. */
+.light {
+  color-scheme: light;
+
+  --background: #f6f4f1;
+  --foreground: #181818;
+  --card: #ffffff;
+  --card-foreground: #181818;
+  --popover: #ffffff;
+  --popover-foreground: #181818;
+  --primary: #ff2803;
+  --primary-foreground: #ffffff;
+  --secondary: #ff9742;
+  --secondary-foreground: #181818;
+  --muted: rgba(24, 24, 24, 0.04);
+  --muted-foreground: #5c5853;
+  --accent: #ff9742;
+  --accent-foreground: #181818;
+  --destructive: #d42000;
+  --destructive-foreground: #ffffff;
+  --border: rgba(24, 24, 24, 0.12);
+  --input: #ffffff;
+  --ring: rgba(255, 40, 3, 0.45);
+
+  --chart-1: #181818;
+  --chart-2: #6b6b66;
+  --chart-3: #b85600;
+  --chart-4: #d42000;
+  --chart-5: #8a1700;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #181818;
+  --sidebar-primary: #ff2803;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ff9742;
+  --sidebar-accent-foreground: #181818;
+  --sidebar-border: rgba(24, 24, 24, 0.12);
+  --sidebar-ring: rgba(255, 40, 3, 0.45);
+
+  --app-ink: #181818;
+  --app-ink2: rgba(24, 24, 24, 0.68);
+  --app-line: rgba(24, 24, 24, 0.12);
+  --app-line2: rgba(24, 24, 24, 0.07);
+  --app-surface: #ffffff;
+  --app-surface2: rgba(24, 24, 24, 0.03);
+  --app-nav: rgba(250, 248, 246, 0.9);
+  --app-elev: 0 1px 2px rgba(24, 24, 24, 0.06), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  --app-hover: rgba(24, 24, 24, 0.05);
+  --app-link: #c02000;
+  --app-err-ink: #c02000;
+  --app-err-bg: rgba(255, 40, 3, 0.1);
+  --app-warn-ink: #a34c00;
+  --app-warn-bg: rgba(255, 151, 66, 0.18);
+  --app-ok-ink: #181818;
+  --app-ok-bg: rgba(24, 24, 24, 0.06);
+  --app-inv-bg: #181818;
+  --app-inv-ink: #ffffff;
+
+  --hairline: var(--app-line);
+  --hairline-strong: rgba(24, 24, 24, 0.16);
+
+  --app-canvas-ground: #f6f4f1;
+  --app-ring-hole: radial-gradient(120% 120% at 50% 0%, #ffffff, #efebe6);
+  --app-ring-hole-shadow: inset 0 1px 3px rgba(24, 24, 24, 0.14);
+  --app-ring-glow: rgba(24, 24, 24, 0.18);
+  --app-ring-muted: #8f8a84;
+  --app-bg-scrim: radial-gradient(
+    90% 70% at 0% 0%,
+    rgba(255, 40, 3, 0.07) 0%,
+    rgba(255, 151, 66, 0.05) 30%,
+    rgba(246, 244, 241, 0) 60%
+  );
+
+  --elevation-1: var(--app-elev);
+  --elevation-2: 0 12px 32px -14px rgba(24, 24, 24, 0.22), var(--app-elev);
+  --elevation-3: 0 16px 40px -16px rgba(24, 24, 24, 0.28), 0 0 0 1px rgba(255, 40, 3, 0.12);
+
+  --glow-accent: 0 6px 18px -6px rgba(255, 40, 3, 0.45);
+  --glow-primary: var(--glow-accent);
+
+  --neo-glow: rgba(255, 40, 3, 0.18);
+  --neo-border: rgba(255, 40, 3, 0.45);
+  --neo-hover-text: #181818;
+
+  --glass-bg: rgba(255, 255, 255, 0.86);
+  --glass-border: var(--app-line);
+  --glass-lg-bg: rgba(255, 255, 255, 0.94);
+
+  --logo-ink: #181818;
 }
 
 @theme inline {
@@ -234,14 +341,10 @@
      stacks over it without needing a wrapper. */
   .app-canvas {
     position: relative;
-    background-color: #181818;
-    background-image: linear-gradient(0deg, #ff2803, #ff2803),
-      url('/brand/landing-bg.jpg');
-    background-blend-mode: color, normal;
-    background-size: cover, cover;
-    background-position: center, center;
-    background-attachment: fixed, fixed;
-    background-repeat: no-repeat, no-repeat;
+    /* A calm ground for working pages: the photographic backdrop stays on
+       the landing and sign-in pages, where it is decoration, and is kept
+       out from behind tables, forms and logs, where it fights the content. */
+    background-color: var(--app-canvas-ground);
   }
 
   .app-canvas::before {
@@ -256,6 +359,45 @@
   .app-canvas > * {
     position: relative;
     z-index: 1;
+  }
+
+  /* ── Page headers ─────────────────────────────────────────────────────── */
+  /* Every console page opens with an h1 and a one-line description. One
+     rule keeps their scale, weight and rhythm identical on every page. */
+  .app-canvas h1.text-3xl {
+    font-family: var(--font-display, inherit);
+    font-size: 1.75rem;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  .app-canvas h1.text-3xl + p {
+    margin-top: 0.375rem;
+    max-width: 72ch;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--app-ink2);
+  }
+
+  /* ── Data tables ──────────────────────────────────────────────────────── */
+  .app-canvas [data-slot='table-head'] {
+    height: 2.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--app-ink2);
+  }
+  .app-canvas [data-slot='table-cell'] {
+    padding-block: 0.625rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .app-canvas [data-slot='table-row'] {
+    border-color: var(--app-line2);
+  }
+  .app-canvas [data-slot='table-header'] [data-slot='table-row'] {
+    border-color: var(--app-line);
   }
 
   /* ── Elevation ────────────────────────────────────────────────────────── */
@@ -277,7 +419,7 @@
   }
 
   .glass-lg {
-    background: rgba(33, 33, 33, 0.88);
+    background: var(--glass-lg-bg);
     backdrop-filter: blur(20px);
     border: 1px solid var(--hairline-strong);
     box-shadow: var(--elevation-2);

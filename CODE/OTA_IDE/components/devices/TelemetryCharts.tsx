@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { chartAxis, chartColors, chartTooltipLabelStyle, chartTooltipStyle } from '@/lib/chart-theme';
+import { useChartTheme } from '@/lib/chart-theme';
 import type { TelemetryPoint } from '@/lib/device-control';
 
 /**
@@ -38,6 +38,7 @@ function shortTime(iso: string, spanHours: number) {
 }
 
 export function TelemetryCharts({ points, hours }: { points: TelemetryPoint[]; hours: number }) {
+  const { chartAxis, chartColors, chartTooltipLabelStyle, chartTooltipStyle, chartInk, chartSurface } = useChartTheme();
   // Where the reported firmware changes between consecutive buckets.
   const upgrades = React.useMemo(() => {
     const marks: Array<{ t: string; fw: string }> = [];
@@ -90,7 +91,7 @@ export function TelemetryCharts({ points, hours }: { points: TelemetryPoint[]; h
                 <Tooltip
                   contentStyle={chartTooltipStyle}
                   labelStyle={chartTooltipLabelStyle}
-                  itemStyle={{ color: '#ffffff' }}
+                  itemStyle={{ color: chartInk }}
                   labelFormatter={(value) => new Date(String(value)).toLocaleString()}
                   formatter={(value, _name, item) => {
                     const point = (item as { payload?: TelemetryPoint }).payload;
@@ -103,7 +104,7 @@ export function TelemetryCharts({ points, hours }: { points: TelemetryPoint[]; h
                     y={metric.threshold.value}
                     stroke={chartColors.error}
                     strokeDasharray="4 4"
-                    label={{ value: metric.threshold.label, position: 'insideBottomRight', fill: '#c9c6c1', fontSize: 11 }}
+                    label={{ value: metric.threshold.label, position: 'insideBottomRight', fill: chartAxis.stroke, fontSize: 11 }}
                   />
                 )}
                 {upgrades.map((mark) => (
@@ -111,7 +112,7 @@ export function TelemetryCharts({ points, hours }: { points: TelemetryPoint[]; h
                     key={`${metric.key}-${mark.t}`}
                     x={mark.t}
                     stroke={chartColors.warning}
-                    label={{ value: `v${mark.fw}`, position: 'insideTopRight', fill: '#c9c6c1', fontSize: 11 }}
+                    label={{ value: `v${mark.fw}`, position: 'insideTopRight', fill: chartAxis.stroke, fontSize: 11 }}
                   />
                 ))}
                 <Line
@@ -120,7 +121,7 @@ export function TelemetryCharts({ points, hours }: { points: TelemetryPoint[]; h
                   stroke={chartColors.info}
                   strokeWidth={2}
                   dot={false}
-                  activeDot={{ r: 4, stroke: '#212121', strokeWidth: 2 }}
+                  activeDot={{ r: 4, stroke: chartSurface, strokeWidth: 2 }}
                   connectNulls={false}
                   isAnimationActive={false}
                 />

@@ -159,7 +159,7 @@ const STEPS: Step[] = [
         ].map((row) => (
           <div key={row.id} style={{ display: 'grid', gap: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }} className="lp-sim-label">
-              <span style={{ fontFamily: 'var(--font-mono)', color: '#fff' }}>{row.id}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--lp-ink)' }}>{row.id}</span>
               <span>{row.label}</span>
             </div>
             <div className="lp-meter" data-animate="true" style={{ ['--w' as string]: row.w, ['--d' as string]: `${row.d}ms` }}>

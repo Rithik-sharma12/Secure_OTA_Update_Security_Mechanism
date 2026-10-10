@@ -157,14 +157,14 @@ export function RolloutTile({
                 font: '700 13px/1 var(--font-ui)',
                 letterSpacing: '0.6px',
                 textTransform: 'uppercase',
-                color: active ? '#fff' : 'var(--app-ink2)',
+                color: active ? '#fff' : 'rgba(255,255,255,.62)',
               }}
             >
               {label}
             </span>
             <span
               className="tabular"
-              style={{ font: 'var(--type-code)', color: 'var(--app-ink2)' }}
+              style={{ font: 'var(--type-code)', color: 'rgba(255,255,255,.62)' }}
             >
               {pct}
             </span>
@@ -212,7 +212,7 @@ export function VersionTile({
         {ticks.length === 0 ? (
           <span
             className="w-full self-center text-center"
-            style={{ ...MICRO, color: 'var(--app-ink2)' }}
+            style={{ ...MICRO, color: 'rgba(255,255,255,.62)' }}
           >
             No devices reporting
           </span>
@@ -285,7 +285,7 @@ export function FleetTile({
               style={{
                 width: 32,
                 height: 32,
-                background: `conic-gradient(from -90deg,${r.color} 0turn,${r.color} ${(r.pct / 100).toFixed(3)}turn,rgba(255,255,255,.07) ${(r.pct / 100).toFixed(3)}turn)`,
+                background: `conic-gradient(from -90deg,${r.color} 0turn,${r.color} ${(r.pct / 100).toFixed(3)}turn,var(--app-line2) ${(r.pct / 100).toFixed(3)}turn)`,
                 boxShadow: `0 0 14px -4px ${r.glow}`,
               }}
             >
@@ -293,8 +293,8 @@ export function FleetTile({
                 className="absolute rounded-full"
                 style={{
                   inset: 5,
-                  background: 'radial-gradient(120% 120% at 50% 0%,#1c1c1c,#0b0b0b)',
-                  boxShadow: 'inset 0 2px 5px rgba(0,0,0,.9)',
+                  background: 'var(--app-ring-hole)',
+                  boxShadow: 'var(--app-ring-hole-shadow)',
                 }}
               />
             </div>
@@ -344,7 +344,7 @@ export function AdoptionTile({
         unit={latest ? `on ${latest}` : 'on latest'}
         right={
           delta !== null ? (
-            <span className="tabular" style={{ ...MICRO, color: 'var(--amber)' }}>
+            <span className="tabular" style={{ ...MICRO, color: 'var(--app-warn-ink)' }}>
               +{delta} / 24h
             </span>
           ) : undefined
@@ -373,7 +373,7 @@ export function AdoptionTile({
             strokeLinejoin="round"
             strokeLinecap="round"
           />
-          {dot && <circle cx={dot.x} cy={dot.y} r="3.5" fill="#ff2803" stroke="#fff" strokeWidth="1.4" />}
+          {dot && <circle cx={dot.x} cy={dot.y} r="3.5" fill="#ff2803" stroke="var(--app-surface)" strokeWidth="1.4" />}
         </svg>
       ) : (
         <div
@@ -416,7 +416,7 @@ export function ReleasesTile({
               borderRadius: 8,
               background: c.filled
                 ? 'linear-gradient(180deg,#ff9742,#ff2803)'
-                : 'rgba(255,255,255,.07)',
+                : 'var(--app-line2)',
               boxShadow: c.filled ? '0 0 14px -6px rgba(255,40,3,.9)' : 'none',
             }}
           />

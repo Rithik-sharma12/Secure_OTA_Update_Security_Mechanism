@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatNumber, formatUtcDate, formatUtcTime } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
-import { chartAxis, chartColors, chartTooltipLabelStyle, chartTooltipStyle } from '@/lib/chart-theme';
+import { useChartTheme } from '@/lib/chart-theme';
 import { useGuidedMode } from '@/lib/use-guided-mode';
 import {
   AdoptionTile,
@@ -42,6 +42,7 @@ function versionRank(v: string): number {
 }
 
 export default function DashboardPage() {
+  const { chartAxis, chartColors, chartTooltipLabelStyle, chartTooltipStyle } = useChartTheme();
   const router = useRouter();
   const { snapshot, isLoading } = useRuntimeSnapshot();
   const [guided] = useGuidedMode();
@@ -214,7 +215,7 @@ export default function DashboardPage() {
       { name: 'Offline', value: offlineCount, color: chartColors.error },
       { name: 'Updating', value: updatingCount, color: chartColors.warning },
     ],
-    [offlineCount, onlineCount, updatingCount]
+    [offlineCount, onlineCount, updatingCount, chartColors.success, chartColors.error, chartColors.warning]
   );
 
   return (
@@ -333,9 +334,9 @@ export default function DashboardPage() {
               : `${offlineCount} missed their last heartbeat · ASH under 40 is held back`
           }
           rings={[
-            { label: 'online', pct: pct(onlineCount), color: '#f0f0ee', glow: 'rgba(240,240,238,.6)' },
+            { label: 'online', pct: pct(onlineCount), color: 'var(--app-ink)', glow: 'var(--app-ring-glow)' },
             { label: 'updating', pct: pct(updatingCount), color: '#ff9742', glow: 'rgba(255,151,66,.7)' },
-            { label: 'offline', pct: pct(offlineCount), color: '#c9c6c1', glow: 'rgba(201,198,193,.5)' },
+            { label: 'offline', pct: pct(offlineCount), color: 'var(--app-ring-muted)', glow: 'transparent' },
             { label: 'held', pct: pct(heldCount), color: '#ff2803', glow: 'rgba(255,40,3,.8)' },
           ]}
         />

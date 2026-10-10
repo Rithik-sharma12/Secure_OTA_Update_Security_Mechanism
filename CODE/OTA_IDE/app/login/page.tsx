@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiFetch, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
 import Logo from '@/components/brand/Logo';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { ClerkSignInPanel } from '@/components/auth/ClerkSignInPanel';
 import { clerkEnabled, postLoginPath } from '@/lib/post-login';
 
@@ -147,7 +148,7 @@ export default function LoginPage() {
         }}
       >
         <div className="relative z-10">
-          <Logo size={40} wordmarkSize={24} />
+          <Logo size={40} wordmarkSize={24} tone="light" />
         </div>
 
         <div
@@ -292,7 +293,10 @@ export default function LoginPage() {
       </div>
 
       {/* Sign-in panel */}
-      <div className="flex items-center justify-center bg-background px-6 py-12">
+      <div className="relative flex items-center justify-center bg-background px-6 py-12">
+        <div className="absolute right-5 top-5">
+          <ThemeToggle compact />
+        </div>
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <Logo size={40} wordmarkSize={20} />
