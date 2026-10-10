@@ -3,7 +3,7 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { SignUpButton, useClerk, useSignIn } from '@clerk/nextjs';
-import { Activity, FileCheck2, KeyRound, Loader2, ShieldCheck, User2 } from 'lucide-react';
+import { Activity, FileCheck2, Github, KeyRound, Loader2, ShieldCheck, User2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiFetch, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
@@ -44,10 +44,11 @@ const chain = [
 export default function LoginPage() {
   const router = useRouter();
   const { signIn } = useSignIn();
-  const { setActive } = useClerk();
+  const { setActive, client } = useClerk();
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [oauthProvider, setOauthProvider] = React.useState<'oauth_google' | 'oauth_github' | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -152,6 +153,33 @@ export default function LoginPage() {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to login right now.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOAuthLogin = async (strategy: 'oauth_google' | 'oauth_github') => {
+    setOauthProvider(strategy);
+    setErrorMessage(null);
+
+    try {
+      if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+        setErrorMessage('Clerk authentication is not configured.');
+        return;
+      }
+
+      if (!client) {
+        setErrorMessage('Clerk is still loading. Please try again.');
+        return;
+      }
+
+      await client.signIn.authenticateWithRedirect({
+        strategy,
+        redirectUrl: '/sso-callback',
+        redirectUrlComplete: postLoginPath(),
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to continue with social sign-in.');
+    } finally {
+      setOauthProvider(null);
     }
   };
 
@@ -332,10 +360,47 @@ export default function LoginPage() {
             </p>
           </div>
 
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full text-base"
+              onClick={() => void handleOAuthLogin('oauth_google')}
+              disabled={isSubmitting || oauthProvider !== null}
+            >
+              {oauthProvider === 'oauth_google' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <span className="mr-2 text-base font-semibold">G</span>
+              )}
+              Continue with Google
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full text-base"
+              onClick={() => void handleOAuthLogin('oauth_github')}
+              disabled={isSubmitting || oauthProvider !== null}
+            >
+              {oauthProvider === 'oauth_github' ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Github className="mr-2 h-4 w-4" />
+              )}
+              Continue with GitHub
+            </Button>
+          </div>
+
+          <div className="my-6 flex items-center gap-3 text-xs text-foreground/45">
+            <div className="h-px flex-1 bg-border" />
+            <span>OR CONTINUE WITH EMAIL</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
           <form className="space-y-5" onSubmit={handleLogin}>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground" htmlFor="username">
-                Username
+                Email
               </label>
               <div className="relative">
                 <User2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground/40" />
@@ -344,7 +409,8 @@ export default function LoginPage() {
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                   autoComplete="username"
-                  placeholder="Enter admin username"
+                  placeholder="Enter your email"
+                  type="email"
                   className="pl-9"
                   required
                 />
@@ -408,6 +474,8 @@ export default function LoginPage() {
               </button>
             </SignUpButton>
           </div>
+
+          <div id="clerk-captcha" aria-hidden="true" />
         </div>
       </div>
     </div>
