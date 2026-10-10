@@ -54,6 +54,27 @@ export const viewport: Viewport = {
   themeColor: '#020617',
 }
 
+/**
+ * Clerk's prebuilt pieces (sign-up dialog, UserButton menu) in the
+ * ember/carbon palette, so they read as part of the console.
+ */
+const clerkAppearance = {
+  variables: {
+    colorPrimary: '#ff2803',
+    colorDanger: '#ff2803',
+    colorBackground: '#181818',
+    colorForeground: '#ffffff',
+    colorMutedForeground: 'rgba(255,255,255,0.72)',
+    colorMuted: '#212121',
+    colorInput: '#0d0d0d',
+    colorInputForeground: '#ffffff',
+    colorNeutral: '#f0f0ee',
+    colorBorder: 'rgba(255,255,255,0.12)',
+    borderRadius: '10px',
+    fontFamily: 'var(--font-source-sans), system-ui, sans-serif',
+  },
+} as const
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -71,7 +92,17 @@ export default function RootLayout({
         className={`${montserrat.variable} ${sourceSans.variable} ${poppins.variable} min-h-svh overflow-x-hidden font-sans antialiased bg-background text-foreground`}
       >
         {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? (
-          <ClerkProvider>{app}</ClerkProvider>
+          <ClerkProvider
+            // Our own pages, not Clerk's hosted Account Portal.
+            signInUrl="/login"
+            signUpUrl="/login"
+            afterSignOutUrl="/login"
+            signInFallbackRedirectUrl="/dashboard"
+            signUpFallbackRedirectUrl="/dashboard"
+            appearance={clerkAppearance}
+          >
+            {app}
+          </ClerkProvider>
         ) : (
           app
         )}

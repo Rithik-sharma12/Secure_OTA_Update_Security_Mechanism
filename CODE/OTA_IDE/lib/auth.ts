@@ -199,44 +199,138 @@ async function syncSupabaseProfile(supabaseUser: {
   });
 }
 
-async function syncClerkProfile(clerkUser: {
+type ClerkUserLike = {
   id: string;
+  username?: string | null;
+  firstName?: string | null;
   primaryEmailAddress?: { emailAddress: string } | null;
-  publicMetadata?: { role?: unknown; username?: unknown };
-}) {
+  publicMetadata?: Record<string, unknown> | null;
+};
+
+function isRole(value: unknown): value is UserRole {
+  return value === 'admin' || value === 'operator' || value === 'viewer';
+}
+
+function bootstrapAdminEmails() {
+  return (process.env.OTA_ADMIN_EMAILS || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Mirror a Clerk account into the local users store, which is what roles,
+ * access grants and the audit trail key on.
+ *
+ * Role, highest precedence first:
+ *   1. `role` in the user's Clerk public metadata (set in the Clerk dashboard
+ *      or Backend API) — authoritative, re-applied on every sync;
+ *   2. the e-mail is listed in OTA_ADMIN_EMAILS — admin;
+ *   3. the role already stored locally (Settings → Users) — kept;
+ *   4. a brand-new account — viewer, except that the very first Clerk account
+ *      becomes admin when OTA_ADMIN_EMAILS is not set, so a fresh install is
+ *      not left without anyone able to grant roles.
+ *
+ * Returns null for an account an admin deactivated locally.
+ */
+async function syncClerkProfile(clerkUser: ClerkUserLike): Promise<UserRecord | null> {
   await initializeLocalDatabase();
   const email = clerkUser.primaryEmailAddress?.emailAddress || '';
-  const username = String(
-    clerkUser.publicMetadata?.username || email || clerkUser.id
-  );
-  const metadataRole = clerkUser.publicMetadata?.role;
-  const configuredRole: UserRole =
-    metadataRole === 'admin' || metadataRole === 'operator' || metadataRole === 'viewer'
-      ? metadataRole
-      : 'viewer';
-  const role: UserRole =
-    configuredRole === 'viewer' && (await usersStore.count({})) === 0
-      ? 'admin'
-      : configuredRole;
+  const metadata = clerkUser.publicMetadata || {};
+  const metadataRole = isRole(metadata.role) ? metadata.role : null;
+  const adminByEmail = Boolean(email) && bootstrapAdminEmails().includes(email.toLowerCase());
+  const now = new Date().toISOString();
 
-  const existing = await usersStore.findOne({ supabaseId: clerkUser.id });
+  // Accounts linked before clerkId existed were stored under supabaseId.
+  const existing =
+    (await usersStore.findOne({ clerkId: clerkUser.id })) ||
+    (await usersStore.findOne({ supabaseId: clerkUser.id }));
+
   if (existing) {
+    if (existing.isActive === false) return null;
+    const role: UserRole = metadataRole ?? (adminByEmail ? 'admin' : existing.role);
     await usersStore.update(
       { _id: existing._id },
-      { $set: { lastLoginAt: new Date().toISOString(), email, username, role } }
+      { $set: { clerkId: clerkUser.id, email, role, lastLoginAt: now, updatedAt: now } }
     );
-    return { ...existing, lastLoginAt: new Date().toISOString(), email, username, role };
+    return { ...existing, clerkId: clerkUser.id, email, role, lastLoginAt: now };
   }
 
+  let role: UserRole = metadataRole ?? (adminByEmail ? 'admin' : 'viewer');
+  if (!metadataRole && !adminByEmail && bootstrapAdminEmails().length === 0) {
+    const linked = await usersStore.count({ clerkId: { $exists: true } });
+    if (linked === 0) {
+      role = 'admin';
+      logger.warn(
+        'Auth',
+        `First Clerk account ${email || clerkUser.id} was made admin. Set OTA_ADMIN_EMAILS to choose admins explicitly.`
+      );
+    }
+  }
+
+  // Usernames are unique locally; fall back to a suffixed name on collision.
+  const preferred = String(metadata.username || clerkUser.username || email || clerkUser.id).slice(0, 64);
+  const taken = await usersStore.findOne({ username: preferred });
+  const username = taken ? `${preferred}-${clerkUser.id.slice(-6)}` : preferred;
+
   return usersStore.insert({
-    supabaseId: clerkUser.id,
+    clerkId: clerkUser.id,
     email,
     username,
     passwordHash: '',
     role,
     isActive: true,
-    lastLoginAt: new Date().toISOString(),
+    lastLoginAt: now,
+    createdAt: now,
+    updatedAt: now,
   });
+}
+
+/**
+ * Clerk verifies the session token locally on every request, but fetching
+ * the full user is a Backend API call. The dashboard polls several endpoints
+ * every few seconds, so the synced profile is cached briefly per user; role
+ * changes made in Clerk apply within CLERK_PROFILE_TTL_MS.
+ */
+const CLERK_PROFILE_TTL_MS = 60_000;
+const clerkProfileCache = new Map<string, { profile: UserRecord | null; at: number }>();
+
+export function isClerkConfigured() {
+  return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+}
+
+async function authenticateWithClerk(): Promise<AuthContext | null> {
+  const { userId, sessionId } = await clerkAuth();
+  if (!userId) return null;
+
+  const cached = clerkProfileCache.get(userId);
+  let profile: UserRecord | null;
+  if (cached && Date.now() - cached.at < CLERK_PROFILE_TTL_MS) {
+    profile = cached.profile;
+  } else {
+    const user = await clerkCurrentUser();
+    profile = user ? await syncClerkProfile(user as unknown as ClerkUserLike) : null;
+    clerkProfileCache.set(userId, { profile, at: Date.now() });
+  }
+  if (!profile) return null;
+
+  const tokenHash = hashToken(sessionId || userId);
+  return {
+    user: sanitizeUser(profile),
+    session: {
+      tokenHash,
+      userId: String(profile._id),
+      expiresAt: Date.now() + SESSION_TTL_HOURS * 60 * 60 * 1000,
+      revoked: false,
+    },
+    tokenHash,
+  };
+}
+
+/** Drop a cached Clerk profile, e.g. after an admin changes that user's role. */
+export function forgetClerkProfile(clerkUserId?: string) {
+  if (clerkUserId) clerkProfileCache.delete(clerkUserId);
+  else clerkProfileCache.clear();
 }
 
 export async function ensureDefaultAdminUser() {
@@ -371,28 +465,8 @@ export async function loginWithPassword(
 }
 
 export async function authenticateRequest(request: Request): Promise<AuthContext | null> {
-  if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY) {
-    const { userId } = await clerkAuth();
-    if (!userId) {
-      return null;
-    }
-
-    const user = await clerkCurrentUser();
-    if (!user) {
-      return null;
-    }
-
-    const profile = await syncClerkProfile(user);
-    return {
-      user: sanitizeUser(profile),
-      session: {
-        tokenHash: hashToken(userId),
-        userId: String(profile._id),
-        expiresAt: Date.now() + SESSION_TTL_HOURS * 60 * 60 * 1000,
-        revoked: false,
-      },
-      tokenHash: hashToken(userId),
-    };
+  if (isClerkConfigured()) {
+    return authenticateWithClerk();
   }
 
   if (isSupabaseAuthConfigured()) {
@@ -766,6 +840,8 @@ export async function updateUser(
   actingUserId: string
 ): Promise<ManagedUser> {
   const user = await findUserOrThrow(userId);
+  // Role or active-flag changes must not wait out the Clerk profile cache.
+  if (user.clerkId) forgetClerkProfile(user.clerkId);
   const isSelf = String(user._id) === String(actingUserId);
   const changes: Partial<UserRecord> = {};
 
@@ -840,6 +916,7 @@ export async function updateUser(
 
 export async function deleteUser(userId: string, actingUserId: string): Promise<ManagedUser> {
   const user = await findUserOrThrow(userId);
+  if (user.clerkId) forgetClerkProfile(user.clerkId);
 
   if (String(user._id) === String(actingUserId)) {
     throw new ForbiddenError('You cannot delete your own account.');
