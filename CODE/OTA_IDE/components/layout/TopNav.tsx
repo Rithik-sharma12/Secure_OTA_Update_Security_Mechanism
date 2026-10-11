@@ -4,6 +4,8 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Show, UserButton } from '@clerk/nextjs';
+import { ClerkSignOutButton } from '@/components/auth/ClerkSignOutButton';
+import { clerkEnabled } from '@/lib/post-login';
 import {
   Activity,
   AlertCircle,
@@ -29,6 +31,7 @@ import Logo from '@/components/brand/Logo';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { clearAuthSession, getStoredAuthUser } from '@/lib/client-auth';
 import { useGuidedMode } from '@/lib/use-guided-mode';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 type NavItem = { label: string; href: string; icon: React.ReactNode };
 type NavGroup = { title: string; icon: React.ReactNode; items: NavItem[] };
@@ -222,6 +225,8 @@ export default function TopNav() {
             })}
           </div>
 
+          <ThemeToggle compact />
+
           <Link
             href="/profile"
             className="inline-flex h-9 w-9 items-center justify-center rounded-full"
@@ -236,20 +241,27 @@ export default function TopNav() {
             {initials || 'AD'}
           </Link>
 
-          {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
+          {clerkEnabled && (
             <Show when="signed-in">
               <UserButton />
             </Show>
           )}
 
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="ds-ghost inline-flex min-h-[36px] items-center rounded-lg px-4"
-            style={{ background: 'transparent', cursor: 'pointer' }}
-          >
-            Sign Out
-          </button>
+          {clerkEnabled ? (
+            <ClerkSignOutButton
+              className="ds-ghost inline-flex min-h-[36px] items-center rounded-lg px-4"
+              style={{ background: 'transparent', cursor: 'pointer' }}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="ds-ghost inline-flex min-h-[36px] items-center rounded-lg px-4"
+              style={{ background: 'transparent', cursor: 'pointer' }}
+            >
+              Sign Out
+            </button>
+          )}
         </div>
       </div>
 

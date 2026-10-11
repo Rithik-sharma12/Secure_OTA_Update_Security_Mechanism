@@ -188,7 +188,7 @@ export default async function LandingPage() {
         </section>
 
         {/* ── Simulator ────────────────────────────────────────────────── */}
-        <section id="simulator" className="lp-section" style={{ background: 'linear-gradient(180deg, rgba(33,33,33,0) 0%, rgba(33,33,33,.55) 50%, rgba(33,33,33,0) 100%)' }}>
+        <section id="simulator" className="lp-section" style={{ background: 'linear-gradient(180deg, rgba(var(--lp-panel-rgb),0) 0%, rgba(var(--lp-panel-rgb),.55) 50%, rgba(var(--lp-panel-rgb),0) 100%)' }}>
           <div className="lp-container">
             <SectionHeading
               eyebrow="Watch an update"

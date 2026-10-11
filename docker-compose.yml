@@ -42,6 +42,12 @@ services:
     build:
       context: ./CODE/OTA_IDE
       dockerfile: Dockerfile
+      # Baked into the browser bundle at build time (see the Dockerfile).
+      # Compose reads these from --env-file .env.docker or the shell.
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
     pull_policy: build
     image: secure-ota-ide:latest
     container_name: secure_ota_ide

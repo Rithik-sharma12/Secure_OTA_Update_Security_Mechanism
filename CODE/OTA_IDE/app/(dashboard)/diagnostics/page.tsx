@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Activity, AlertTriangle, CheckCircle, Zap, HardDrive, Wifi, Bug } from 'lucide-react';
 import { executeRuntimeAction } from '@/lib/runtime-actions';
-import { chartAxis, chartColors, chartTooltipStyle } from '@/lib/chart-theme';
+import { useChartTheme } from '@/lib/chart-theme';
 
 const diagnosticsData = [
   { metric: 'CPU', value: 45, threshold: 80, status: 'normal', icon: <Zap className="w-4 h-4" /> },
@@ -34,6 +34,7 @@ const systemChecks = [
 ];
 
 export default function DiagnosticsPage() {
+  const { chartAxis, chartColors, chartTooltipStyle } = useChartTheme();
   const [isScanning, setIsScanning] = React.useState(false);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);

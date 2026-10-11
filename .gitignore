@@ -84,3 +84,6 @@ gateway_keys/
 .local-db/
 .local-db-*/
 *.db
+
+# Patches and bundles handed over from Claude sessions
+claude-gen/

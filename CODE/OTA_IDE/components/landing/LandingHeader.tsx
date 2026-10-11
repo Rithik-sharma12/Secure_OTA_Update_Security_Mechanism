@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import Logo from '@/components/brand/Logo';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const LINKS = [
   { href: '#start', id: 'start', label: 'Get started' },
@@ -91,6 +92,7 @@ export function LandingHeader() {
               {link.label}
             </a>
           ))}
+          <ThemeToggle compact className="lp-theme-toggle" />
           <Link href="/login" className="ds-cta lp-btn lp-btn-sm" style={{ marginLeft: 10 }}>
             Open the console
           </Link>

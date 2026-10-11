@@ -20,11 +20,14 @@ export default function Logo({
   wordmarkSize = 21,
   showWordmark = true,
   className = '',
+  tone = 'auto',
 }: {
   size?: number;
   wordmarkSize?: number;
   showWordmark?: boolean;
   className?: string;
+  /** 'auto' follows the theme; 'light' forces white ink for dark panels. */
+  tone?: 'auto' | 'light';
 }) {
   return (
     <span className={`inline-flex items-center gap-2.5 ${className}`}>
@@ -40,7 +43,7 @@ export default function Logo({
         <span
           translate="no"
           className="ota-brand"
-          style={{ fontSize: wordmarkSize, lineHeight: 1, color: '#fff' }}
+          style={{ fontSize: wordmarkSize, lineHeight: 1, color: tone === 'light' ? '#fff' : 'var(--logo-ink, #fff)' }}
         >
           secure<em>ota</em>
         </span>

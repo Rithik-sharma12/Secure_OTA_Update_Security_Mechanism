@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Activity, AlertCircle, CheckCircle, Cpu, HardDrive, Zap, Shield } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { executeRuntimeAction } from '@/lib/runtime-actions';
-import { chartAxis, chartColors, chartTooltipStyle } from '@/lib/chart-theme';
+import { useChartTheme } from '@/lib/chart-theme';
 
 const performanceData = [
   { time: '00:00', verification: 0 },
@@ -20,6 +20,7 @@ const performanceData = [
 ];
 
 export default function TCVEnginePage() {
+  const { chartAxis, chartColors, chartTooltipStyle } = useChartTheme();
   const [autoVerifyOnBoot, setAutoVerifyOnBoot] = React.useState(true);
   const [strictVerificationMode, setStrictVerificationMode] = React.useState(false);
   const [isSavingConfig, setIsSavingConfig] = React.useState(false);
