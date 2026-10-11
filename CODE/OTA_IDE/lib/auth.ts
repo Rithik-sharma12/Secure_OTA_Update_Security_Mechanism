@@ -36,6 +36,10 @@ const DISALLOWED_BOOTSTRAP_PASSWORDS = new Set([
   // Was the hardcoded fallback in readBootstrapCredentials(). It is in this
   // repository's history, so it must never be accepted as a real password.
   'sentinelsecure_2026!#',
+  // Former defaults in docker-compose.yml / docker-compose.hub.yml, also
+  // published in this repository's history.
+  'secure_ota_college_2026',
+  'secure_ota_college_2026_dashboard!',
 ]);
 
 // New constant for the session cookie name
@@ -165,7 +169,8 @@ function readBootstrapCredentials() {
 async function syncSupabaseProfile(supabaseUser: {
   id: string;
   email?: string;
-  user_metadata?: { role?: unknown; username?: unknown };
+  user_metadata?: { username?: unknown };
+  app_metadata?: Record<string, unknown>;
   last_sign_in_at?: string;
 }) {
   await initializeLocalDatabase();
@@ -173,7 +178,11 @@ async function syncSupabaseProfile(supabaseUser: {
   const username = String(
     supabaseUser.user_metadata?.username || email || supabaseUser.id
   );
-  const metadataRole = supabaseUser.user_metadata?.role;
+  // The role comes from app_metadata, which only the service role can write.
+  // user_metadata is editable by the user themselves (signUp options.data,
+  // auth.updateUser), so reading a role from it let anyone who could sign up
+  // choose to be an operator.
+  const metadataRole = supabaseUser.app_metadata?.role;
   const role: UserRole =
     metadataRole === 'operator' || metadataRole === 'viewer'
       ? metadataRole
@@ -791,7 +800,8 @@ export async function createUser(input: {
       email,
       password,
       email_confirm: true,
-      user_metadata: { username: email, role },
+      user_metadata: { username: email },
+      app_metadata: { role },
     });
     if (error || !data.user) {
       if (error?.message.toLowerCase().includes('already')) {

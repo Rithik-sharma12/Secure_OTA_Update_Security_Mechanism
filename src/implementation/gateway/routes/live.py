@@ -21,9 +21,10 @@ import asyncio
 import json
 import time
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
+from ..auth import require_read_auth
 from ..state import state_revision
 from ..utils import utc_now_iso
 
@@ -34,7 +35,7 @@ KEEPALIVE_SECONDS = 15.0
 
 
 @router.get('/api/stream')
-async def stream_changes(max_seconds: float = Query(default=300.0, ge=1.0, le=3600.0)) -> StreamingResponse:
+async def stream_changes(max_seconds: float = Query(default=300.0, ge=1.0, le=3600.0), _read: None = Depends(require_read_auth)) -> StreamingResponse:
     async def events():
         started = time.monotonic()
         last_revision = state_revision()

@@ -48,6 +48,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from ..audit import audit_note
+from ..factory import FactoryImageError, validate_factory_image
 from ..package import PackageError, looks_like_secure_package, open_package, parse_package
 from ..release import create_release_locked
 from ..state import STATE, STATE_LOCK, persist_state_locked, push_event_locked
@@ -215,6 +216,23 @@ async def github_webhook(request: Request) -> dict[str, Any]:
         elif secure:
             parse_package(blob)  # structural sanity at least
 
+        # The merged first-flash image CI attaches next to the OTA asset
+        # (firmware-esp32.bin -> firmware-esp32-full.bin). Optional: a release
+        # without one, or with one that fails its checks, is still published
+        # for OTA, just not offered for USB bring-up.
+        factory_blob: bytes | None = None
+        factory_name = asset_name[:-4] + '-full.bin' if asset_name.endswith('.bin') else ''
+        if factory_name in assets:
+            factory_expected = str(published.get(factory_name, {}).get('sha256', '')).lower()
+            try:
+                candidate = download_asset(assets[factory_name])
+                if not factory_expected or hashlib.sha256(candidate).hexdigest() != factory_expected:
+                    raise FactoryImageError('missing or mismatched published SHA-256')
+                validate_factory_image(candidate, image_sha)
+                factory_blob = candidate
+            except (OSError, ValueError) as error:
+                skipped.append(f'{factory_name}: not attached ({error})')
+
         with STATE_LOCK:
             if any(str(r.get('version')) == version and board in r.get('compatible', []) for r in STATE.get('releases', [])):
                 skipped.append(f'{asset_name}: v{version} already published')
@@ -230,6 +248,7 @@ async def github_webhook(request: Request) -> dict[str, Any]:
                     artifact_label=f'github:{repository}@{tag}/{asset_name}',
                     image_sha256=image_sha,
                     secure_package=bool(secure),
+                    factory_bytes=factory_blob,
                 )
             except ValueError as error:
                 skipped.append(f'{asset_name}: {error}')

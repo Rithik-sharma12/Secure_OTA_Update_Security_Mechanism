@@ -219,3 +219,27 @@ def test_configured_origins_are_parsed_and_trimmed(api_key):
     assert 'https://ota.example.com' in origins
     assert 'https://ota.example.com/' not in origins  # trailing slash stripped
     assert 'https://b.example.com' in origins
+
+
+# ── Single-process state ─────────────────────────────────────────────
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='advisory flock is POSIX-only')
+def test_a_second_gateway_process_on_the_same_cache_dir_is_refused():
+    """
+    State is held in memory and written back to one JSON file, so two
+    processes would overwrite each other. This test process already owns the
+    cache directory (gateway was imported by the fixtures above).
+    """
+    import gateway  # noqa: F401  (ensures this process holds the lock)
+
+    result = subprocess.run(
+        [sys.executable, '-c', 'import gateway'],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode != 0
+    assert 'Another gateway process is already using' in result.stderr

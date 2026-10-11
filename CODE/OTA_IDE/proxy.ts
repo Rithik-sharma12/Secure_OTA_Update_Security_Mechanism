@@ -23,6 +23,13 @@ const isPublicPage = createRouteMatcher([
   '/sso-callback(.*)',
 ]);
 
+// Routes that authenticate by other means. Cron uses CRON_SECRET; a Clerk
+// session check here would turn every scheduled run into a 404.
+const isPublicApiRoute = createRouteMatcher([
+  '/api/auth/(.*)',
+  '/api/health/(.*)',
+  '/api/cron/(.*)',
+]);
 const isApi = createRouteMatcher(['/api/(.*)', '/trpc/(.*)']);
 
 const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES || process.env.OTA_DASHBOARD_PUBLIC_URL || '')
@@ -32,7 +39,7 @@ const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES || process.env.O
 
 const protectedMiddleware = clerkMiddleware(
   async (auth, request) => {
-    if (isApi(request) || isPublicPage(request)) return;
+    if (isApi(request) || isPublicPage(request) || isPublicApiRoute(request)) return;
     await auth.protect();
   },
   {
@@ -45,8 +52,10 @@ const protectedMiddleware = clerkMiddleware(
 );
 
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
-  // Without Clerk keys the app falls back to its own session cookie (or
-  // Supabase), and the dashboard layout guards pages client-side.
+  // Without Clerk, sessions come from Supabase or the local user store and
+  // this proxy cannot check them. Every route under app/api therefore checks
+  // its own caller (authenticateRequest / withSecureApi / a shared secret);
+  // tests/api-route-auth.test.ts fails the build if a route does not.
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
     return NextResponse.next();
   }

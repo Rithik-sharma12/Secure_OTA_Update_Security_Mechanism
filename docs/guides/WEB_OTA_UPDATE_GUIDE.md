@@ -62,7 +62,7 @@ The `downloadUrl` field must show your LAN IP, not `localhost`.
 
 ### 2. Fill in the device config
 
-Edit `CODE/frimware_code/esp32_ota_main/ota_config.h`:
+Edit `CODE/firmware_code/esp32_ota_main/ota_config.h`:
 
 ```c
 #define WIFI_SSID       "your-wifi"
@@ -85,7 +85,7 @@ The ESP32 and your PC must be on the **same Wi-Fi network**.
 This first flash is the only one that needs a cable.
 
 ```bash
-cd CODE/frimware_code
+cd CODE/firmware_code
 pio run -e esp32dev --target upload
 pio device monitor          # watch it join Wi-Fi and start polling
 ```
@@ -103,7 +103,7 @@ In `esp32_ota_main.ino`, raise **both** lines together:
 
 ```c
 #define FIRMWARE_VERSION    "2.5.0"
-#define FIRMWARE_VERSION_N  20500   // major*10000 + minor*100 + patch
+#define FIRMWARE_VERSION_N  2005000   // major*1000000 + minor*1000 + patch
 ```
 
 This matters: the device compares `FIRMWARE_VERSION_N` against the published
@@ -113,14 +113,14 @@ a version equal to or below what's running is a no-op.
 ### Step 2 — Build the binary (don't upload)
 
 ```bash
-cd CODE/frimware_code
+cd CODE/firmware_code
 pio run -e esp32dev
 ```
 
 The artifact you need is:
 
 ```
-CODE/frimware_code/.pio/build/esp32dev/firmware.bin
+CODE/firmware_code/.pio/build/esp32dev/firmware.bin
 ```
 
 *Arduino IDE instead of PlatformIO?* Use **Sketch → Export Compiled Binary**,
@@ -171,7 +171,7 @@ To turn that on, set both values in `ota_config.h`:
 
 The firmware enables secure mode only when **both** are present
 (`isSecureOtaConfigured()`); otherwise it falls back to plain OTA. Build secure
-packages with `CODE/frimware_code/tools/create_secure_test_package.py`.
+packages with `CODE/firmware_code/tools/create_secure_test_package.py`.
 
 ---
 

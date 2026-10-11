@@ -122,7 +122,7 @@ interface DeviceConnectionCardProps {
 
 export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostHint, onOtaHostHandled, onBrowserPortAction }: DeviceConnectionCardProps) {
   const defaultFirmwarePath = (process.env.NEXT_PUBLIC_OTA_DEFAULT_FIRMWARE_PATH || '').trim();
-  const firmwarePathPlaceholder = 'C:/path/to/OTA_IOT/CODE/frimware_code/esp32_ota_main/esp32_ota_main.ino';
+  const firmwarePathPlaceholder = 'C:/path/to/OTA_IOT/CODE/firmware_code/esp32_ota_main/esp32_ota_main.ino';
   const defaultOtaHost = (process.env.NEXT_PUBLIC_OTA_DEFAULT_HOST || '').trim();
   const [connectionMode, setConnectionMode] = React.useState<ConnectionMode>('serial');
   const [availablePorts, setAvailablePorts] = React.useState<DetectedSerialPort[]>([]);

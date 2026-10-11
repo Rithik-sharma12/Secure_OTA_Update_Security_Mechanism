@@ -12,6 +12,7 @@ Typical use:
 
     python tools/create_secure_test_package.py \
         --firmware .pio/build/esp32dev/firmware.bin \
+        --version 2.5.0 \
         --output release-assets/firmware-esp32-secure-test.bin
 
 It writes the RSA keypair, the AES key, and an ota_config.h snippet into
@@ -22,33 +23,43 @@ verifies, so a broken package never reaches a board.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import secrets
 import string
 import sys
 from pathlib import Path
 
-# The gateway package lives outside this tool's tree; add the implementation
-# root to sys.path rather than duplicating the format definition here.
+# The package format lives in the gateway tree. Load that one file directly
+# rather than importing the `gateway` package: importing the package runs the
+# gateway's configuration, which refuses to start without OTA_GATEWAY_API_KEY
+# and creates cache directories in the working directory.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_IMPLEMENTATION_ROOT = _REPO_ROOT / 'src' / 'implementation'
-if str(_IMPLEMENTATION_ROOT) not in sys.path:
-    sys.path.insert(0, str(_IMPLEMENTATION_ROOT))
+_PACKAGE_MODULE = _REPO_ROOT / 'src' / 'implementation' / 'gateway' / 'package.py'
 
-try:
-    from gateway.package import (  # noqa: E402
-        PackageError,
-        build_package,
-        firmware_sha256,
-        load_or_create_packaging_key,
-        open_package,
-    )
-except ImportError as exc:  # pragma: no cover - environment problem, not logic
-    raise SystemExit(
-        f'Could not import the gateway package module from {_IMPLEMENTATION_ROOT}.\n'
-        f'Install the gateway requirements first:\n'
-        f'    pip install -r {_IMPLEMENTATION_ROOT / "requirements.txt"}\n'
-        f'Original error: {exc}'
-    ) from exc
+
+def _load_package_module():
+    spec = importlib.util.spec_from_file_location('secureota_package', _PACKAGE_MODULE)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f'Package format module not found at {_PACKAGE_MODULE}.')
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve annotations through sys.modules
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:  # pragma: no cover - environment problem, not logic
+        raise SystemExit(
+            'Could not load the package format module. Install its dependency first:\n'
+            '    pip install cryptography\n'
+            f'Original error: {exc}'
+        ) from exc
+    return module
+
+
+_package = _load_package_module()
+PackageError = _package.PackageError
+build_package = _package.build_package
+firmware_sha256 = _package.firmware_sha256
+load_or_create_packaging_key = _package.load_or_create_packaging_key
+open_package = _package.open_package
 
 
 def generate_ascii_aes_key(length: int = 32) -> str:
@@ -65,6 +76,13 @@ def main() -> int:
         '--firmware',
         default='.pio/build/esp32dev/firmware.bin',
         help='Path to the plain firmware binary',
+    )
+    parser.add_argument(
+        '--version',
+        required=True,
+        help='Firmware version (MAJOR.MINOR.PATCH). It is signed into the package, '
+             'must equal FIRMWARE_VERSION in the image, and must match the version '
+             'the release is published under',
     )
     parser.add_argument(
         '--output',
@@ -122,7 +140,7 @@ def main() -> int:
     firmware_bytes = firmware_path.read_bytes()
 
     try:
-        package = build_package(firmware_bytes, private_key, aes_key_text)
+        package = build_package(firmware_bytes, private_key, aes_key_text, version=args.version)
     except PackageError as exc:
         raise SystemExit(f'Could not build the package: {exc}') from exc
 
@@ -162,7 +180,7 @@ def main() -> int:
     print(f'  curl -X POST "$OTA_GATEWAY_URL/api/releases/upload" \\')
     print(f'       -H "x-api-key: $OTA_GATEWAY_API_KEY" \\')
     print(f'       -F "file=@{output_path}" \\')
-    print(f'       -F "version=<x.y.z>" \\')
+    print(f'       -F "version={args.version}" \\')
     print(f'       -F "imageSha256={digest}" \\')
     print(f'       -F "securePackage=true"')
     print()

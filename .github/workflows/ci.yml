@@ -75,11 +75,14 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          # `uses:` steps resolve paths from the repository root; only `run:`
+          # steps inherit defaults.run.working-directory.
+          cache-dependency-path: CODE/OTA_IDE/pnpm-lock.yaml
 
+      # Installed where the lockfile is. The repository root has npm
+      # workspaces and no pnpm lockfile, so a frozen install there fails.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        working-directory: .
 
       - name: Lint
         run: pnpm lint
@@ -155,10 +158,16 @@ jobs:
           fi
 
           echo "Checking for the credentials that previously leaked..."
-          if git ls-files -z \
+          # Collected first, then tested. Testing the pipeline directly under
+          # pipefail made the check unable to fail: xargs exits 123 whenever any
+          # of its grep batches matches nothing, which turned every hit into a
+          # pass. This file names the patterns, so it is excluded with the docs.
+          leaked=$(git ls-files -z \
             | xargs -0 grep -l -F -e 'sentinel_ota_secure_gateway_key_2026' \
                                   -e 'SentinelSecure_2026!#' 2>/dev/null \
-            | grep -v -E '^docs/SECURITY_REMEDIATION\.md$'; then
+            | grep -v -E '^(docs/SECURITY_REMEDIATION\.md|\.github/workflows/ci\.yml)$' || true)
+          if [ -n "$leaked" ]; then
+            echo "$leaked"
             echo "::error::A known-leaked credential is present outside the remediation docs."
             exit 1
           fi

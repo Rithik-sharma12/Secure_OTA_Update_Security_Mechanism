@@ -35,10 +35,10 @@ import {
 
 const weekLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-/** major*10000 + minor*100 + patch, mirroring the firmware's comparison. */
+/** major*1000000 + minor*1000 + patch, mirroring the firmware's comparison. */
 function versionRank(v: string): number {
   const [a = 0, b = 0, c = 0] = v.split('.').map((n) => parseInt(n, 10) || 0);
-  return a * 10000 + b * 100 + c;
+  return a * 1_000_000 + b * 1_000 + c;
 }
 
 export default function DashboardPage() {

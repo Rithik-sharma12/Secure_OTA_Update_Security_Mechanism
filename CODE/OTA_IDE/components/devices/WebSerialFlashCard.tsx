@@ -15,14 +15,13 @@ import {
   onSerialDevicesChanged,
   requestSerialDevice,
 } from '@/lib/web-serial';
-import { getAgentJob, openAgentMonitor, startAgentFlash } from '@/lib/local-agent';
+import { openAgentMonitor } from '@/lib/local-agent';
+import { explainFlashError, flashImage, type FlashTarget } from '@/lib/serial-flash';
 import { useLocalAgent } from '@/lib/use-local-agent';
 import type { Release } from '@/lib/types';
 import { useCurrentUser } from '@/lib/use-current-user';
 import { PermissionNotice } from '@/components/auth/PermissionNotice';
 
-type Transport = import('esptool-js').Transport;
-type ESPLoader = import('esptool-js').ESPLoader;
 
 /**
  * Where the image goes. PlatformIO's firmware.bin is the app image only and
@@ -49,7 +48,6 @@ const RELEASE_FLASH_ADDRESS: Record<DeviceTypeId, number> = {
   ESP8266: 0x0,
 };
 
-const FLASH_BAUD = 921600;
 const MONITOR_BAUD = 115200;
 const MAX_LOG_LINES = 400;
 
@@ -72,7 +70,7 @@ function versionScore(version: string) {
     .replace(/^v/i, '')
     .split('.')
     .map((part) => Number.parseInt(part, 10) || 0);
-  return major * 10000 + minor * 100 + patch;
+  return major * 1_000_000 + minor * 1_000 + patch;
 }
 
 function formatBytes(bytes: number) {
@@ -252,26 +250,6 @@ export function WebSerialFlashCard({
     });
   }, []);
 
-  // esptool-js writes partial lines via write(); buffer them until a newline.
-  const terminal = React.useMemo(() => {
-    let pending = '';
-    return {
-      clean: () => setLog([]),
-      writeLine: (data: string) => {
-        appendLog(pending + data);
-        pending = '';
-      },
-      write: (data: string) => {
-        pending += data;
-        if (pending.includes('\n')) {
-          const parts = pending.split('\n');
-          pending = parts.pop() ?? '';
-          parts.forEach((part) => appendLog(part));
-        }
-      },
-    };
-  }, [appendLog]);
-
   const busy = phase === 'connecting' || phase === 'loading' || phase === 'flashing';
   const layoutInfo = IMAGE_LAYOUTS.find((entry) => entry.id === layout) ?? IMAGE_LAYOUTS[0];
   const publishedVersion = publishedByType.get(deviceType);
@@ -332,7 +310,6 @@ export function WebSerialFlashCard({
     setChipName(null);
     setLog([]);
 
-    let transport: Transport | null = null;
     try {
       setPhase('loading');
       const image = await loadImage();
@@ -345,104 +322,32 @@ export function WebSerialFlashCard({
       appendLog(`[web-flash] ${image.label} (${formatBytes(image.bytes.byteLength)}) -> 0x${address.toString(16)}`);
       if (image.version) appendLog(`[web-flash] release version ${image.version}`);
 
-      // Agent path: esptool runs on the user's machine against the real COM port.
-      if (selectedTarget?.kind === 'agent') {
-        setPhase('connecting');
-        appendLog(`[flash] using ${selectedTarget.path} via the SecureOTA Agent`);
-        const jobId = await startAgentFlash({
-          port: selectedTarget.path,
-          address,
-          // TypeScript 5.9 made Uint8Array generic over its backing buffer, so
-          // a Uint8Array<ArrayBufferLike> no longer satisfies BlobPart (which
-          // requires ArrayBuffer, not SharedArrayBuffer). The bytes here always
-          // come from a fetch/File read, so the buffer is a plain ArrayBuffer;
-          // slicing produces one with the narrow type and copies only the
-          // region actually in use.
-          file: new Blob([image.bytes.slice().buffer as ArrayBuffer]),
-          filename: image.label.endsWith('.bin') ? image.label : 'firmware.bin',
-          erase: eraseAll,
-        });
-        let seen = 0;
-        for (;;) {
-          await new Promise((resolve) => setTimeout(resolve, 700));
-          const job = await getAgentJob(jobId, seen);
-          job.log.forEach((line) => appendLog(line));
-          seen = job.logLength;
-          if (job.chip) setChipName(job.chip);
-          if (job.status === 'running' && job.progress > 0) {
-            setPhase('flashing');
-            setProgress(job.progress);
-          }
-          if (job.status === 'success') {
-            setProgress(100);
-            setPhase('done');
-            setSummary(
-              `${image.label}${image.version ? ` (v${image.version})` : ''} written to ${job.chip ?? 'the board'} on ${selectedTarget.path} at 0x${address.toString(16)}. ` +
-                'The board was reset; it should join Wi-Fi and heartbeat within ~15 s.'
-            );
-            return;
-          }
-          if (job.status === 'failed') {
-            throw new Error(job.error || 'Flash failed.');
-          }
-        }
-      }
-
       setPhase('connecting');
-      // Loaded on demand: esptool-js touches navigator.serial at import time.
-      const { ESPLoader, Transport } = await import('esptool-js');
-      const port = await pickPort();
-      transport = new Transport(port, false);
-
-      const loader: ESPLoader = new ESPLoader({
-        transport,
-        baudrate: FLASH_BAUD,
-        terminal,
-        debugLogging: false,
-      });
-
-      const chip = await loader.main();
-      setChipName(chip);
-      appendLog(`[web-flash] connected: ${chip}`);
-
-      setPhase('flashing');
-      await loader.writeFlash({
-        fileArray: [{ data: image.bytes, address }],
-        flashSize: 'keep',
-        flashMode: 'keep',
-        flashFreq: 'keep',
-        eraseAll,
-        compress: true,
-        reportProgress: (_fileIndex, written, total) => {
-          setProgress(total > 0 ? Math.round((written / total) * 100) : 0);
-        },
-      });
-
-      await loader.after('hard_reset');
-      setProgress(100);
+      const target: FlashTarget =
+        selectedTarget?.kind === 'agent'
+          ? { kind: 'agent', path: selectedTarget.path }
+          : { kind: 'browser', port: await pickPort() };
+      const { chip } = await flashImage(
+        target,
+        { bytes: image.bytes, address, filename: image.label, eraseAll },
+        {
+          onLog: appendLog,
+          onProgress: setProgress,
+          onChip: setChipName,
+          onWriting: () => setPhase('flashing'),
+        }
+      );
       setPhase('done');
       setSummary(
-        `${image.label}${image.version ? ` (v${image.version})` : ''} written to ${chip} at 0x${address.toString(16)}. ` +
+        `${image.label}${image.version ? ` (v${image.version})` : ''} written to ${chip}` +
+          `${target.kind === 'agent' ? ` on ${target.path}` : ''} at 0x${address.toString(16)}. ` +
           'The board was reset; it should join Wi-Fi and heartbeat within ~15 s.'
       );
-      appendLog('[web-flash] done, board reset');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setPhase('error');
-      setError(
-        /No port selected/i.test(message)
-          ? 'No port selected.'
-          : /Failed to connect|Timed out|Invalid head of packet|Wrong boot mode/i.test(message)
-            ? 'The board did not enter download mode. Click Connect & Flash again and hold the BOOT button on the board as soon as the yellow prompt appears — keep holding until the progress bar moves.'
-            : message
-      );
+      setError(explainFlashError(message));
       appendLog(`[web-flash] error: ${message}`);
-    } finally {
-      try {
-        await transport?.disconnect();
-      } catch {
-        // port already closed
-      }
     }
   };
 

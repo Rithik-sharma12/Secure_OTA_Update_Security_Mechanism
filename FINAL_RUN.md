@@ -97,24 +97,24 @@ Gateway health URL:
 
 Update the firmware code at:
 
-- CODE/frimware_code/esp32_ota_main/esp32_ota_main.ino
+- CODE/firmware_code/esp32_ota_main/esp32_ota_main.ino
 
 Set both fields together:
 
 ```cpp
 #define FIRMWARE_VERSION    "2.4.2"
-#define FIRMWARE_VERSION_N  20402
+#define FIRMWARE_VERSION_N  2004002
 ```
 
 Rule:
 
-- version_n = major*10000 + minor*100 + patch
+- version_n = major*1000000 + minor*1000 + patch (each part 0-999)
 
 ### 5.2 Configure firmware runtime connection
 
 Edit:
 
-- CODE/frimware_code/esp32_ota_main/ota_config.h
+- CODE/firmware_code/esp32_ota_main/ota_config.h
 
 Set at least:
 
@@ -127,13 +127,13 @@ Set at least:
 ### 5.3 Build firmware
 
 ```powershell
-Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code
+Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code
 pio run -e esp32dev
 ```
 
 Expected build output:
 
-- CODE/frimware_code/.pio/build/esp32dev/firmware.bin
+- CODE/firmware_code/.pio/build/esp32dev/firmware.bin
 
 ## 6. Developer Signature Setup (Secure OTA Package)
 
@@ -142,7 +142,7 @@ If you already have developer keys, use them. Otherwise create a demo keypair.
 ### 6.1 Generate RSA signing keys (one-time)
 
 ```powershell
-Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code\release-assets
+Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code\release-assets
 
 openssl genrsa -out dev_sign_private.pem 2048
 openssl rsa -in dev_sign_private.pem -pubout -out dev_sign_public.pem
@@ -150,7 +150,7 @@ openssl rsa -in dev_sign_private.pem -pubout -out dev_sign_public.pem
 
 ### 6.2 Configure firmware secure keys
 
-In CODE/frimware_code/esp32_ota_main/ota_config.h:
+In CODE/firmware_code/esp32_ota_main/ota_config.h:
 
 1. Set FIRMWARE_ENC_KEY to exactly 32 characters.
 2. Copy PEM public key contents from dev_sign_public.pem into FIRMWARE_PUB_KEY.
@@ -166,8 +166,8 @@ Example AES key requirement:
 Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT
 
 $Version = "2.4.2"
-$BuildBin = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code\.pio\build\esp32dev\firmware.bin"
-$OutDir = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code\release-assets"
+$BuildBin = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code\.pio\build\esp32dev\firmware.bin"
+$OutDir = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code\release-assets"
 $PrivKey = Join-Path $OutDir "dev_sign_private.pem"
 $AesKey = "REPLACE_WITH_EXACTLY_32_CHARS_KEY"
 
@@ -203,7 +203,7 @@ Secure package format produced above matches firmware parser expectations:
 
 This repo currently stores workflow content at:
 
-- CODE/frimware_code/firmware-release.yml
+- CODE/firmware_code/firmware-release.yml
 
 GitHub Actions only runs files under .github/workflows, so copy it first.
 
@@ -212,7 +212,7 @@ GitHub Actions only runs files under .github/workflows, so copy it first.
 ```powershell
 Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT
 New-Item -ItemType Directory -Path .github\workflows -Force | Out-Null
-Copy-Item .\CODE\frimware_code\firmware-release.yml .\.github\workflows\firmware-release.yml -Force
+Copy-Item .\CODE\firmware_code\firmware-release.yml .\.github\workflows\firmware-release.yml -Force
 ```
 
 ### 7.2 Configure GitHub secrets
@@ -266,7 +266,7 @@ Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT
 
 $Repo = "Rithik-sharma12/Secure_OTA_Update_Security_Mechanism"
 $Tag = "v2.4.2"
-$DownloadDir = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code\release-assets\github-v2.4.2"
+$DownloadDir = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code\release-assets\github-v2.4.2"
 New-Item -ItemType Directory -Path $DownloadDir -Force | Out-Null
 
 # Requires GitHub CLI login
@@ -305,7 +305,7 @@ Now gateway publishes:
 Flash baseline firmware by serial once.
 
 ```powershell
-Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code
+Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code
 pio run -e esp32dev --target upload
 pio device monitor -b 115200
 ```
@@ -399,7 +399,7 @@ Set-Location C:\Users\Rithik Sharma\Desktop\OTA_IOT\src\implementation
 $env:OTA_TEST_ADMIN_USERNAME = "your-admin-user"
 $env:OTA_TEST_ADMIN_PASSWORD = "your-admin-password"
 $env:OTA_GATEWAY_API_KEY = "CHANGE_ME_STRONG_GATEWAY_KEY"
-$env:OTA_TEST_FIRMWARE_PATH = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code\.pio\build\esp32dev\firmware.bin"
+$env:OTA_TEST_FIRMWARE_PATH = "C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code\.pio\build\esp32dev\firmware.bin"
 
 python integration_smoke_test.py
 ```

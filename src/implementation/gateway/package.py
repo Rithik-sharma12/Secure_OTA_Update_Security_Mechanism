@@ -3,7 +3,7 @@ SentinelOTA Edge Gateway — Secure Firmware Package Format
 
 This module is the single definition of the encrypted package that
 `esp32_ota_main.ino` parses in `performSecurePackageUpdate()`. Both the
-gateway and `CODE/frimware_code/tools/create_secure_test_package.py` build
+gateway and `CODE/firmware_code/tools/create_secure_test_package.py` build
 packages through here, so the format cannot drift between the thing that
 produces packages and the thing that documents them.
 
@@ -33,13 +33,37 @@ Version 2 (produced by this module)::
 
     offset  size  field
     0       6     magic          b'SOTAv2'
-    6       1     signature_alg  1 = RSA-2048 PKCS#1 v1.5 over SHA-256
+    6       1     signature_alg  1 = RSA-2048 PKCS#1 v1.5 over SHA-256 of the
+                                     plaintext firmware (legacy, unversioned)
                                  2 = Ed25519 (reserved, not yet verified on-device)
+                                 3 = RSA-2048 PKCS#1 v1.5 over SHA-256 of the
+                                     version statement below (default)
     7       1     cipher_alg     1 = AES-256-CBC with PKCS#7 padding
     8       2     signature_len  big-endian
-    10      16    iv
-    26      n     signature      over the PLAINTEXT firmware bytes
-    26+n    ...   ciphertext
+    -- signature_alg 3 only --
+    10      1     version_len    1..32
+    11      v     version        ASCII, e.g. b'2.5.0'
+    --
+    ..      16    iv
+    ..      n     signature
+    ..      ...   ciphertext
+
+Why the version is signed (signature_alg 3)
+-------------------------------------------
+With signature_alg 1 the signature covers only the firmware bytes, so the
+version a device compares against its own comes from the manifest — which
+travels over plain HTTP in local mode and is never signature-checked on the
+device. Anyone who can answer the manifest request could then pair a genuinely
+signed OLD image with a "newer" version string and roll the board back.
+
+signature_alg 3 signs a version statement instead::
+
+    SHA-256( b'SOTA-FW\x00' || version || b'\x00' || SHA-256(firmware) )
+
+so the version is vouched for by the release key, not by the transport. The
+device refuses a package whose signed version is not strictly newer than the
+running firmware, whatever the manifest says. The firmware rejects signature
+algorithm 1 and v1 packages unless built with OTA_ALLOW_UNVERSIONED_PACKAGES.
 
 Version 1 (legacy, still parsed by the firmware and by `parse_package`)::
 
@@ -69,6 +93,10 @@ MAGIC_V2 = b'SOTAv2'
 
 SIG_ALG_RSA2048_PKCS1V15_SHA256 = 1
 SIG_ALG_ED25519 = 2
+SIG_ALG_RSA2048_VERSIONED = 3
+
+VERSION_STATEMENT_PREFIX = b'SOTA-FW\x00'
+MAX_VERSION_BYTES = 32
 
 CIPHER_ALG_AES256_CBC_PKCS7 = 1
 
@@ -96,6 +124,7 @@ class ParsedPackage:
     iv: bytes
     signature: bytes
     ciphertext: bytes
+    version: str | None = None
 
 
 # ── Key management ───────────────────────────────────────────────────
@@ -175,16 +204,58 @@ def normalize_aes_key(key: str | bytes) -> bytes:
 # ── Build ────────────────────────────────────────────────────────────
 
 
+def version_statement(version: str, firmware_bytes: bytes) -> bytes:
+    """The bytes a signature_alg 3 signature covers (hashed again by RSA)."""
+    return (
+        VERSION_STATEMENT_PREFIX
+        + _encode_version(version)
+        + b'\x00'
+        + hashlib.sha256(firmware_bytes).digest()
+    )
+
+
+def _encode_version(version: str) -> bytes:
+    text = str(version).strip()
+    if text[:1] in ('v', 'V'):
+        text = text[1:]
+    parts = text.split('.')
+    if len(parts) != 3 or not all(part.isdigit() and len(part) <= 3 for part in parts):
+        raise PackageError(
+            f'Package version must be MAJOR.MINOR.PATCH with each part 0-999; got {version!r}.'
+        )
+    encoded = '.'.join(str(int(part)) for part in parts).encode('ascii')
+    if len(encoded) > MAX_VERSION_BYTES:
+        raise PackageError(f'Package version is longer than {MAX_VERSION_BYTES} bytes.')
+    return encoded
+
+
 def build_package(
     firmware_bytes: bytes,
     private_key: rsa.RSAPrivateKey,
     aes_key: str | bytes,
     *,
+    version: str | None,
     iv: bytes | None = None,
 ) -> bytes:
-    """Sign, encrypt, and frame a firmware image into a v2 secure package."""
+    """Sign, encrypt, and frame a firmware image into a v2 secure package.
+
+    `version` is required and is signed together with the image
+    (signature_alg 3). Passing None deliberately builds the legacy unversioned
+    form (signature_alg 1), which current firmware refuses unless it was built
+    with OTA_ALLOW_UNVERSIONED_PACKAGES.
+    """
     if not firmware_bytes:
         raise PackageError('Refusing to package an empty firmware image.')
+
+    if version is None:
+        signature_alg = SIG_ALG_RSA2048_PKCS1V15_SHA256
+        signed_message = firmware_bytes
+        version_field = b''
+    else:
+        signature_alg = SIG_ALG_RSA2048_VERSIONED
+        encoded_version = _encode_version(version)
+        signed_message = version_statement(version, firmware_bytes)
+        version_field = bytes([len(encoded_version)]) + encoded_version
 
     aes_key_bytes = normalize_aes_key(aes_key)
 
@@ -195,7 +266,7 @@ def build_package(
         )
 
     signature = private_key.sign(
-        firmware_bytes,
+        signed_message,
         asym_padding.PKCS1v15(),
         hashes.SHA256(),
     )
@@ -218,9 +289,10 @@ def build_package(
 
     header = (
         MAGIC_V2
-        + bytes([SIG_ALG_RSA2048_PKCS1V15_SHA256])
+        + bytes([signature_alg])
         + bytes([CIPHER_ALG_AES256_CBC_PKCS7])
         + len(signature).to_bytes(2, 'big')
+        + version_field
     )
     return header + iv + signature + ciphertext
 
@@ -240,13 +312,33 @@ def parse_package(package: bytes) -> ParsedPackage:
 
         if cipher_alg != CIPHER_ALG_AES256_CBC_PKCS7:
             raise PackageError(f'Unsupported cipher algorithm id {cipher_alg}.')
-        if signature_alg not in (SIG_ALG_RSA2048_PKCS1V15_SHA256, SIG_ALG_ED25519):
+        if signature_alg not in (
+            SIG_ALG_RSA2048_PKCS1V15_SHA256,
+            SIG_ALG_ED25519,
+            SIG_ALG_RSA2048_VERSIONED,
+        ):
             raise PackageError(f'Unsupported signature algorithm id {signature_alg}.')
 
         iv_start = HEADER_BYTES
+        version: str | None = None
+        if signature_alg == SIG_ALG_RSA2048_VERSIONED:
+            version_len = package[HEADER_BYTES]
+            if not 1 <= version_len <= MAX_VERSION_BYTES:
+                raise PackageError(f'Invalid signed version length {version_len}.')
+            raw_version = package[HEADER_BYTES + 1:HEADER_BYTES + 1 + version_len]
+            if len(raw_version) != version_len:
+                raise PackageError('Package truncated inside the signed version.')
+            try:
+                version = raw_version.decode('ascii')
+            except UnicodeDecodeError as exc:
+                raise PackageError('Signed version is not ASCII.') from exc
+            iv_start = HEADER_BYTES + 1 + version_len
+
         sig_start = iv_start + IV_BYTES
         ct_start = sig_start + signature_len
 
+        if len(package) < sig_start:
+            raise PackageError('Package truncated inside the v2 header.')
         if len(package) <= ct_start:
             raise PackageError('Package has no ciphertext after the header.')
 
@@ -257,6 +349,7 @@ def parse_package(package: bytes) -> ParsedPackage:
             iv=package[iv_start:sig_start],
             signature=package[sig_start:ct_start],
             ciphertext=package[ct_start:],
+            version=version,
         )
 
     # Legacy v1: no header, fixed-width IV and RSA signature.
@@ -285,7 +378,7 @@ def open_package(package: bytes, public_key_pem: bytes, aes_key: str | bytes) ->
     """
     parsed = parse_package(package)
 
-    if parsed.signature_alg != SIG_ALG_RSA2048_PKCS1V15_SHA256:
+    if parsed.signature_alg not in (SIG_ALG_RSA2048_PKCS1V15_SHA256, SIG_ALG_RSA2048_VERSIONED):
         raise PackageError(
             f'Signature algorithm id {parsed.signature_alg} is declared but not '
             'implemented here.'
@@ -312,10 +405,15 @@ def open_package(package: bytes, public_key_pem: bytes, aes_key: str | bytes) ->
     if not isinstance(public_key, rsa.RSAPublicKey):
         raise PackageError('Public key is not an RSA key.')
 
+    if parsed.signature_alg == SIG_ALG_RSA2048_VERSIONED:
+        signed_message = version_statement(parsed.version or '', firmware_bytes)
+    else:
+        signed_message = firmware_bytes
+
     try:
         public_key.verify(
             parsed.signature,
-            firmware_bytes,
+            signed_message,
             asym_padding.PKCS1v15(),
             hashes.SHA256(),
         )

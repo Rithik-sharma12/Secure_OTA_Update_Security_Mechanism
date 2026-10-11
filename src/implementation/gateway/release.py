@@ -12,6 +12,7 @@ from typing import Any
 
 from .config import (
     ALLOWED_DEVICE_TYPES,
+    ARTIFACT_DIRS,
     DEFAULT_RELEASE_ARTIFACT,
     FIRMWARE_CACHE_DIR,
     MANIFEST_FILE,
@@ -20,7 +21,8 @@ from .config import (
     SIGNING_KEY_ID,
 )
 from .crypto import sign_firmware_payload
-from .package import is_hex_digest, looks_like_secure_package
+from .factory import FactoryImageError, validate_factory_image
+from .package import PackageError, is_hex_digest, looks_like_secure_package, parse_package
 from .state import STATE, push_event_locked, persist_state_locked
 from .utils import (
     firmware_download_url,
@@ -31,14 +33,31 @@ from .utils import (
 )
 
 
+def _within_artifact_dirs(path: Path) -> bool:
+    return any(path == root or root in path.parents for root in ARTIFACT_DIRS)
+
+
 def resolve_release_artifact_path(version: str, source_file_path: str | None) -> Path:
-    """Locate the firmware .bin artifact for a release."""
+    """Locate the firmware .bin artifact for a release.
+
+    A caller-supplied `source_file_path` must resolve (symlinks included) to a
+    file inside one of OTA_GATEWAY_ARTIFACT_DIRS. OTA_GATEWAY_RELEASE_ARTIFACT
+    is operator configuration and is not restricted.
+    """
     candidates: list[Path] = []
 
     if source_file_path:
+        if not ARTIFACT_DIRS:
+            raise ValueError(
+                'sourceFilePath is disabled. Upload the file to /api/releases/upload, or set '
+                'OTA_GATEWAY_ARTIFACT_DIRS to the directories the gateway may read releases from.'
+            )
         provided = Path(source_file_path).expanduser()
         if not provided.is_absolute():
-            provided = (Path.cwd() / provided).resolve()
+            provided = ARTIFACT_DIRS[0] / provided
+        provided = provided.resolve()
+        if not _within_artifact_dirs(provided):
+            raise ValueError('sourceFilePath is outside OTA_GATEWAY_ARTIFACT_DIRS.')
         candidates.append(provided)
 
     if DEFAULT_RELEASE_ARTIFACT:
@@ -230,6 +249,21 @@ def latest_release_for_device_locked(device_type: str) -> dict[str, Any] | None:
     return None
 
 
+def latest_factory_release_locked(device_type: str) -> dict[str, Any] | None:
+    """Newest published release for `device_type` that carries a factory image.
+
+    May be older than the newest release: a board brought up on it simply
+    updates over the air afterwards. Must be called under STATE_LOCK.
+    """
+    for release in STATE.get('releases', []):
+        if str(release.get('status', 'published')) != 'published' or not release.get('factoryImage'):
+            continue
+        compatible = [str(entry) for entry in release.get('compatible', [])]
+        if not compatible or device_type in compatible:
+            return release
+    return None
+
+
 def assigned_release_for_device_locked(device_id: str, device_type: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Release that an in-progress deployment is waiting for this device to install.
 
@@ -314,6 +348,7 @@ def create_release_locked(
     artifact_label: str | None = None,
     image_sha256: str | None = None,
     secure_package: bool | None = None,
+    factory_bytes: bytes | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Create a release, manifest, and pipeline. Must be called under STATE_LOCK.
 
@@ -322,6 +357,9 @@ def create_release_locked(
       * `source_file_path` / OTA_GATEWAY_RELEASE_ARTIFACT — a path on the
         gateway's own filesystem (CLI / automation flow).
     `artifact_bytes` wins when both are supplied.
+
+    `factory_bytes` is an optional merged first-flash image for blank boards
+    (see gateway/factory.py). It must contain this release's app image.
     """
     normalized_version = normalize_version(version)
 
@@ -357,6 +395,20 @@ def create_release_locked(
     else:
         artifact_path, firmware_payload = load_release_artifact(normalized_version, source_file_path)
         source_artifact = str(artifact_path)
+
+    # A secure package that carries a signed version must be published under
+    # that version. The device refuses the mismatch anyway; refusing it here
+    # turns a fleet-wide failed update into an error at publish time.
+    if looks_like_secure_package(firmware_payload):
+        try:
+            signed_version = parse_package(firmware_payload).version
+        except PackageError as exc:
+            raise ValueError(f'Secure package is malformed: {exc}') from exc
+        if signed_version is not None and normalize_version(signed_version) != normalized_version:
+            raise ValueError(
+                f'Package is signed for v{signed_version} but is being published as '
+                f'v{normalized_version}.'
+            )
 
     checksum = sha256_bytes(firmware_payload)
     _stage(
@@ -410,6 +462,17 @@ def create_release_locked(
         release['securePackage'] = bool(secure_package)
     elif looks_like_secure_package(firmware_payload):
         release['securePackage'] = True
+
+    if factory_bytes is not None:
+        try:
+            factory_record = validate_factory_image(
+                factory_bytes, image_digest_for_release(release, firmware_payload)
+            )
+        except FactoryImageError as exc:
+            raise ValueError(f'Factory image rejected: {exc}') from exc
+        factory_name = f"firmware_v{normalized_version}_factory.bin"
+        (FIRMWARE_CACHE_DIR / factory_name).write_bytes(factory_bytes)
+        release['factoryImage'] = {'name': factory_name, **factory_record}
 
     # ── Stage 3: sign the manifest ─────────────────────────────────
     stage_begin = datetime.now(timezone.utc)

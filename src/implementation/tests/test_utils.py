@@ -23,7 +23,7 @@ from gateway.utils import (
 
 # ── Version arithmetic ───────────────────────────────────────────────
 #
-# esp32_ota_main.ino computes FIRMWARE_VERSION_N as major*10000 + minor*100 +
+# esp32_ota_main.ino computes FIRMWARE_VERSION_N as major*1000000 + minor*1000 +
 # patch and refuses anything scoring lower than its own. version_score() must
 # produce the same number or the two ends disagree about what a downgrade is.
 
@@ -31,14 +31,14 @@ from gateway.utils import (
 @pytest.mark.parametrize(
     ('version', 'expected'),
     [
-        ('2.4.1', 20401),
-        ('v2.4.1', 20401),
+        ('2.4.1', 2004001),
+        ('v2.4.1', 2004001),
         ('0.0.0', 0),
-        ('1.0.0', 10000),
-        ('0.1.0', 100),
+        ('1.0.0', 1000000),
+        ('0.1.0', 1000),
         ('0.0.1', 1),
-        ('2.4', 20400),
-        ('3', 30000),
+        ('2.4', 2004000),
+        ('3', 3000000),
     ],
 )
 def test_version_score_matches_the_firmware_formula(version, expected):
@@ -46,8 +46,8 @@ def test_version_score_matches_the_firmware_formula(version, expected):
 
 
 def test_version_score_of_the_shipped_firmware_version():
-    """The firmware hardcodes FIRMWARE_VERSION_N as major*10000+minor*100+patch (20401 for v2.4.1)."""
-    assert version_score('2.4.1') == 20401
+    """The firmware hardcodes FIRMWARE_VERSION_N as major*1000000+minor*1000+patch (2005000 for v2.5.0)."""
+    assert version_score('2.5.0') == 2005000
 
 
 @pytest.mark.parametrize('garbage', ['', 'not-a-version', 'v', '...', 'abc.def.ghi'])
@@ -79,14 +79,10 @@ def test_unparseable_candidate_never_counts_as_newer():
     assert not is_newer_version('', '0.0.1')
 
 
-def test_component_overflow_is_a_known_limitation():
-    """
-    The major*10000 + minor*100 + patch packing assumes each component stays
-    under 100. 2.4.100 collides with 2.5.0. Documented here rather than fixed,
-    because changing it means changing the firmware's arithmetic too, and the
-    two must move together.
-    """
-    assert version_score('2.4.100') == version_score('2.5.0')
+def test_components_up_to_999_do_not_collide():
+    """The old major*10000 + minor*100 + patch packing let 2.4.100 equal 2.5.0."""
+    assert version_score('2.4.100') < version_score('2.5.0')
+    assert version_score('2.4.999') < version_score('2.5.0')
 
 
 # ── Version normalisation ────────────────────────────────────────────
@@ -94,13 +90,13 @@ def test_component_overflow_is_a_known_limitation():
 
 @pytest.mark.parametrize(
     ('raw', 'expected'),
-    [('2.4.1', '2.4.1'), ('v2.4.1', '2.4.1'), ('  2.4.1  ', '2.4.1'), ('10.20.30', '10.20.30')],
+    [('2.4.1', '2.4.1'), ('v2.4.1', '2.4.1'), ('  2.4.1  ', '2.4.1'), ('10.20.30', '10.20.30'), ('2.05.0', '2.5.0')],
 )
 def test_normalize_version_strips_prefix_and_whitespace(raw, expected):
     assert normalize_version(raw) == expected
 
 
-@pytest.mark.parametrize('bad', ['', '   ', 'v', 'two.four.one', '2.4.x', '2..1', '-1.0.0'])
+@pytest.mark.parametrize('bad', ['', '   ', 'v', 'two.four.one', '2.4.x', '2..1', '-1.0.0', '2.5', '2.4.1000', '1.2.3.4'])
 def test_normalize_version_rejects_non_numeric(bad):
     with pytest.raises(ValueError):
         normalize_version(bad)

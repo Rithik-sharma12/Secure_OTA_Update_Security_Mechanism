@@ -20,7 +20,7 @@ from ..state import (
     push_event_locked,
 )
 from ..utils import safe_cache_path, safe_int, utc_now_iso
-from ..auth import require_write_auth
+from ..auth import require_device_read_auth, require_write_auth
 from ..audit import audit_note
 
 router = APIRouter()
@@ -84,7 +84,7 @@ def trigger_sync(request: Request, _auth: None = Depends(_require_write_auth)) -
 
 
 @router.get('/releases/download/{filename}')
-def download_firmware(filename: str) -> Any:
+def download_firmware(filename: str, _read: None = Depends(require_device_read_auth)) -> Any:
     file_path = safe_cache_path(filename)
     if not file_path:
         raise HTTPException(status_code=400, detail='Invalid firmware filename')

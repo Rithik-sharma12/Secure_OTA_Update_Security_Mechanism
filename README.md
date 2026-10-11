@@ -136,10 +136,15 @@ SecureOTA prevents devices from installing older firmware versions.
 Firmware versions are converted into a numerical representation:
 
 ```text
-version_score = major × 10000 + minor × 100 + patch
+version_score = major × 1000000 + minor × 1000 + patch   (each part 0–999)
 ```
 
-If the incoming firmware version is lower than the currently installed version, the update is rejected.
+If the incoming firmware version is not newer than the currently installed version, the update is rejected.
+
+The version is part of what the release key signs (package `signature_alg 3`),
+so the device checks the version the *package* carries, not just the one the
+manifest claims. A gateway or network attacker cannot roll a board back by
+pairing an old, genuinely signed image with a higher version number.
 
 Example:
 
@@ -204,6 +209,15 @@ IoT Device
     ├── Verify Signature
     └── Flash Firmware
 ```
+
+### First flash from the website, then OTA
+
+Plug a blank board into any computer and open **Devices → Set up a new
+board**. The dashboard flashes the release's factory image (bootloader +
+partitions + app) over that computer's COM port, through the SecureOTA Agent
+or Web Serial in Chrome/Edge, writes the board's Wi-Fi, gateway address and
+its own device token over the same cable, and waits for its first heartbeat.
+Every later update arrives over the air as a signed, encrypted package.
 
 ### Remote control over the internet and USB provisioning
 
@@ -330,7 +344,7 @@ Secure_OTA_Update_Security_Mechanism/
 │   │   ├── package.json
 │   │   └── ...
 │   │
-│   ├── frimware_code/
+│   ├── firmware_code/
 │   │   ├── esp32_ota_main/
 │   │   ├── ota_config.h
 │   │   ├── platformio.ini
@@ -352,7 +366,6 @@ Secure_OTA_Update_Security_Mechanism/
 │       ├── device_simulator.py
 │       └── requirements.txt
 │
-├── firmware_repo/
 ├── gateway_firmware_cache/
 ├── gateway_keys/
 ├── docs/
@@ -368,8 +381,6 @@ Secure_OTA_Update_Security_Mechanism/
 ├── docker-compose.hub.yml
 └── README.md
 ```
-
-> **Note:** The firmware directory is currently named `frimware_code` in the repository.
 
 ---
 
@@ -413,7 +424,7 @@ The dashboard is exposed on port `3000` and the gateway on port `5000`.
 
 ## Build the firmware
 
-From `CODE/frimware_code`, configure
+From `CODE/firmware_code`, configure
 `esp32_ota_main/ota_config.h` from the example file, then use PlatformIO:
 
 ```powershell
