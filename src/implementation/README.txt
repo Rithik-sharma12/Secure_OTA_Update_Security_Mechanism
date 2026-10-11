@@ -5,8 +5,7 @@ This folder contains the backend runtime used by OTA IDE for live OTA telemetry,
 ## Files
 1. `edge_gateway.py` - Primary backend service for OTA runtime APIs.
 2. `device_simulator.py` - Simulates IoT devices sending heartbeat and consuming firmware manifest/download APIs.
-3. `server.py` - Legacy standalone OTA server prototype.
-4. `integration_smoke_test.py` - End-to-end integration checker for backend + frontend + auth middleware.
+3. `integration_smoke_test.py` - End-to-end integration checker for backend + frontend + auth middleware.
 
 ## Backend Deployment
 
@@ -69,7 +68,7 @@ Make sure OTA IDE is running on `http://localhost:3000`, then run:
 ```powershell
 set OTA_TEST_ADMIN_USERNAME=<your-admin-username>
 set OTA_TEST_ADMIN_PASSWORD=<your-admin-password>
-set OTA_TEST_FIRMWARE_PATH=C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\frimware_code\.pio\build\esp32dev\firmware.bin
+set OTA_TEST_FIRMWARE_PATH=C:\Users\Rithik Sharma\Desktop\OTA_IOT\CODE\firmware_code\.pio\build\esp32dev\firmware.bin
 python integration_smoke_test.py
 ```
 
