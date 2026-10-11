@@ -166,7 +166,7 @@ export function UpdateSimulator() {
             </div>
           </div>
         </div>
-        <div aria-live="polite" style={{ minHeight: 26, font: 'var(--type-body-strong)', color: outcome ? '#fff' : 'var(--on-dark-muted)' }}>
+        <div aria-live="polite" style={{ minHeight: 26, font: 'var(--type-body-strong)', color: outcome ? 'var(--lp-ink)' : 'var(--lp-muted)' }}>
           {outcome ?? (cursor < 0 ? 'Pick a scenario and press Deploy.' : 'Updating…')}
         </div>
         <div className="lp-terminal">

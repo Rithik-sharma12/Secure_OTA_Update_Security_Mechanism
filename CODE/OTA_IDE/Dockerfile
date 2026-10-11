@@ -9,6 +9,16 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* values are compiled into the browser bundle by `next build`,
+# so they must exist at BUILD time — setting them only at runtime leaves the
+# login page thinking Clerk is not configured. Publishable keys are public by
+# design; the secret key (CLERK_SECRET_KEY) is supplied at runtime only.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=""
+ARG NEXT_PUBLIC_SUPABASE_URL=""
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=""
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
+    NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 RUN pnpm build && pnpm prune --prod
 

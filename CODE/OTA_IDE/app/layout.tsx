@@ -51,8 +51,33 @@ export const metadata: Metadata = {
 // themeColor belongs on the viewport export in the App Router; putting it in
 // metadata is deprecated and warns at build time.
 export const viewport: Viewport = {
-  themeColor: '#020617',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f6f4f1' },
+    { media: '(prefers-color-scheme: dark)', color: '#0d0d0d' },
+  ],
 }
+
+/**
+ * Clerk's prebuilt pieces (sign-up dialog, UserButton menu) in the
+ * ember/carbon palette, so they read as part of the console.
+ */
+const clerkAppearance = {
+  // CSS variables, so the dialog follows the light/dark switch live.
+  variables: {
+    colorPrimary: '#ff2803',
+    colorDanger: '#d42000',
+    colorBackground: 'var(--card)',
+    colorForeground: 'var(--foreground)',
+    colorMutedForeground: 'var(--muted-foreground)',
+    colorMuted: 'var(--muted)',
+    colorInput: 'var(--input)',
+    colorInputForeground: 'var(--foreground)',
+    colorNeutral: 'var(--foreground)',
+    colorBorder: 'var(--border)',
+    borderRadius: '10px',
+    fontFamily: 'var(--font-source-sans), system-ui, sans-serif',
+  },
+} as const
 
 export default function RootLayout({
   children,
@@ -60,7 +85,14 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   const app = (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="ota-ide-theme">
+    <ThemeProvider
+      attribute="class"
+      themes={['light', 'dark']}
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+      storageKey="ota-ide-theme"
+    >
       {children}
     </ThemeProvider>
   )
@@ -71,7 +103,17 @@ export default function RootLayout({
         className={`${montserrat.variable} ${sourceSans.variable} ${poppins.variable} min-h-svh overflow-x-hidden font-sans antialiased bg-background text-foreground`}
       >
         {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? (
-          <ClerkProvider>{app}</ClerkProvider>
+          <ClerkProvider
+            // Our own pages, not Clerk's hosted Account Portal.
+            signInUrl="/login"
+            signUpUrl="/login"
+            afterSignOutUrl="/login"
+            signInFallbackRedirectUrl="/dashboard"
+            signUpFallbackRedirectUrl="/dashboard"
+            appearance={clerkAppearance}
+          >
+            {app}
+          </ClerkProvider>
         ) : (
           app
         )}

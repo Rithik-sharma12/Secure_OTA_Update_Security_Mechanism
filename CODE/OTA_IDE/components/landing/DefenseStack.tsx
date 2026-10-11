@@ -105,14 +105,14 @@ export function DefenseStack() {
             </button>
           ))}
         </div>
-        <div aria-live="polite" style={{ borderTop: '1px solid rgba(255,255,255,.1)', paddingTop: 16, display: 'grid', gap: 10 }}>
+        <div aria-live="polite" style={{ borderTop: '1px solid var(--lp-line)', paddingTop: 16, display: 'grid', gap: 10 }}>
           {currentAttack && (
-            <p style={{ margin: 0, font: 'var(--type-body-strong)', color: '#fff' }}>
+            <p style={{ margin: 0, font: 'var(--type-body-strong)', color: 'var(--lp-ink)' }}>
               Stopped by <span style={{ color: 'var(--amber)' }}>{current.name}</span>. {currentAttack.result}
             </p>
           )}
           <h3 style={{ margin: 0, font: 'var(--type-heading-sm)' }}>{current.name}</h3>
-          <p style={{ margin: 0, font: 'var(--type-body-md)', color: 'var(--on-dark-muted)', textWrap: 'pretty' }}>{current.detail}</p>
+          <p style={{ margin: 0, font: 'var(--type-body-md)', color: 'var(--lp-muted)', textWrap: 'pretty' }}>{current.detail}</p>
         </div>
       </div>
     </div>

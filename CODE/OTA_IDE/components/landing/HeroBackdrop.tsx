@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTheme } from 'next-themes';
 import { useReducedMotion } from './motion';
 
 /**
@@ -21,14 +22,19 @@ import { useReducedMotion } from './motion';
 type Node = { x: number; y: number; r: number; glow: number; phase: number };
 type Packet = { from: Node; to: Node; t: number; speed: number; kind: 'update' | 'heartbeat' | 'rejected' };
 
-const EMBER = '255, 40, 3';
-const AMBER = '255, 151, 66';
-const BONE = '240, 240, 238';
+// Canvas colours per theme. On paper the "bone" points become carbon so the
+// fleet reads as ink, and the ember/amber accents deepen for contrast.
+const PALETTE = {
+  dark: { ember: '255, 40, 3', amber: '255, 151, 66', bone: '240, 240, 238', core: '#fff' },
+  light: { ember: '212, 32, 0', amber: '184, 86, 0', bone: '24, 24, 24', core: '#181818' },
+} as const;
 
 export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: string; type: string }> }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
+  const { resolvedTheme } = useTheme();
+  const light = resolvedTheme === 'light';
   const [videoReady, setVideoReady] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
@@ -45,6 +51,7 @@ export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: stri
     if (!canvas || !wrap) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    const { ember: EMBER, amber: AMBER, bone: BONE, core: CORE } = light ? PALETTE.light : PALETTE.dark;
 
     let width = 0;
     let height = 0;
@@ -192,7 +199,7 @@ export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: stri
       ctx.beginPath();
       ctx.arc(gateway.x, gateway.y, 46, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = CORE;
       ctx.beginPath();
       ctx.arc(gateway.x, gateway.y, gateway.r, 0, Math.PI * 2);
       ctx.fill();
@@ -247,11 +254,11 @@ export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: stri
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [reduced]);
+  }, [reduced, light]);
 
   return (
     <div ref={wrapRef} className="lp-hero-media" aria-hidden="true">
-      {videoSources.length > 0 && !reduced && (
+      {videoSources.length > 0 && !reduced && !light && (
         <video
           ref={videoRef}
           autoPlay

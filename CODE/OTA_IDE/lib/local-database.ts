@@ -14,6 +14,8 @@ export interface UserRecord {
   username: string;
   email?: string;
   supabaseId?: string;
+  /** Clerk user id (user_...) when the account signs in through Clerk. */
+  clerkId?: string;
   passwordHash?: string;
   role: 'admin' | 'operator' | 'viewer';
   isActive: boolean;

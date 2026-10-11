@@ -51,6 +51,8 @@ type LocalNetwork = {
   granted: boolean;
 };
 
+const SERIAL_PROMPT_KEY = 'ota-serial-prompt-dismissed';
+
 type Grant = {
   id: string;
   resourceType: 'serial' | 'network';
@@ -95,7 +97,24 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
   const [browserDevicesLoaded, setBrowserDevicesLoaded] = React.useState(false);
   const [isRequestingSerial, setIsRequestingSerial] = React.useState(false);
   const [serialPromptOpen, setSerialPromptOpen] = React.useState(false);
-  const [serialPromptDismissed, setSerialPromptDismissed] = React.useState(false);
+  // The prompt opens by itself once per browser; after that the card's own
+  // "Choose a COM port" button is the way in, so it never nags on each visit.
+  const [serialPromptDismissed, setSerialPromptDismissedState] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      if (window.localStorage.getItem(SERIAL_PROMPT_KEY) === '1') setSerialPromptDismissedState(true);
+    } catch {
+      /* storage unavailable: the prompt simply shows again next time */
+    }
+  }, []);
+  const setSerialPromptDismissed = React.useCallback((value: boolean) => {
+    setSerialPromptDismissedState(value);
+    try {
+      if (value) window.localStorage.setItem(SERIAL_PROMPT_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Local agent: lists COM ports by name with no browser prompt at all.
   const { agent, ports: agentPorts, checked: agentChecked, error: agentError } = useLocalAgent();

@@ -444,3 +444,15 @@
     transform: none;
   }
 }
+
+/* Light theme: the ghost button is drawn in ink instead of white. Pages that
+   keep a dark feature panel (sign-in brand panel, landing CTA) re-scope it. */
+.light .ds-ghost {
+  border-color: rgba(24, 24, 24, 0.18);
+  color: var(--carbon);
+}
+.light .ds-ghost:hover {
+  border-color: rgba(24, 24, 24, 0.36);
+  background: rgba(24, 24, 24, 0.05);
+  color: var(--carbon);
+}
