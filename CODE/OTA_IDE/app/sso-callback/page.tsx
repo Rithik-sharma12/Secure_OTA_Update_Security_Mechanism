@@ -11,6 +11,14 @@ import { go, recallPostLoginPath } from '@/lib/post-login';
  */
 export default function SsoCallbackPage() {
   const router = useRouter();
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background text-sm text-foreground/60">
+        Clerk sign-in is not configured. Return to the login page.
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-svh items-center justify-center bg-background text-sm text-foreground/60">
       Finishing sign-in…
