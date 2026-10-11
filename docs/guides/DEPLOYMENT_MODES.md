@@ -32,6 +32,15 @@ Nothing is published. Devices must share the network with this machine and
 reach it at `OTA_LOCAL_URL`. Firmware talks plain HTTP — no certificate
 pinning, no NTP requirement.
 
+Because nothing authenticates the connection, a board in local mode only
+installs **secure packages** (`FIRMWARE_ENC_KEY` + `FIRMWARE_PUB_KEY` set in
+`ota_config.h`, releases built with `tools/create_secure_test_package.py
+--version X.Y.Z`). Their signature covers the image and its version, so
+whoever answers the HTTP request cannot substitute or downgrade it. A board
+without those keys refuses plain images over HTTP unless it is built with
+`OTA_ALLOW_PLAIN_OVER_HTTP=1` (bench only). See
+`CODE/firmware_code/SETUP_GUIDE.md`, "Security Build Switches".
+
 Use it for development, offline demos, and any lab where devices sit on the
 same Wi-Fi.
 
@@ -77,7 +86,7 @@ Manifests advertise `https://`, and the ESP32 needs TLS configured:
 plus a pinned root CA — read it off the live host, don't guess:
 
 ```bash
-python CODE/frimware_code/tools/fetch_root_ca.py gw.nyx-ctf.tech
+python CODE/firmware_code/tools/fetch_root_ca.py gw.nyx-ctf.tech
 ```
 
 A device running local-mode firmware **cannot** fetch over HTTPS, so the

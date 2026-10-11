@@ -36,6 +36,10 @@ const DISALLOWED_BOOTSTRAP_PASSWORDS = new Set([
   // Was the hardcoded fallback in readBootstrapCredentials(). It is in this
   // repository's history, so it must never be accepted as a real password.
   'sentinelsecure_2026!#',
+  // Former defaults in docker-compose.yml / docker-compose.hub.yml, also
+  // published in this repository's history.
+  'secure_ota_college_2026',
+  'secure_ota_college_2026_dashboard!',
 ]);
 
 // New constant for the session cookie name
@@ -165,7 +169,8 @@ function readBootstrapCredentials() {
 async function syncSupabaseProfile(supabaseUser: {
   id: string;
   email?: string;
-  user_metadata?: { role?: unknown; username?: unknown };
+  user_metadata?: { username?: unknown };
+  app_metadata?: Record<string, unknown>;
   last_sign_in_at?: string;
 }) {
   await initializeLocalDatabase();
@@ -173,7 +178,11 @@ async function syncSupabaseProfile(supabaseUser: {
   const username = String(
     supabaseUser.user_metadata?.username || email || supabaseUser.id
   );
-  const metadataRole = supabaseUser.user_metadata?.role;
+  // The role comes from app_metadata, which only the service role can write.
+  // user_metadata is editable by the user themselves (signUp options.data,
+  // auth.updateUser), so reading a role from it let anyone who could sign up
+  // choose to be an operator.
+  const metadataRole = supabaseUser.app_metadata?.role;
   const role: UserRole =
     metadataRole === 'operator' || metadataRole === 'viewer'
       ? metadataRole
@@ -199,6 +208,15 @@ async function syncSupabaseProfile(supabaseUser: {
   });
 }
 
+function bootstrapAdminEmails(): Set<string> {
+  return new Set(
+    (process.env.OTA_BOOTSTRAP_ADMIN_EMAILS || '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
 async function syncClerkProfile(clerkUser: {
   id: string;
   primaryEmailAddress?: { emailAddress: string } | null;
@@ -209,23 +227,45 @@ async function syncClerkProfile(clerkUser: {
   const username = String(
     clerkUser.publicMetadata?.username || email || clerkUser.id
   );
+  // A role set in Clerk's publicMetadata (writable only from the Clerk
+  // dashboard or backend API) wins. Without one, the role stored here is
+  // authoritative: it used to be overwritten with 'viewer' on every sign-in,
+  // which demoted the bootstrap admin on their second login and undid every
+  // role change made from the dashboard's user management.
   const metadataRole = clerkUser.publicMetadata?.role;
-  const configuredRole: UserRole =
+  const configuredRole: UserRole | undefined =
     metadataRole === 'admin' || metadataRole === 'operator' || metadataRole === 'viewer'
       ? metadataRole
-      : 'viewer';
-  const role: UserRole =
-    configuredRole === 'viewer' && (await usersStore.count({})) === 0
-      ? 'admin'
-      : configuredRole;
+      : undefined;
 
   const existing = await usersStore.findOne({ supabaseId: clerkUser.id });
   if (existing) {
+    const role = configuredRole ?? existing.role;
     await usersStore.update(
       { _id: existing._id },
       { $set: { lastLoginAt: new Date().toISOString(), email, username, role } }
     );
     return { ...existing, lastLoginAt: new Date().toISOString(), email, username, role };
+  }
+
+  // Who becomes the first admin. With OTA_BOOTSTRAP_ADMIN_EMAILS set, only
+  // those addresses are promoted. Without it the first account to sign in is
+  // promoted, which with open sign-up means whoever reaches a fresh
+  // deployment first, so say so loudly.
+  let role: UserRole = configuredRole ?? 'viewer';
+  if (!configuredRole) {
+    const allowList = bootstrapAdminEmails();
+    if (allowList.size > 0) {
+      if (email && allowList.has(email.toLowerCase())) {
+        role = 'admin';
+      }
+    } else if ((await usersStore.count({})) === 0) {
+      role = 'admin';
+      logger.warn(
+        'Auth',
+        `Promoted the first Clerk user (${email || clerkUser.id}) to admin. Set OTA_BOOTSTRAP_ADMIN_EMAILS to choose the bootstrap admin explicitly.`
+      );
+    }
   }
 
   return usersStore.insert({
@@ -717,7 +757,8 @@ export async function createUser(input: {
       email,
       password,
       email_confirm: true,
-      user_metadata: { username: email, role },
+      user_metadata: { username: email },
+      app_metadata: { role },
     });
     if (error || !data.user) {
       if (error?.message.toLowerCase().includes('already')) {

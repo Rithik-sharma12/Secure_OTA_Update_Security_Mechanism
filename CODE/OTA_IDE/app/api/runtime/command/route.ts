@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { timingSafeEqual } from 'node:crypto';
 import { platform } from 'node:os';
 import { promisify } from 'node:util';
 import { NextResponse } from 'next/server';
@@ -26,12 +27,19 @@ const blockedPatterns = [
   /(^|\s)diskpart(\s|$)/i,
 ];
 
-const blockedCharactersPattern = /[;&|><`\r\n]/;
-const blockedSubstitutionPattern = /\$\(/;
+// `$` covers $(...), ${...} and plain $VAR: the shell runs in this server's
+// environment, so `echo $CLERK_SECRET_KEY` would print the secret.
+const blockedCharactersPattern = /[;&|><`$\r\n]/;
+
+// Interpreters are not in the default list: `python -c "..."` or
+// `node -e "..."` runs arbitrary code without using a single blocked
+// character, which turns the allowlist into decoration. An operator who puts
+// one in OTA_RUNTIME_COMMAND_ALLOWLIST is granting full shell access.
+const DEFAULT_ALLOWED_COMMANDS = 'echo,dir,ls,pwd,whoami';
 
 function getAllowedCommands() {
   const configured = process.env.OTA_RUNTIME_COMMAND_ALLOWLIST;
-  const values = (configured || 'echo,dir,ls,pwd,whoami,node,python,py')
+  const values = (configured || DEFAULT_ALLOWED_COMMANDS)
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
@@ -55,6 +63,16 @@ function getBearerToken(request: Request) {
   }
 
   return token.trim();
+}
+
+function tokensMatch(provided: string | null, expected: string | undefined) {
+  if (!provided || !expected) {
+    return false;
+  }
+  const providedBuffer = Buffer.from(provided, 'utf8');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  // timingSafeEqual throws on unequal lengths; the length itself is not secret.
+  return providedBuffer.length === expectedBuffer.length && timingSafeEqual(providedBuffer, expectedBuffer);
 }
 
 function normalizeOutput(value: string) {
@@ -91,7 +109,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, output: 'Command is too long.' }, { status: 400 });
     }
 
-    if (blockedCharactersPattern.test(command) || blockedSubstitutionPattern.test(command)) {
+    if (blockedCharactersPattern.test(command)) {
       return NextResponse.json(
         {
           ok: false,
@@ -136,7 +154,7 @@ export async function POST(request: Request) {
     const auth = await authenticateRequest(request);
     const providedToken = getBearerToken(request);
     const expectedToken = process.env.OTA_RUNTIME_COMMAND_TOKEN?.trim();
-    const hasServiceTokenAccess = Boolean(expectedToken && providedToken === expectedToken);
+    const hasServiceTokenAccess = tokensMatch(providedToken, expectedToken);
 
     if (!auth && !hasServiceTokenAccess) {
       return NextResponse.json(

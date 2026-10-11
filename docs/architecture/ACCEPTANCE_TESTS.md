@@ -248,7 +248,7 @@ Anyone who can reach the gateway can (a) invent arbitrary devices, (b) poison th
 **2. Exact file / function**
 - `framework-arduinoespressif32/cores/esp32/esp32-hal-misc.c:222-239` — `initArduino()`
 - `esp32-hal-misc.c:204-208` — weak `verifyOta()` / `verifyRollbackLater()`
-- `CODE/frimware_code/esp32_ota_main/esp32_ota_main.ino` — overrides neither
+- `CODE/firmware_code/esp32_ota_main/esp32_ota_main.ino` — overrides neither
 
 **3. Impact — CRITICAL**
 A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot reach the gateway will be selected by the bootloader forever. Recovery requires physical USB access to every affected board. Because updates are fleet-wide, one bad release can brick every device simultaneously.

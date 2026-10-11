@@ -12,6 +12,7 @@ from typing import Any
 
 from .config import (
     ALLOWED_DEVICE_TYPES,
+    ARTIFACT_DIRS,
     DEFAULT_RELEASE_ARTIFACT,
     FIRMWARE_CACHE_DIR,
     MANIFEST_FILE,
@@ -20,7 +21,7 @@ from .config import (
     SIGNING_KEY_ID,
 )
 from .crypto import sign_firmware_payload
-from .package import is_hex_digest, looks_like_secure_package
+from .package import PackageError, is_hex_digest, looks_like_secure_package, parse_package
 from .state import STATE, push_event_locked, persist_state_locked
 from .utils import (
     firmware_download_url,
@@ -31,14 +32,31 @@ from .utils import (
 )
 
 
+def _within_artifact_dirs(path: Path) -> bool:
+    return any(path == root or root in path.parents for root in ARTIFACT_DIRS)
+
+
 def resolve_release_artifact_path(version: str, source_file_path: str | None) -> Path:
-    """Locate the firmware .bin artifact for a release."""
+    """Locate the firmware .bin artifact for a release.
+
+    A caller-supplied `source_file_path` must resolve (symlinks included) to a
+    file inside one of OTA_GATEWAY_ARTIFACT_DIRS. OTA_GATEWAY_RELEASE_ARTIFACT
+    is operator configuration and is not restricted.
+    """
     candidates: list[Path] = []
 
     if source_file_path:
+        if not ARTIFACT_DIRS:
+            raise ValueError(
+                'sourceFilePath is disabled. Upload the file to /api/releases/upload, or set '
+                'OTA_GATEWAY_ARTIFACT_DIRS to the directories the gateway may read releases from.'
+            )
         provided = Path(source_file_path).expanduser()
         if not provided.is_absolute():
-            provided = (Path.cwd() / provided).resolve()
+            provided = ARTIFACT_DIRS[0] / provided
+        provided = provided.resolve()
+        if not _within_artifact_dirs(provided):
+            raise ValueError('sourceFilePath is outside OTA_GATEWAY_ARTIFACT_DIRS.')
         candidates.append(provided)
 
     if DEFAULT_RELEASE_ARTIFACT:
@@ -357,6 +375,20 @@ def create_release_locked(
     else:
         artifact_path, firmware_payload = load_release_artifact(normalized_version, source_file_path)
         source_artifact = str(artifact_path)
+
+    # A secure package that carries a signed version must be published under
+    # that version. The device refuses the mismatch anyway; refusing it here
+    # turns a fleet-wide failed update into an error at publish time.
+    if looks_like_secure_package(firmware_payload):
+        try:
+            signed_version = parse_package(firmware_payload).version
+        except PackageError as exc:
+            raise ValueError(f'Secure package is malformed: {exc}') from exc
+        if signed_version is not None and normalize_version(signed_version) != normalized_version:
+            raise ValueError(
+                f'Package is signed for v{signed_version} but is being published as '
+                f'v{normalized_version}.'
+            )
 
     checksum = sha256_bytes(firmware_payload)
     _stage(

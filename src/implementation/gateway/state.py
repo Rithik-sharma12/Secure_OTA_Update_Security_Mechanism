@@ -28,6 +28,44 @@ STATE_LOCK = Lock()
 STATE: dict[str, Any] = {}
 
 
+# Held for the life of the process; see claim_state_ownership().
+_OWNERSHIP_HANDLE: Any = None
+
+
+def claim_state_ownership() -> None:
+    """Refuse to start if another gateway process is using this cache dir.
+
+    STATE lives in this process's memory and is written back to one JSON file
+    under a threading lock. A second process (uvicorn --workers 2, two
+    replicas on one volume) would hold its own copy and the two would
+    overwrite each other's releases, devices and tokens. Run one process per
+    cache directory; this makes the mistake fail at startup instead of losing
+    data later.
+
+    Uses an advisory flock, which the OS drops when the process exits. Where
+    fcntl is unavailable (Windows) the check is skipped.
+    """
+    global _OWNERSHIP_HANDLE
+    if _OWNERSHIP_HANDLE is not None:
+        return
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows
+        return
+
+    handle = open(FIRMWARE_CACHE_DIR / 'gateway.lock', 'a+', encoding='utf-8')
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        raise RuntimeError(
+            f'Another gateway process is already using {FIRMWARE_CACHE_DIR}. The gateway '
+            'keeps its state in memory and must run as a single process per cache '
+            'directory (no uvicorn --workers > 1, no shared volume between replicas).'
+        ) from None
+    _OWNERSHIP_HANDLE = handle
+
+
 def default_state() -> dict[str, Any]:
     """Return a clean default state structure."""
     now_iso = utc_now_iso()

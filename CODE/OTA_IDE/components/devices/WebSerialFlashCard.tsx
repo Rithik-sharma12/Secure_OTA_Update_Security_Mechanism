@@ -72,7 +72,7 @@ function versionScore(version: string) {
     .replace(/^v/i, '')
     .split('.')
     .map((part) => Number.parseInt(part, 10) || 0);
-  return major * 10000 + minor * 100 + patch;
+  return major * 1_000_000 + minor * 1_000 + patch;
 }
 
 function formatBytes(bytes: number) {

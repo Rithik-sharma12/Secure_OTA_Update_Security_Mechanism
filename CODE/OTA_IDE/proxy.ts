@@ -13,9 +13,12 @@ const isProtectedRoute = createRouteMatcher([
   '/api/(.*)',
 ]);
 
+// Routes that authenticate by other means. Cron uses CRON_SECRET; a Clerk
+// session check here would turn every scheduled run into a 404.
 const isPublicApiRoute = createRouteMatcher([
   '/api/auth/(.*)',
   '/api/health/(.*)',
+  '/api/cron/(.*)',
 ]);
 
 const protectedMiddleware = clerkMiddleware(async (auth, request) => {
@@ -28,6 +31,10 @@ const protectedMiddleware = clerkMiddleware(async (auth, request) => {
 });
 
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  // Without Clerk, sessions come from Supabase or the local user store and
+  // this proxy cannot check them. Every route under app/api therefore checks
+  // its own caller (authenticateRequest / withSecureApi / a shared secret);
+  // tests/api-route-auth.test.ts fails the build if a route does not.
   if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
     return NextResponse.next();
   }

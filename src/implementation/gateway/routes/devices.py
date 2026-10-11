@@ -27,6 +27,7 @@ from ..auth import (
     device_credentials,
     hash_device_token,
     new_device_token,
+    require_read_auth,
     require_write_auth,
 )
 from ..audit import audit_note
@@ -88,7 +89,7 @@ def _device_view_locked(device_id: str) -> dict[str, Any]:
 # ── Registry ──────────────────────────────────────────────────
 
 @router.get('/api/devices')
-def list_devices() -> dict[str, Any]:
+def list_devices(_read: None = Depends(require_read_auth)) -> dict[str, Any]:
     with STATE_LOCK:
         expire_commands_locked()
         ids = sorted(set(STATE.get('devices', {})) | set(STATE.get('deviceCredentials', {})))
@@ -105,7 +106,7 @@ def list_devices() -> dict[str, Any]:
 
 
 @router.get('/api/devices/{device_id}')
-def get_device(device_id: str) -> dict[str, Any]:
+def get_device(device_id: str, _read: None = Depends(require_read_auth)) -> dict[str, Any]:
     device_id = _check_device_id(device_id)
     with STATE_LOCK:
         expire_commands_locked(device_id)
@@ -186,7 +187,7 @@ def remove_device(device_id: str, request: Request, _auth: None = Depends(_requi
 # ── Commands (dashboard side) ─────────────────────────────────
 
 @router.get('/api/devices/{device_id}/commands')
-def list_device_commands(device_id: str) -> dict[str, Any]:
+def list_device_commands(device_id: str, _read: None = Depends(require_read_auth)) -> dict[str, Any]:
     device_id = _check_device_id(device_id)
     with STATE_LOCK:
         expire_commands_locked(device_id)
@@ -303,6 +304,7 @@ def device_telemetry(
     device_id: str,
     hours: float = Query(default=24.0, gt=0),
     points: int = Query(default=240, ge=10, le=1000),
+    _read: None = Depends(require_read_auth),
 ) -> dict[str, Any]:
     """Heartbeat history, averaged into at most `points` buckets."""
     device_id = _check_device_id(device_id)

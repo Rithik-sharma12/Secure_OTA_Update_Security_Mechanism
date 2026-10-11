@@ -7,7 +7,7 @@
 #     ./go-online.sh off           take it offline (stops cloudflared + stack; data kept)
 #     ./go-online.sh status        show what is running and whether it is public
 #
-#   Firmware (PlatformIO, from CODE/frimware_code)
+#   Firmware (PlatformIO, from CODE/firmware_code)
 #     ./go-online.sh ports                         list COM ports with a board attached
 #     ./go-online.sh build   [-e ENV]              compile only; prints the .bin path
 #     ./go-online.sh flash   [-e ENV] [-p COMx]    compile + flash over USB (auto-detects port)
@@ -28,7 +28,7 @@ PROJECT=secure_ota
 GW_URL=https://gw.nyx-ctf.tech
 UI_URL=https://ota.nyx-ctf.tech
 
-FW_DIR=CODE/frimware_code
+FW_DIR=CODE/firmware_code
 FW_CONFIG=$FW_DIR/esp32_ota_main/ota_config.h
 # Where `pip install --user platformio` puts pio.exe (resolved lazily in ensure_pio)
 PIO_BIN_DIR=

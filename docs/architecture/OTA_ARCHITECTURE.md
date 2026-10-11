@@ -16,7 +16,7 @@ Every ESP32 claim below is grounded in a file that was read during this study, n
 | OTA write path | `libraries/Update/src/Updater.cpp` (`esp_ota_*` calls) |
 | Rollback bootloader config | `framework-arduinoespressif32/tools/sdk/esp32/sdkconfig` |
 | Rollback validation timing | `framework-arduinoespressif32/cores/esp32/esp32-hal-misc.c:203-239` |
-| Device OTA logic | `CODE/frimware_code/esp32_ota_main/esp32_ota_main.ino` |
+| Device OTA logic | `CODE/firmware_code/esp32_ota_main/esp32_ota_main.ino` |
 | Gateway behaviour | `src/implementation/gateway/**` (all modules read) |
 | CI pipeline | `.github/workflows/firmware-release.yml` |
 
@@ -194,7 +194,7 @@ These are frequently conflated. They are different mechanisms at different layer
 | Bypassable | Yes — by anyone who can flash over USB, or forge a manifest | No — eFuse burns are one-way |
 | Status | **Working, symmetric** | **Off** (`is not set`, confirmed) |
 
-The implemented scheme reduces both sides to `major*10000 + minor*100 + patch` and requires strictly greater. `gateway/utils.py:72-97` mirrors `parseVersion()` at `esp32_ota_main.ino:782-808` exactly, so the gateway never advertises what the device would refuse. This is good design and should be kept.
+The implemented scheme reduces both sides to `major*1000000 + minor*1000 + patch` (each part 0-999) and requires strictly greater; secure packages also carry the version inside the signed data. `gateway/utils.py:72-97` mirrors `parseVersion()` at `esp32_ota_main.ino:782-808` exactly, so the gateway never advertises what the device would refuse. This is good design and should be kept.
 
 But it is a *policy* control, not a *security* control. Enabling hardware anti-rollback requires Secure Boot v2 and eFuse burning — irreversible, bricks the device on error, and precludes downgrade forever. Recommended only for a production fleet, never on development boards (§10 Phase 4).
 
@@ -373,7 +373,7 @@ GET  /releases/download/{filename}
 
 **Note:** `pnpm lint` is declared as `eslint .` but eslint is not installed and no config exists. `pnpm build` and `tsc` are the only working gates.
 
-### 4.3 Firmware — `CODE/frimware_code/`
+### 4.3 Firmware — `CODE/firmware_code/`
 
 **Implemented well:** bounded streaming secure install, deferred activation, PKCS#7 validation, NTP sentinel for TLS (`:183` — rejects epoch-0 clocks properly), pinned-root-CA support with an explicit warning when absent, ASH health scoring persisted to NVS with hysteresis (quarantine <40, recovery at 100).
 

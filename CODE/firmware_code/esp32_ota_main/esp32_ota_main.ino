@@ -2,7 +2,8 @@
  * ESP32 Multi-Method OTA Firmware
  * --------------------------------------------------
  * Supports:
- *   1) ArduinoOTA push updates (IDE / OTA tools)
+ *   1) ArduinoOTA push updates (IDE / OTA tools) — development builds only,
+ *      see OTA_ENABLE_ARDUINO_OTA
  *   2) Backend manifest pull and self-update
  *   3) Secure package mode (AES-256-CBC + RSA-2048 signature)
  *   4) Plain package mode, bound to the manifest sha256 (for development)
@@ -16,8 +17,9 @@
  *
  * Update paths are mutually exclusive and fail closed. A device built with
  * secure keys never falls back to an unverified flash; a device without them
- * still refuses any image the manifest cannot vouch for by digest. See
- * OTA_ALLOW_INSECURE_TLS / OTA_ALLOW_UNVERIFIED_OTA for the bench escapes.
+ * still refuses any image the manifest cannot vouch for by digest, and only
+ * accepts such plain images over verified https. See the security policy
+ * switches below for the bench escapes.
  */
 
 #include <Arduino.h>
@@ -53,7 +55,10 @@
 #endif
 
 #define FIRMWARE_VERSION    "2.5.0"
-#define FIRMWARE_VERSION_N  20500  // major*10000 + minor*100 + patch
+// major*1000000 + minor*1000 + patch (each part 0-999); see parseVersion().
+// The gateway (gateway/utils.py version_score) and dashboard use the same
+// packing. Release CI checks that the git tag matches FIRMWARE_VERSION.
+#define FIRMWARE_VERSION_N  2005000
 
 #define HEALTH_QUARANTINE 40
 #define HEALTH_MAX       100
@@ -91,8 +96,14 @@
 /* Secure package framing. Defined once on the gateway side in
  * src/implementation/gateway/package.py — keep the two in step.
  *
- *   v2  magic(6) | sig_alg(1) | cipher_alg(1) | sig_len(2) | IV(16) | sig | ct
+ *   v2  magic(6) | sig_alg(1) | cipher_alg(1) | sig_len(2)
+ *       [ver_len(1) | version(ver_len)]      <- sig_alg 3 only
+ *       | IV(16) | sig | ct
  *   v1  IV(16) | sig(256) | ct
+ *
+ * sig_alg 3 signs SHA-256("SOTA-FW\0" || version || "\0" || SHA-256(image)),
+ * so the version the anti-rollback check uses is vouched for by the release
+ * key rather than by the (possibly plain-HTTP) manifest.
  *
  * SECURE_HEADER_BYTES must stay <= SECURE_IV_BYTES: the v1 branch reads a
  * header-sized block speculatively and reuses it as the front of the IV.
@@ -101,9 +112,12 @@
 #define SECURE_MAGIC_BYTES 6U
 #define SECURE_HEADER_BYTES 10U
 
-#define SECURE_SIG_ALG_RSA2048_SHA256 1U
+#define SECURE_SIG_ALG_RSA2048_SHA256 1U  // legacy: image only, version unsigned
 #define SECURE_SIG_ALG_ED25519        2U  // reserved; not verifiable in this build
+#define SECURE_SIG_ALG_RSA2048_VERSIONED 3U
 #define SECURE_CIPHER_ALG_AES256_CBC  1U
+#define SECURE_MAX_VERSION_BYTES      32U
+static const char SECURE_VERSION_PREFIX[] = "SOTA-FW";  // + its NUL terminator
 
 /* ── Security policy ───────────────────────────────────────────────────────
  * Both switches default to the safe value and may be overridden in
@@ -122,6 +136,56 @@
 
 #ifndef OTA_ALLOW_UNVERIFIED_OTA
 #define OTA_ALLOW_UNVERIFIED_OTA 0
+#endif
+
+/*
+ * OTA_ENABLE_ARDUINO_OTA   1 = listen for ArduinoOTA pushes on port 3232.
+ *                              ArduinoOTA writes whatever image it is sent:
+ *                              no signature, no anti-rollback, no quarantine.
+ *                              Its only protection is OTA_PASSWORD, which is
+ *                              compiled into every board and checked with an
+ *                              MD5 challenge. Only the esp32dev_ota
+ *                              PlatformIO environment turns this on.
+ */
+#ifndef OTA_ENABLE_ARDUINO_OTA
+#define OTA_ENABLE_ARDUINO_OTA 0
+#endif
+
+/*
+ * OTA_ALLOW_UNVERSIONED_PACKAGES 1 = accept v1 packages and v2 packages with
+ *                              signature_alg 1, whose signature does not cover
+ *                              the version. Anti-rollback then rests on the
+ *                              manifest alone. For boards that must still take
+ *                              packages built by older tooling.
+ */
+#ifndef OTA_ALLOW_UNVERSIONED_PACKAGES
+#define OTA_ALLOW_UNVERSIONED_PACKAGES 0
+#endif
+
+/*
+ * OTA_ALLOW_PLAIN_OVER_HTTP 1 = in plain package mode (no FIRMWARE_ENC_KEY /
+ *                              FIRMWARE_PUB_KEY), accept an image from an
+ *                              http:// gateway. The only integrity check in
+ *                              plain mode is the manifest sha256, which comes
+ *                              over the same connection as the image, so over
+ *                              http anyone on the path can replace both.
+ */
+#ifndef OTA_ALLOW_PLAIN_OVER_HTTP
+#define OTA_ALLOW_PLAIN_OVER_HTTP 0
+#endif
+
+/*
+ * OTA_PROVISIONING_REQUIRES_BUTTON 1 = SOTA:PROVISION and SOTA:RESET-CONFIG
+ *                              are only accepted while the BOOT button is held.
+ *                              Without secure boot anyone at the USB port can
+ *                              reflash the board anyway, so this only matters
+ *                              on hardened boards (secure boot + flash
+ *                              encryption + UART download disabled), where the
+ *                              serial protocol would otherwise be the easiest
+ *                              way to repoint the board at another gateway.
+ */
+#ifndef OTA_PROVISIONING_REQUIRES_BUTTON
+#define OTA_PROVISIONING_REQUIRES_BUTTON 0
 #endif
 
 Preferences prefs;
@@ -249,7 +313,7 @@ bool syncTimeForTls();
 
 bool fetchLatestRelease(ManifestInfo &manifestOut);
 bool performHttpUpdate(const ManifestInfo &manifest);
-bool performSecurePackageUpdate(const String &url, const String &expectedSha256);
+bool performSecurePackageUpdate(const String &url, const String &expectedSha256, const String &manifestVersion);
 bool performPlainPackageUpdate(const String &url, const String &expectedSha256);
 bool isSecureOtaConfigured();
 bool digestMatchesExpected(const uint8_t *digest, const String &expectedHex);
@@ -279,9 +343,11 @@ void setup() {
   loadHealth();
   setupWiFi();
 
+#if OTA_ENABLE_ARDUINO_OTA
   setupArduinoOTA();
+#endif
   if (state.inQuarantine) {
-    Serial.println("[OTA] Device in quarantine. OTA recovery mode enabled.");
+    Serial.println("[OTA] Device in quarantine. Backend OTA is disabled until health recovers.");
     blinkLED(5, 180);
   }
 
@@ -290,7 +356,9 @@ void setup() {
 }
 
 void loop() {
+#if OTA_ENABLE_ARDUINO_OTA
   ArduinoOTA.handle();
+#endif
   serviceSerial();
   enforceHealthGate();
 
@@ -439,6 +507,8 @@ bool beginRequest(HTTPClient &http, const String &url) {
 }
 
 void setupArduinoOTA() {
+  Serial.println("[ArduinoOTA] WARNING: development build. Pushed images are NOT");
+  Serial.println("[ArduinoOTA] WARNING: signature-checked or rollback-protected.");
   ArduinoOTA.setPort(ARDUINO_OTA_PORT);
   ArduinoOTA.setHostname(cfg.hostname.c_str());
   ArduinoOTA.setPassword(OTA_PASSWORD);
@@ -501,6 +571,11 @@ UpdateOutcome checkBackendOTA() {
                 manifest.version.c_str(),
                 remoteVerN);
 
+  if (remoteVerN < 0) {
+    Serial.println("[Backend] Manifest version is not MAJOR.MINOR.PATCH; ignoring it");
+    return UPDATE_NOT_NEEDED;
+  }
+
   if (remoteVerN == FIRMWARE_VERSION_N) {
     Serial.println("[Backend] Device is up to date");
     adjustHealth(+1, "poll success");
@@ -509,6 +584,18 @@ UpdateOutcome checkBackendOTA() {
 
   if (remoteVerN < FIRMWARE_VERSION_N) {
     Serial.println("[Backend] Anti-rollback blocked downgrade package");
+    return UPDATE_NOT_NEEDED;
+  }
+
+  // A version that already failed its health gate on this board would fail
+  // it again: install, roll back, lose 25 health, repeat until quarantined.
+  // Wait for a newer release instead.
+  prefs.begin("ota-health", true);
+  const String failedVersion = prefs.getString("badver", "");
+  prefs.end();
+  if (failedVersion.length() && parseVersion(failedVersion) == remoteVerN) {
+    Serial.printf("[Backend] v%s already failed its health check here; waiting for a newer release.\n",
+                  manifest.version.c_str());
     return UPDATE_NOT_NEEDED;
   }
 
@@ -726,7 +813,7 @@ bool performHttpUpdate(const ManifestInfo &manifest) {
      * update and quarantine the device after three tries.
      */
     Serial.println("[Update] Secure OTA configuration detected");
-    success = performSecurePackageUpdate(manifest.downloadUrl, manifest.imageSha256);
+    success = performSecurePackageUpdate(manifest.downloadUrl, manifest.imageSha256, manifest.version);
     if (!success) {
       Serial.println("[Update] ERROR: Secure OTA failed. No fallback — the device");
       Serial.println("[Update] ERROR: keeps its current firmware.");
@@ -735,6 +822,18 @@ bool performHttpUpdate(const ManifestInfo &manifest) {
     Serial.println("[Update] ERROR: The release is an encrypted package but this");
     Serial.println("[Update] ERROR: device has no FIRMWARE_ENC_KEY/FIRMWARE_PUB_KEY.");
     Serial.println("[Update] ERROR: Flashing it would write ciphertext to flash.");
+    success = false;
+  } else if (manifest.sha256.length() == SHA256_DIGEST_BYTES * 2U &&
+             !OTA_ALLOW_PLAIN_OVER_HTTP &&
+             !(cfg.backendUrl.startsWith("https://") && manifest.downloadUrl.startsWith("https://"))) {
+    // The digest and the image come over the same connection. Without TLS
+    // whoever can answer it can replace both, so the check proves nothing.
+    Serial.println("[Update] ERROR: No secure keys configured and the gateway is not");
+    Serial.println("[Update] ERROR: https://. A plain image's only integrity check is the");
+    Serial.println("[Update] ERROR: manifest sha256, which an attacker on the path can");
+    Serial.println("[Update] ERROR: rewrite. Configure FIRMWARE_ENC_KEY/FIRMWARE_PUB_KEY,");
+    Serial.println("[Update] ERROR: use an https:// gateway, or (bench only) build with");
+    Serial.println("[Update] ERROR: OTA_ALLOW_PLAIN_OVER_HTTP=1.");
     success = false;
   } else if (manifest.sha256.length() == SHA256_DIGEST_BYTES * 2U) {
     // Plain path: the downloaded bytes are the image, so `sha256` is correct.
@@ -835,7 +934,7 @@ bool isSecureOtaConfigured() {
   return hasAesKey && hasPubKey;
 }
 
-bool performSecurePackageUpdate(const String &url, const String &expectedSha256) {
+bool performSecurePackageUpdate(const String &url, const String &expectedSha256, const String &manifestVersion) {
   Serial.println("[Update] Starting secure OTA package flow...");
 
   HTTPClient http;
@@ -893,6 +992,11 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
   uint8_t iv[SECURE_IV_BYTES];
   uint8_t signature[SECURE_SIGNATURE_BYTES];
 
+  // Set only for signature_alg 3: the version the release key signed.
+  bool versionSigned = false;
+  char signedVersion[SECURE_MAX_VERSION_BYTES + 1U] = {0};
+  size_t signedVersionLength = 0;
+
   if (isV2) {
     const uint8_t signatureAlg = header[SECURE_MAGIC_BYTES];
     const uint8_t cipherAlg = header[SECURE_MAGIC_BYTES + 1U];
@@ -904,9 +1008,15 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
                   static_cast<unsigned int>(cipherAlg),
                   static_cast<unsigned int>(signatureLength));
 
-    if (signatureAlg != SECURE_SIG_ALG_RSA2048_SHA256) {
+    if (signatureAlg == SECURE_SIG_ALG_RSA2048_VERSIONED) {
+      versionSigned = true;
+#if OTA_ALLOW_UNVERSIONED_PACKAGES
+    } else if (signatureAlg == SECURE_SIG_ALG_RSA2048_SHA256) {
+      Serial.println("[Update] WARNING: unversioned package; anti-rollback relies on the manifest.");
+#endif
+    } else {
       Serial.println("[Update] ERROR: Package signed with an algorithm this build");
-      Serial.println("[Update] ERROR: cannot verify. Refusing the update.");
+      Serial.println("[Update] ERROR: will not accept. Refusing the update.");
       http.end();
       return false;
     }
@@ -927,6 +1037,43 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
 
     consumedHeader = SECURE_HEADER_BYTES;
 
+    if (versionSigned) {
+      uint8_t versionLength = 0;
+      if (stream->readBytes(reinterpret_cast<char *>(&versionLength), 1) != 1 ||
+          versionLength == 0U || versionLength > SECURE_MAX_VERSION_BYTES) {
+        Serial.println("[Update] ERROR: Invalid signed version field");
+        http.end();
+        return false;
+      }
+      if (stream->readBytes(signedVersion, versionLength) != versionLength) {
+        Serial.println("[Update] ERROR: Truncated signed version field");
+        http.end();
+        return false;
+      }
+      signedVersion[versionLength] = '\0';
+      signedVersionLength = versionLength;
+      consumedHeader += 1U + versionLength;
+
+      /*
+       * Anti-rollback on the package's own claim, checked again after the
+       * signature proves the claim. The manifest's version is not trusted for
+       * this: in local mode it arrives over plain HTTP and nothing signs it.
+       */
+      const int signedVerN = parseVersion(String(signedVersion));
+      if (signedVerN < 0 || signedVerN <= FIRMWARE_VERSION_N) {
+        Serial.printf("[Update] ERROR: Package is v%s; running v%s. Refusing a downgrade or reinstall.\n",
+                      signedVersion, FIRMWARE_VERSION);
+        http.end();
+        return false;
+      }
+      if (signedVerN != parseVersion(manifestVersion)) {
+        Serial.printf("[Update] ERROR: Package is v%s but the manifest offered v%s.\n",
+                      signedVersion, manifestVersion.c_str());
+        http.end();
+        return false;
+      }
+    }
+
     const size_t ivRead = stream->readBytes(reinterpret_cast<char *>(iv), sizeof(iv));
     const size_t sigRead = stream->readBytes(reinterpret_cast<char *>(signature), signatureLength);
     if (ivRead != sizeof(iv) || sigRead != signatureLength) {
@@ -935,6 +1082,13 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
       return false;
     }
   } else {
+#if !OTA_ALLOW_UNVERSIONED_PACKAGES
+    Serial.println("[Update] ERROR: Legacy v1 package (no header, version not signed).");
+    Serial.println("[Update] ERROR: Rebuild it with gateway/package.py, or build this");
+    Serial.println("[Update] ERROR: firmware with OTA_ALLOW_UNVERSIONED_PACKAGES=1.");
+    http.end();
+    return false;
+#endif
     // v1: the bytes already read are the start of the IV, not a header.
     Serial.println("[Update] Package format v1 (legacy, no algorithm header)");
 
@@ -1095,17 +1249,37 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
       break;
     }
 
+    // For signature_alg 3 the signature covers a statement binding the
+    // version to the image digest, not the image digest alone.
+    uint8_t signedDigest[32];
+    memcpy(signedDigest, hash, sizeof(signedDigest));
+    if (versionSigned) {
+      static const uint8_t separator = 0;
+      if (mbedtls_md_starts(&mdCtx) != 0 ||
+          mbedtls_md_update(&mdCtx, reinterpret_cast<const uint8_t *>(SECURE_VERSION_PREFIX), sizeof(SECURE_VERSION_PREFIX)) != 0 ||
+          mbedtls_md_update(&mdCtx, reinterpret_cast<const uint8_t *>(signedVersion), signedVersionLength) != 0 ||
+          mbedtls_md_update(&mdCtx, &separator, 1) != 0 ||
+          mbedtls_md_update(&mdCtx, hash, sizeof(hash)) != 0 ||
+          mbedtls_md_finish(&mdCtx, signedDigest) != 0) {
+        Serial.println("[Update] ERROR: Version statement hash failed");
+        break;
+      }
+    }
+
     Serial.println("[Update] Verifying firmware signature...");
     const int verifyResult = mbedtls_pk_verify(
       &pk,
       MBEDTLS_MD_SHA256,
-      hash,
-      sizeof(hash),
+      signedDigest,
+      sizeof(signedDigest),
       signature,
       sizeof(signature));
     if (verifyResult != 0) {
       Serial.printf("[Update] ERROR: Signature verification failed (%d)\n", verifyResult);
       break;
+    }
+    if (versionSigned) {
+      Serial.printf("[Update] Signed version v%s verified.\n", signedVersion);
     }
 
     /*
@@ -1127,7 +1301,8 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256)
       Serial.println("[Update] Manifest sha256 matches the decrypted image.");
     } else {
       Serial.println("[Update] NOTE: manifest published no sha256; relying on the");
-      Serial.println("[Update] NOTE: signature alone (no rollback binding).");
+      Serial.println(versionSigned ? "[Update] NOTE: signature and its signed version."
+                                   : "[Update] NOTE: signature alone (no rollback binding).");
     }
 
     Serial.printf("[Update] Signature verified. Writing %u bytes to flash.\n", static_cast<unsigned int>(totalWritten));
@@ -1197,7 +1372,7 @@ bool performPlainPackageUpdate(const String &url, const String &expectedSha256) 
    *    still in it. Those bytes would be hashed and flashed as if they were
    *    firmware.
    *
-   * The gateway always sends a length (server.py serves a file from disk), so
+   * The gateway always sends a length (it serves a file from disk), so
    * this is a clear error rather than a limitation in practice.
    */
   if (contentLength <= 0) {
@@ -1354,7 +1529,6 @@ void adjustHealth(int delta, const char *reason) {
   if (state.inQuarantine && state.healthScore >= HEALTH_MAX) {
     state.inQuarantine = false;
     Serial.println("[Health] Quarantine lifted");
-    setupArduinoOTA();
   }
 
   saveHealth();
@@ -1395,32 +1569,46 @@ bool isBtnHeld(int ms) {
   return digitalRead(BTN_OTA) == LOW;
 }
 
-int parseVersion(String ver) {
-  int major = 0;
-  int minor = 0;
-  int patch = 0;
+/*
+ * MAJOR.MINOR.PATCH -> major*1000000 + minor*1000 + patch.
+ *
+ * Each part must be 0-999 and purely numeric; anything else returns -1, which
+ * every caller treats as "not a version" rather than as 0.0.0. The previous
+ * packing (major*10000 + minor*100 + patch) let 2.4.100 collide with 2.5.0
+ * and silently read "2.5.0-rc1" as 2.5.0.
+ */
+static int parseVersionPart(const String &part) {
+  if (part.length() == 0 || part.length() > 3) {
+    return -1;
+  }
+  for (size_t i = 0; i < part.length(); ++i) {
+    if (!isdigit(static_cast<unsigned char>(part.charAt(i)))) {
+      return -1;
+    }
+  }
+  return part.toInt();
+}
 
+int parseVersion(String ver) {
+  ver.trim();
   if (ver.startsWith("v") || ver.startsWith("V")) {
     ver = ver.substring(1);
   }
 
   const int firstDot = ver.indexOf('.');
-  const int secondDot = ver.indexOf('.', firstDot + 1);
-
-  if (firstDot > 0) {
-    major = ver.substring(0, firstDot).toInt();
-  } else {
-    major = ver.toInt();
+  const int secondDot = firstDot < 0 ? -1 : ver.indexOf('.', firstDot + 1);
+  if (firstDot <= 0 || secondDot <= firstDot || ver.indexOf('.', secondDot + 1) >= 0) {
+    return -1;
   }
 
-  if (firstDot > 0 && secondDot > firstDot) {
-    minor = ver.substring(firstDot + 1, secondDot).toInt();
-    patch = ver.substring(secondDot + 1).toInt();
-  } else if (firstDot > 0) {
-    minor = ver.substring(firstDot + 1).toInt();
+  const int major = parseVersionPart(ver.substring(0, firstDot));
+  const int minor = parseVersionPart(ver.substring(firstDot + 1, secondDot));
+  const int patch = parseVersionPart(ver.substring(secondDot + 1));
+  if (major < 0 || minor < 0 || patch < 0) {
+    return -1;
   }
 
-  return major * 10000 + minor * 100 + patch;
+  return major * 1000000 + minor * 1000 + patch;
 }
 
 
@@ -1648,6 +1836,11 @@ void detectPendingVerification() {
   prefs.end();
   if (rolledBackVersion.length()) {
     Serial.printf("[Gate] v%s failed its health check; running v%s again.\n", rolledBackVersion.c_str(), FIRMWARE_VERSION);
+    // Remembered past confirmHealthyBoot() so checkBackendOTA() does not
+    // reinstall the same broken image on the next poll.
+    prefs.begin("ota-health", false);
+    prefs.putString("badver", rolledBackVersion);
+    prefs.end();
   }
 }
 
@@ -1673,6 +1866,9 @@ void confirmHealthyBoot() {
   prefs.end();
 
   if (expected.length() && parseVersion(expected) == FIRMWARE_VERSION_N) {
+    prefs.begin("ota-health", false);
+    prefs.remove("badver");  // a newer image made it; the old failure no longer applies
+    prefs.end();
     reportOtaStatus("succeeded", FIRMWARE_VERSION, 100, "Booted, joined Wi-Fi and reached the gateway");
     reportCommandResult(ackCommand, true, String("Updated to v") + FIRMWARE_VERSION);
   }
@@ -1719,8 +1915,10 @@ void enforceHealthGate() {
  *    SOTA:RESET-CONFIG             -> SOTA:OK ... then reboot
  *
  *  Driven by the SecureOTA local agent (POST /provision, GET /device-info).
- *  Anyone at the USB port can reflash the board anyway, so this adds no new
- *  exposure; nothing here is reachable over the network.
+ *  Nothing here is reachable over the network. Without secure boot anyone at
+ *  the USB port can reflash the board anyway, so this adds no new exposure;
+ *  on a hardened board build with OTA_PROVISIONING_REQUIRES_BUTTON=1 so the
+ *  serial protocol does not become the easy way in.
  * ══════════════════════════════════════════════════════════════════════════ */
 
 void serviceSerial() {
@@ -1782,6 +1980,14 @@ void handleSerialLine(const String &rawLine) {
     Serial.println(out);
     return;
   }
+
+#if OTA_PROVISIONING_REQUIRES_BUTTON
+  if ((line == "SOTA:RESET-CONFIG" || line.startsWith("SOTA:PROVISION ")) &&
+      digitalRead(BTN_OTA) != LOW) {
+    Serial.println("SOTA:ERR hold the BOOT button while sending this command");
+    return;
+  }
+#endif
 
   if (line == "SOTA:RESET-CONFIG") {
     prefs.begin("sota-cfg", false);

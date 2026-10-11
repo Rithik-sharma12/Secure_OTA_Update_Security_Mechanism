@@ -34,7 +34,7 @@ FIRMWARE = b'\xe9\x06\x02\x20' + bytes(range(256)) * 30 + b'end'
 def package(tmp_path_factory) -> bytes:
     keys = tmp_path_factory.mktemp('digestkeys')
     private = load_or_create_packaging_key(keys / 'p.pem', keys / 'pub.pem')
-    return build_package(FIRMWARE, private, AES_KEY)
+    return build_package(FIRMWARE, private, AES_KEY, version='1.0.0')
 
 
 # ── The core distinction ─────────────────────────────────────────────

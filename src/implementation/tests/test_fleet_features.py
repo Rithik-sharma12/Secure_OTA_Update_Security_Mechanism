@@ -88,7 +88,7 @@ def test_telemetry_history_is_recorded_and_bucketed(client, fleet):
     for i in range(6):
         _heartbeat(client, fleet, device_id, version='1.0.0' if i < 3 else '1.1.0', rssi=-50 - i, memory=30.0 + i)
 
-    series = client.get(f'/api/devices/{device_id}/telemetry', params={'hours': 1, 'points': 10}).json()
+    series = client.get(f'/api/devices/{device_id}/telemetry', params={'hours': 1, 'points': 10}, headers=fleet).json()
     assert series['rawSamples'] == 6
     assert series['points'], series
     last = series['points'][-1]
@@ -142,7 +142,7 @@ def test_stream_announces_changes(client, fleet):
     _heartbeat(client, fleet, _device_id())
     assert state_revision() > before
 
-    with client.stream('GET', '/api/stream', params={'max_seconds': 1}) as response:
+    with client.stream('GET', '/api/stream', params={'max_seconds': 1}, headers=fleet) as response:
         assert response.headers['content-type'].startswith('text/event-stream')
         text = ''.join(response.iter_text())
     assert 'event: hello' in text
@@ -193,13 +193,13 @@ def test_webhook_rejects_bad_signature_and_foreign_repo(client, webhook_env):
     assert client.post('/api/github/webhook', content=raw, headers=headers).status_code == 403
 
 
-def test_webhook_publishes_verified_secure_release(client, webhook_env, monkeypatch, tmp_path):
+def test_webhook_publishes_verified_secure_release(client, fleet, webhook_env, monkeypatch, tmp_path):
     keys = tmp_path / 'ci'
     keys.mkdir()
     private = load_or_create_packaging_key(keys / 'priv.pem', keys / 'pub.pem')
     aes = 'Q' * 32
     firmware = b'\xe9' + b'\x5a' * 20_000
-    package = build_package(firmware, private, aes)
+    package = build_package(firmware, private, aes, version='9.2.0')
 
     monkeypatch.setenv('OTA_RELEASE_RSA_PUBKEY_PATH', str(keys / 'pub.pem'))
     monkeypatch.setenv('OTA_RELEASE_AES_KEY', aes)
@@ -213,7 +213,7 @@ def test_webhook_publishes_verified_secure_release(client, webhook_env, monkeypa
     assert response.status_code == 200, response.text
     assert response.json()['published'][0]['version'] == '9.2.0'
 
-    served = client.get('/releases/latest/manifest', params={'device_type': 'ESP32'}).json()
+    served = client.get('/releases/latest/manifest', params={'device_type': 'ESP32'}, headers=fleet).json()
     assert served['version'] == '9.2.0'
     assert served['securePackage'] is True
     # Derived by decrypting, not taken on trust from the manifest.

@@ -23,7 +23,7 @@ from ..release import (
 )
 from ..state import STATE, STATE_LOCK, gateway_snapshot, persist_state_locked
 from ..utils import normalize_compatibility, normalize_device_type, utc_now_iso
-from ..auth import require_write_auth
+from ..auth import require_device_read_auth, require_read_auth, require_write_auth
 from ..audit import audit_note
 
 import json
@@ -41,7 +41,7 @@ _require_write_auth = require_write_auth
 
 
 @router.get('/api/releases')
-def list_releases() -> dict[str, Any]:
+def list_releases(_read: None = Depends(require_read_auth)) -> dict[str, Any]:
     snapshot = gateway_snapshot()
     return {'ok': True, 'releases': snapshot.get('releases', [])}
 
@@ -133,7 +133,7 @@ async def upload_release(
 
 
 @router.get('/api/releases/latest')
-def latest_release() -> dict[str, Any]:
+def latest_release(_read: None = Depends(require_read_auth)) -> dict[str, Any]:
     snapshot = gateway_snapshot()
     releases = snapshot.get('releases', [])
     if not releases:
@@ -146,6 +146,7 @@ def latest_release() -> dict[str, Any]:
 def get_manifest(
     device_id: str | None = Query(default=None),
     device_type: str | None = Query(default=None),
+    _read: None = Depends(require_device_read_auth),
 ) -> Any:
     """Manifest for the caller.
 

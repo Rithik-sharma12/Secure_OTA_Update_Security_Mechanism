@@ -8,7 +8,8 @@
  *
  * The firmware is built for ONE deployment mode and cannot switch at runtime:
  *   local  – BACKEND_URL is the http://<LAN-IP>:5000 value of OTA_LOCAL_URL,
- *            OTA_ROOT_CA stays empty.
+ *            OTA_ROOT_CA stays empty. Set FIRMWARE_ENC_KEY/FIRMWARE_PUB_KEY:
+ *            over http:// the board refuses plain (unsigned) images.
  *   cloud  – BACKEND_URL is the https:// value of OTA_PUBLIC_URL and
  *            OTA_ROOT_CA must hold the root that the tunnel's certificate
  *            chains to. Generate it with:
@@ -50,6 +51,8 @@ static const char OTA_ROOT_CA[] PROGMEM = "";
 #define OTA_NTP_SERVER_SECONDARY  "time.google.com"
 
 // ── ArduinoOTA push (env esp32dev_ota / ESP32_OTA_PASSWORD) ───────────────
+// Only compiled in when OTA_ENABLE_ARDUINO_OTA=1 (the esp32dev_ota env).
+// ArduinoOTA does no signature or rollback checks; never ship such a build.
 #define OTA_PASSWORD  "CHANGE_ME_OTA_PASSWORD"
 
 // ── Secure package mode. Both must be set together to enable it. ─────────
@@ -68,6 +71,12 @@ static const char OTA_ROOT_CA[] PROGMEM = "";
 //
 // #define OTA_ALLOW_INSECURE_TLS    1   // skip TLS certificate validation
 // #define OTA_ALLOW_UNVERIFIED_OTA  1   // flash images with no digest to check
+// #define OTA_ALLOW_PLAIN_OVER_HTTP 1   // plain images (no secure keys) from http://
+// #define OTA_ALLOW_UNVERSIONED_PACKAGES 1  // packages whose version is not signed
+//
+// Hardened boards (secure boot + flash encryption): require the BOOT button for
+// serial provisioning. See SETUP_GUIDE.md "Hardening a deployed board".
+// #define OTA_PROVISIONING_REQUIRES_BUTTON 1
 
 // Optional: how often to poll the manifest (default 30)
 // #define OTA_CHECK_INTERVAL_SECONDS 30

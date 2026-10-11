@@ -17,7 +17,7 @@ from gateway.package import (
     build_package,
     firmware_sha256,
     load_or_create_packaging_key,
-    open_package,
+    open_package, parse_package,
 )
 
 AES_KEY = 'Vb7Xq9Zm2Kd4Rn1TyP6sJ8wG3hL5cF0e'
@@ -56,7 +56,7 @@ def _upload(client, auth, name, blob, version, **form):
 
 def test_secure_release_publishes_both_digests(client, auth, signing):
     private, _ = signing
-    package = build_package(FIRMWARE, private, AES_KEY)
+    package = build_package(FIRMWARE, private, AES_KEY, version='3.0.0')
 
     response = _upload(
         client, auth, 'firmware_v3.0.0.bin', package, '3.0.0',
@@ -74,7 +74,7 @@ def test_secure_release_publishes_both_digests(client, auth, signing):
 def test_a_device_can_verify_what_the_gateway_served(client, auth, signing):
     """Mirrors performSecurePackageUpdate: decrypt, verify, then match digest."""
     private, public_pem = signing
-    package = build_package(FIRMWARE, private, AES_KEY)
+    package = build_package(FIRMWARE, private, AES_KEY, version='3.2.0')
 
     manifest = _upload(
         client, auth, 'firmware_v3.2.0.bin', package, '3.2.0',
@@ -95,8 +95,8 @@ def test_a_validly_signed_older_package_is_not_accepted(client, auth, signing):
     signature verifies — only the digest comparison catches it.
     """
     private, public_pem = signing
-    current = build_package(FIRMWARE, private, AES_KEY)
-    older = build_package(OLDER_FIRMWARE, private, AES_KEY)
+    current = build_package(FIRMWARE, private, AES_KEY, version='3.3.0')
+    older = build_package(OLDER_FIRMWARE, private, AES_KEY, version='3.1.0')
 
     manifest = _upload(
         client, auth, 'firmware_v3.3.0.bin', current, '3.3.0',
@@ -109,6 +109,21 @@ def test_a_validly_signed_older_package_is_not_accepted(client, auth, signing):
 
     # And is still refused, because it is not the image the manifest offered.
     assert firmware_sha256(replayed) != manifest['imageSha256']
+
+    # Independently of the manifest, the package itself says what it is: the
+    # device compares this signed version with its own and refuses anything
+    # not strictly newer.
+    assert parse_package(older).version == '3.1.0'
+
+
+def test_a_package_cannot_be_published_under_another_version(client, auth, signing):
+    """The signed version and the release version must agree."""
+    private, _ = signing
+    package = build_package(FIRMWARE, private, AES_KEY, version='3.7.0')
+
+    response = _upload(client, auth, 'firmware_v3.8.0.bin', package, '3.8.0', securePackage='true')
+    assert response.status_code == 400
+    assert 'signed for v3.7.0' in response.json()['detail']
 
 
 def test_plain_release_publishes_a_usable_image_digest(client, auth):
@@ -127,7 +142,7 @@ def test_plain_release_publishes_a_usable_image_digest(client, auth):
 def test_v2_package_is_flagged_without_the_form_field(client, auth, signing):
     """The magic is enough for v2; the explicit flag is only needed for v1."""
     private, _ = signing
-    package = build_package(FIRMWARE, private, AES_KEY)
+    package = build_package(FIRMWARE, private, AES_KEY, version='3.5.0')
 
     manifest = _upload(
         client, auth, 'firmware_v3.5.0.bin', package, '3.5.0'
@@ -142,7 +157,7 @@ def test_v2_package_is_flagged_without_the_form_field(client, auth, signing):
 def test_a_malformed_image_digest_is_rejected_at_publish(client, auth, signing):
     """Better to fail the publish than to ship a manifest no device can match."""
     private, _ = signing
-    package = build_package(FIRMWARE, private, AES_KEY)
+    package = build_package(FIRMWARE, private, AES_KEY, version='3.6.0')
 
     response = _upload(
         client, auth, 'firmware_v3.6.0.bin', package, '3.6.0',

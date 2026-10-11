@@ -136,10 +136,15 @@ SecureOTA prevents devices from installing older firmware versions.
 Firmware versions are converted into a numerical representation:
 
 ```text
-version_score = major × 10000 + minor × 100 + patch
+version_score = major × 1000000 + minor × 1000 + patch   (each part 0–999)
 ```
 
-If the incoming firmware version is lower than the currently installed version, the update is rejected.
+If the incoming firmware version is not newer than the currently installed version, the update is rejected.
+
+The version is part of what the release key signs (package `signature_alg 3`),
+so the device checks the version the *package* carries, not just the one the
+manifest claims. A gateway or network attacker cannot roll a board back by
+pairing an old, genuinely signed image with a higher version number.
 
 Example:
 
@@ -330,7 +335,7 @@ Secure_OTA_Update_Security_Mechanism/
 │   │   ├── package.json
 │   │   └── ...
 │   │
-│   ├── frimware_code/
+│   ├── firmware_code/
 │   │   ├── esp32_ota_main/
 │   │   ├── ota_config.h
 │   │   ├── platformio.ini
@@ -352,7 +357,6 @@ Secure_OTA_Update_Security_Mechanism/
 │       ├── device_simulator.py
 │       └── requirements.txt
 │
-├── firmware_repo/
 ├── gateway_firmware_cache/
 ├── gateway_keys/
 ├── docs/
@@ -368,8 +372,6 @@ Secure_OTA_Update_Security_Mechanism/
 ├── docker-compose.hub.yml
 └── README.md
 ```
-
-> **Note:** The firmware directory is currently named `frimware_code` in the repository.
 
 ---
 
@@ -413,7 +415,7 @@ The dashboard is exposed on port `3000` and the gateway on port `5000`.
 
 ## Build the firmware
 
-From `CODE/frimware_code`, configure
+From `CODE/firmware_code`, configure
 `esp32_ota_main/ota_config.h` from the example file, then use PlatformIO:
 
 ```powershell

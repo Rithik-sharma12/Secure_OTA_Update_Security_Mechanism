@@ -113,15 +113,23 @@ Open Serial Monitor at **115200 baud**:
 [Health] Loaded: score=100 quarantine=0
 [WiFi] Connecting to MyNetwork.....
 [WiFi] Connected – IP: 10.10.72.15
-[ArduinoOTA] Listening on port 3232
 [OTA] Setup complete
 ```
 
-Note the **IP address** – you need it for network OTA.
+Note the **IP address** – you need it for network OTA. (`[ArduinoOTA] Listening
+on port 3232` only appears in builds from the `esp32dev_ota` environment.)
 
 ---
 
-## Step 6 – Update Over Network (ArduinoOTA)
+## Step 6 – Update Over Network (ArduinoOTA, development only)
+
+> **ArduinoOTA skips every security check.** It flashes whatever image it is
+> sent: no signature check, no anti-rollback, no quarantine. Its only
+> protection is `OTA_PASSWORD`, which is compiled into every board. It is
+> therefore compiled in only by the `esp32dev_ota` PlatformIO environment
+> (`-DOTA_ENABLE_ARDUINO_OTA=1`). Release builds (`esp32dev`, `esp32s3`,
+> `esp32c3`, and the CI release workflow) do not listen on port 3232. Use it
+> on a bench board, then reflash a release build before deployment.
 
 ### From Arduino IDE
 - **Tools → Port** – select the device under "Network ports"
@@ -185,6 +193,73 @@ and downloads any newer release.
 
 ---
 
+## Security Build Switches
+
+All default to the safe value. Set them in `ota_config.h` only for bench work.
+
+| Switch | Default | Effect when set to 1 |
+|--------|---------|----------------------|
+| `OTA_ENABLE_ARDUINO_OTA` | 0 | Listen for unauthenticated-image ArduinoOTA pushes (set by `esp32dev_ota`) |
+| `OTA_ALLOW_UNVERSIONED_PACKAGES` | 0 | Accept packages whose signature does not cover the version (v1 and `signature_alg 1`) |
+| `OTA_ALLOW_PLAIN_OVER_HTTP` | 0 | Without secure keys, accept a plain image from an `http://` gateway |
+| `OTA_ALLOW_INSECURE_TLS` | 0 | Talk to an `https://` gateway without verifying its certificate |
+| `OTA_ALLOW_UNVERIFIED_OTA` | 0 | Flash a plain image that has no manifest sha256 |
+| `OTA_PROVISIONING_REQUIRES_BUTTON` | 0 | Serial `SOTA:PROVISION` / `SOTA:RESET-CONFIG` only while BOOT is held (for hardened boards) |
+
+### Signed versions and anti-rollback
+
+Secure packages are built by `src/implementation/gateway/package.py` (through
+`tools/create_secure_test_package.py --version X.Y.Z` or the release
+workflow). The RSA signature covers the release version as well as the image,
+and the device refuses a package whose *signed* version is not newer than its
+own `FIRMWARE_VERSION` or differs from the manifest. A gateway, or anyone
+answering an `http://` manifest request, therefore cannot roll a board back by
+pairing an old signed image with a new version number.
+
+Packages from the old openssl-based workflow (v1, or v2 with
+`signature_alg 1`) are refused unless the firmware was built with
+`OTA_ALLOW_UNVERSIONED_PACKAGES=1`. Rebuild old packages with the tool, which
+needs `--version`.
+
+Versions must be `MAJOR.MINOR.PATCH` with each part 0–999. They are compared
+as `major*1000000 + minor*1000 + patch`. The release workflow refuses a tag
+that does not match `FIRMWARE_VERSION` in `esp32_ota_main.ino`.
+
+### What the keys protect, and what they don't
+
+* `FIRMWARE_PUB_KEY` (RSA-2048) is what makes an image trustworthy. Keep the
+  private key off the gateway host if you can (CI secret, offline machine).
+* `FIRMWARE_ENC_KEY` (AES-256) is **one key for the whole fleet**, compiled
+  into every board. It keeps the image confidential in transit and at rest on
+  the gateway, but anyone who reads one board's flash can decrypt every
+  package. It gives no integrity; that is the signature's job.
+* Without secure keys, a plain image is checked only against the manifest's
+  sha256. That is accepted only from an `https://` gateway with a configured
+  `OTA_ROOT_CA`, since over `http://` an attacker on the path can rewrite both.
+
+### Hardening a deployed board
+
+Without these, anyone with physical access can read every secret on the board
+(Wi-Fi password, fleet key, device token, AES key) with `esptool read_flash`
+and flash any image over USB, bypassing all of the above:
+
+1. **Flash encryption** (release mode) so flash contents cannot be read back.
+2. **Secure Boot V2** so the ROM only boots images signed with your secure-boot
+   key. This is separate from, and in addition to, the OTA package signature.
+3. **Disable UART download mode** (`esp_efuse` / `espefuse.py burn_efuse
+   UART_DOWNLOAD_DIS`, or secure download mode), so the USB port cannot be used
+   to reflash or dump the chip.
+4. Build with `OTA_PROVISIONING_REQUIRES_BUTTON=1`, so the serial provisioning
+   protocol cannot silently repoint the board at another gateway.
+5. Give every board its own device token (Devices → Provision over USB) and set
+   `OTA_REQUIRE_DEVICE_TOKEN=true` on the gateway, then rotate the fleet key off
+   the boards.
+
+These are one-way eFuse operations; follow Espressif's *Security Features*
+guide for your chip and test on a sacrificial board first.
+
+---
+
 ## Health Score Reference
 
 | Event | Score Change |
@@ -194,6 +269,9 @@ and downloads any newer release.
 | Network error | -1 |
 | OTA failure | -25 |
 | Score < 40 | Quarantine (OTA disabled) |
+
+A version that fails its post-update health gate is remembered on the board and
+not offered again; publish a newer version to retry.
 
 To reset quarantine: power-cycle and send a manual reset from OTA IDE →
 Devices → [device] → Reset Quarantine.

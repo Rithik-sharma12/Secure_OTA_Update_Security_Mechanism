@@ -28,7 +28,7 @@ jobs:
     # qualified.
     defaults:
       run:
-        working-directory: CODE/frimware_code
+        working-directory: CODE/firmware_code
 
     steps:
       # ── 1. Checkout source ────────────────────────────────
@@ -42,7 +42,7 @@ jobs:
           path: ~/.platformio
           # hashFiles() is always repo-root relative, regardless of
           # defaults.run.working-directory.
-          key: pio-${{ hashFiles('CODE/frimware_code/platformio.ini') }}
+          key: pio-${{ hashFiles('CODE/firmware_code/platformio.ini') }}
 
       # ── 3. Install PlatformIO ─────────────────────────────
       - name: Install PlatformIO
@@ -79,6 +79,28 @@ jobs:
           )KEY";
           EOF
           echo "Wrote esp32_ota_main/ota_config.h ($(wc -l < esp32_ota_main/ota_config.h) lines)"
+
+      # ── 4b. Tag must match the version compiled into the image ─
+      # The device compares the signed package version with FIRMWARE_VERSION
+      # in the running image. If the tag and the sketch disagree, a board
+      # flashes the release, reports the old version and is offered the same
+      # release again forever.
+      - name: Check tag matches FIRMWARE_VERSION
+        run: |
+          SKETCH_VERSION=$(sed -n 's/^#define FIRMWARE_VERSION[[:space:]]*"\([^"]*\)".*/\1/p' esp32_ota_main/esp32_ota_main.ino)
+          if [ "v$SKETCH_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match FIRMWARE_VERSION \"$SKETCH_VERSION\" in esp32_ota_main.ino."
+            exit 1
+          fi
+          # FIRMWARE_VERSION_N is what the anti-rollback check compares; it
+          # must be major*1000000 + minor*1000 + patch of FIRMWARE_VERSION.
+          SKETCH_VERSION_N=$(sed -n 's/^#define FIRMWARE_VERSION_N[[:space:]]*\([0-9]*\).*/\1/p' esp32_ota_main/esp32_ota_main.ino)
+          IFS=. read -r MAJOR MINOR PATCH <<< "$SKETCH_VERSION"
+          EXPECTED_N=$((10#$MAJOR * 1000000 + 10#$MINOR * 1000 + 10#$PATCH))
+          if [ "$SKETCH_VERSION_N" != "$EXPECTED_N" ]; then
+            echo "::error::FIRMWARE_VERSION_N is $SKETCH_VERSION_N; FIRMWARE_VERSION $SKETCH_VERSION needs $EXPECTED_N."
+            exit 1
+          fi
 
       # ── 5. Static analysis ────────────────────────────────
       # There is no unit-test harness for the embedded C++, so the compile
@@ -157,31 +179,29 @@ jobs:
 
           echo "Signing and encrypting firmware binaries..."
 
-          # Save the private key to a temporary file for openssl to use
-          echo "$FIRMWARE_PRIV_KEY" > priv.pem
+          # Packages are built by gateway/package.py (through the bench tool),
+          # the single definition of the format. Its default, signature_alg 3,
+          # signs the release version together with the image so a device can
+          # refuse a downgrade without trusting the manifest. Firmware refuses
+          # the old openssl-built, unversioned packages by default.
+          VERSION="${GITHUB_REF_NAME#v}"
+          pip install -q cryptography
+          KEYS_DIR="$RUNNER_TEMP/release-keys"
+          mkdir -p "$KEYS_DIR"
+          ( umask 077; printf '%s\n' "$FIRMWARE_PRIV_KEY" > "$KEYS_DIR/firmware_test_private.pem" )
 
           for f in release-assets/*.bin; do
             echo "Processing $f..."
-
-            # 1. Sign the unencrypted binary (SHA-256 + RSA signature)
-            openssl dgst -sha256 -sign priv.pem -out "$f.sig" "$f"
-
-            # 2. Generate a random 16-byte IV
-            iv=$(openssl rand -hex 16)
-
-            # 3. Encrypt the firmware
-            openssl enc -aes-256-cbc -in "$f" -out "$f.enc" -K $(echo -n "$FIRMWARE_ENC_KEY" | xxd -p -c 256) -iv "$iv"
-
-            # 4. Pack IV (16 bytes), Signature (256 bytes), and encrypted firmware
-            echo "$iv" | xxd -r -p > "$f.iv"
-            cat "$f.iv" "$f.sig" "$f.enc" > "$f.secure"
-
-            # Replace the original unencrypted file with the final secure payload
+            python tools/create_secure_test_package.py \
+              --firmware "$f" \
+              --version "$VERSION" \
+              --aes-key "$FIRMWARE_ENC_KEY" \
+              --keys-dir "$KEYS_DIR" \
+              --output "$f.secure" > /dev/null
             mv "$f.secure" "$f"
-            rm "$f.enc" "$f.iv" "$f.sig"
           done
 
-          rm priv.pem
+          rm -rf "$KEYS_DIR"
 
       # ── 9. Compute SHA-256 checksums + release manifest ───
       # release-manifest.json is what the gateway's GitHub webhook
@@ -238,9 +258,9 @@ jobs:
           # Repo-root relative: `uses:` steps do not inherit
           # defaults.run.working-directory.
           files: |
-            CODE/frimware_code/release-assets/*.bin
-            CODE/frimware_code/release-assets/checksums.txt
-            CODE/frimware_code/release-assets/release-manifest.json
+            CODE/firmware_code/release-assets/*.bin
+            CODE/firmware_code/release-assets/checksums.txt
+            CODE/firmware_code/release-assets/release-manifest.json
           draft: false
           prerelease: false
         env:

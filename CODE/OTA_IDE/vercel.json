@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cron/worker",
+      "path": "/api/cron/webhooks",
       "schedule": "* * * * *"
     }
   ]

@@ -34,16 +34,24 @@ def safe_cache_path(filename: str) -> Path | None:
 
 
 def normalize_version(version: str) -> str:
-    """Normalize a semantic version string (strip leading 'v', validate digits)."""
-    candidate = version.strip().lstrip('v')
+    """Normalize a release version to canonical MAJOR.MINOR.PATCH.
+
+    Exactly three numeric parts, each 0-999, because that is all the firmware's
+    parseVersion() accepts: a release published as "2.5" or "2.4.1000" would be
+    ignored by every board. Leading zeros are dropped so "2.05.0" and "2.5.0"
+    cannot be published as two different releases.
+    """
+    candidate = version.strip()
+    if candidate[:1] in ('v', 'V'):
+        candidate = candidate[1:]
     if not candidate:
         raise ValueError('Version cannot be empty.')
 
     segments = candidate.split('.')
-    if not all(segment.isdigit() for segment in segments):
-        raise ValueError('Version must be numeric dot-separated (for example 2.1.0).')
+    if len(segments) != 3 or not all(segment.isdigit() and len(segment) <= 3 for segment in segments):
+        raise ValueError('Version must be MAJOR.MINOR.PATCH with each part 0-999 (for example 2.1.0).')
 
-    return candidate
+    return '.'.join(str(int(segment)) for segment in segments)
 
 
 def normalize_compatibility(raw_value: Any) -> list[str]:
@@ -73,7 +81,7 @@ def version_score(version: str) -> int:
     """Map a semantic version to a comparable integer.
 
     Mirrors the firmware's anti-rollback arithmetic exactly
-    (major*10000 + minor*100 + patch) so the gateway and the device agree on
+    (major*1000000 + minor*1000 + patch) so the gateway and the device agree on
     what counts as newer. Unparseable input scores 0 rather than raising, so a
     malformed heartbeat can never take the gateway down.
     """
@@ -89,7 +97,7 @@ def version_score(version: str) -> int:
         numbers.append(0)
 
     major, minor, patch = numbers[0], numbers[1], numbers[2]
-    return major * 10000 + minor * 100 + patch
+    return major * 1_000_000 + minor * 1_000 + patch
 
 
 def is_newer_version(candidate: str, current: str) -> bool:

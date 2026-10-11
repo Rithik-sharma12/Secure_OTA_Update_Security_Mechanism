@@ -79,7 +79,7 @@ def test_token_hash_is_never_exposed(client, fleet):
     _heartbeat(client, {'x-device-token': token}, device_id)
 
     for path in ('/api/dashboard', '/api/devices', f'/api/devices/{device_id}'):
-        body = client.get(path).text
+        body = client.get(path, headers=fleet).text
         assert token not in body
         assert gateway_auth.hash_device_token(token) not in body
 
@@ -136,7 +136,7 @@ def test_command_round_trip(client, fleet):
     assert result.status_code == 200
     assert result.json()['status'] == 'succeeded'
 
-    history = client.get(f'/api/devices/{device_id}/commands').json()['commands']
+    history = client.get(f'/api/devices/{device_id}/commands', headers=fleet).json()['commands']
     assert history[0]['status'] == 'succeeded'
 
 
@@ -176,7 +176,7 @@ def test_remove_device(client, fleet):
     _heartbeat(client, fleet, device_id)
     assert client.delete(f'/api/devices/{device_id}').status_code == 401
     assert client.delete(f'/api/devices/{device_id}', headers=fleet).status_code == 200
-    assert client.get(f'/api/devices/{device_id}').status_code == 404
+    assert client.get(f'/api/devices/{device_id}', headers=fleet).status_code == 404
 
 
 # ── Deployments drive what a specific device is offered ───────
@@ -203,7 +203,7 @@ def test_deployment_targets_a_specific_release_and_nudges_the_device(client, fle
     assert beat['commands'][0]['params']['version'] == '7.1.0'
 
     # And the per-device manifest names the assigned build, not the newest.
-    manifest = client.get('/releases/latest/manifest', params={'device_id': device_id, 'device_type': 'ESP32'}).json()
+    manifest = client.get('/releases/latest/manifest', params={'device_id': device_id, 'device_type': 'ESP32'}, headers=fleet).json()
     assert manifest['version'] == '7.1.0'
     assert manifest['signature']
 
@@ -214,16 +214,16 @@ def test_deployment_targets_a_specific_release_and_nudges_the_device(client, fle
         json={'phase': 'downloading', 'version': '7.1.0', 'progress': 40},
     )
     assert status.status_code == 200
-    target = client.get('/api/deployments').json()['deployments'][0]['targets'][device_id]
+    target = client.get('/api/deployments', headers=fleet).json()['deployments'][0]['targets'][device_id]
     assert target['phase'] == 'downloading' and target['progress'] == 40 and target['state'] == 'pending'
 
     # The heartbeat must not wipe the OTA status the device reported.
     _heartbeat(client, fleet, device_id, version='7.0.0')
-    assert client.get(f'/api/devices/{device_id}').json()['device']['ota']['phase'] == 'downloading'
+    assert client.get(f'/api/devices/{device_id}', headers=fleet).json()['device']['ota']['phase'] == 'downloading'
 
     # Confirmation still comes only from a heartbeat on the new version.
     _heartbeat(client, fleet, device_id, version='7.1.0')
-    deployments = {d['id']: d for d in client.get('/api/deployments').json()['deployments']}
+    deployments = {d['id']: d for d in client.get('/api/deployments', headers=fleet).json()['deployments']}
     assert deployments[deployment['id']]['targets'][device_id]['state'] == 'confirmed'
 
 
@@ -240,7 +240,7 @@ def test_device_reported_failure_fails_the_target_immediately(client, fleet):
         headers=fleet,
         json={'phase': 'rolled_back', 'version': '8.1.0', 'detail': 'health check timed out'},
     )
-    deployments = {d['id']: d for d in client.get('/api/deployments').json()['deployments']}
+    deployments = {d['id']: d for d in client.get('/api/deployments', headers=fleet).json()['deployments']}
     target = deployments[deployment_id]['targets'][device_id]
     assert target['state'] == 'failed'
     assert 'health check timed out' in target['reason']
@@ -261,7 +261,7 @@ def test_auto_update_off_offers_nothing_without_a_deployment(client, fleet, monk
     _heartbeat(client, fleet, device_id, version='1.0.0')
     monkeypatch.setattr(gateway_config, 'AUTO_UPDATE', False)
 
-    manifest = client.get('/releases/latest/manifest', params={'device_id': device_id}).json()
+    manifest = client.get('/releases/latest/manifest', params={'device_id': device_id}, headers=fleet).json()
     assert manifest['updateAvailable'] is False
     assert manifest['version'] == '1.0.0'
     assert _heartbeat(client, fleet, device_id, version='1.0.0').json()['command'] == 'ack'

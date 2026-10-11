@@ -38,6 +38,13 @@ if not API_KEY and not ALLOW_OPEN_WRITES:
         'trusted local network.'
     )
 
+# Read endpoints (fleet inventory, telemetry, events, release list, firmware
+# downloads) used to be open to anyone who could reach the port. They now need
+# the same key as writes — or, for the manifest and firmware download that
+# boards poll, a valid device token. Set this to restore the old open reads on
+# a trusted network.
+PUBLIC_READS: bool = os.getenv('OTA_GATEWAY_PUBLIC_READS', '').strip().lower() in {'1', 'true', 'yes'}
+
 # ── Device credentials and remote control ─────────────────────
 # Per-device tokens are issued by POST /api/devices/register. While this is
 # false, a device that has no token yet may still authenticate with the fleet
@@ -82,6 +89,16 @@ PUBLIC_BASE_URL: str = os.getenv('OTA_GATEWAY_PUBLIC_URL', '').rstrip('/')
 SIGNING_KEY_ID: str = os.getenv('OTA_GATEWAY_SIGNING_KEY_ID', 'gateway-ed25519-primary').strip() or 'gateway-ed25519-primary'
 SIGNING_ALGORITHM: str = 'Ed25519'
 DEFAULT_RELEASE_ARTIFACT: str = os.getenv('OTA_GATEWAY_RELEASE_ARTIFACT', '').strip()
+
+# Directories that POST /api/releases may read a `sourceFilePath` from. Empty
+# (the default) disables sourceFilePath entirely: it used to accept any .bin
+# path on the gateway host. Comma-separated; publish through
+# /api/releases/upload when the file is not already on the gateway.
+ARTIFACT_DIRS: list[Path] = [
+    Path(entry.strip()).expanduser().resolve()
+    for entry in os.getenv('OTA_GATEWAY_ARTIFACT_DIRS', '').split(',')
+    if entry.strip()
+]
 
 # ── Limits ────────────────────────────────────────────────────
 MAX_DEVICE_LOG_ENTRIES: int = int(os.getenv('OTA_MAX_DEVICE_LOG_ENTRIES', '50'))

@@ -24,7 +24,7 @@ from ..state import (
     persist_state_locked,
 )
 from ..utils import utc_now_iso
-from ..auth import require_write_auth
+from ..auth import require_read_auth, require_write_auth
 
 router = APIRouter()
 
@@ -35,7 +35,7 @@ _require_write_auth = require_write_auth
 
 
 @router.get('/api/deployments')
-def list_deployments() -> dict[str, Any]:
+def list_deployments(_read: None = Depends(require_read_auth)) -> dict[str, Any]:
     # Deadlines are evaluated lazily on read, so no background scheduler is
     # needed for a deployment to eventually stop showing as in-progress.
     with STATE_LOCK:

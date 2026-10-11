@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import require_write_auth  # noqa: F401  (re-exported for callers/tests)
 from .config import CORS_ALLOW_CREDENTIALS, CORS_ALLOW_ORIGINS, HOST, PORT
-from .state import load_state
+from .state import claim_state_ownership, load_state
 from .audit import install_audit_middleware
 from .routes import register_routes
 
@@ -45,7 +45,9 @@ def create_app() -> FastAPI:
     # Register all routes
     register_routes(application)
 
-    # Load persisted state
+    # Load persisted state. One process per cache directory: see
+    # claim_state_ownership() for why a second one is refused.
+    claim_state_ownership()
     load_state()
 
     return application

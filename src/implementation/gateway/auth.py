@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import Header, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query
 
-from .config import API_KEY
+from .config import API_KEY, PUBLIC_READS
 
 
 def require_write_auth(
@@ -146,3 +146,42 @@ def authorize_device_locked(state: dict, device_id: str, caller: DeviceCaller) -
         return 'fleet'
 
     raise HTTPException(status_code=401, detail='Invalid or missing device credentials.')
+
+
+# ── Read access ───────────────────────────────────────────────
+
+
+def require_read_auth(
+    api_key: str | None = Query(default=None),
+    x_api_key: str | None = Header(default=None, alias='x-api-key'),
+    authorization: str | None = Header(default=None),
+) -> None:
+    """Operator reads: the fleet inventory, telemetry, events, releases.
+
+    Same key as writes. A device token is deliberately not enough: one board's
+    token must not reveal the rest of the fleet.
+    """
+    if PUBLIC_READS:
+        return
+    require_write_auth(api_key=api_key, x_api_key=x_api_key, authorization=authorization)
+
+
+def require_device_read_auth(caller: DeviceCaller = Depends(device_credentials)) -> None:
+    """Reads a board makes while updating: the manifest and the firmware file.
+
+    Accepts the fleet key or any current device token.
+    """
+    if PUBLIC_READS or not API_KEY:
+        return
+    if _fleet_key_valid(caller.fleet_key):
+        return
+    if caller.device_token:
+        from .state import STATE, STATE_LOCK  # local import: state imports config/crypto only
+
+        token_hash = hash_device_token(caller.device_token)
+        with STATE_LOCK:
+            records = list((STATE.get('deviceCredentials') or {}).values())
+        for record in records:
+            if not record.get('revoked') and hmac.compare_digest(token_hash, str(record.get('tokenHash', ''))):
+                return
+    raise HTTPException(status_code=401, detail='Invalid or missing gateway credentials.')
