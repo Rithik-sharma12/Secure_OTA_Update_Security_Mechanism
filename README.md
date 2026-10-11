@@ -210,6 +210,15 @@ IoT Device
     └── Flash Firmware
 ```
 
+### First flash from the website, then OTA
+
+Plug a blank board into any computer and open **Devices → Set up a new
+board**. The dashboard flashes the release's factory image (bootloader +
+partitions + app) over that computer's COM port, through the SecureOTA Agent
+or Web Serial in Chrome/Edge, writes the board's Wi-Fi, gateway address and
+its own device token over the same cable, and waits for its first heartbeat.
+Every later update arrives over the air as a signed, encrypted package.
+
 ### Remote control over the internet and USB provisioning
 
 Deployments, restarts and update checks started on the website reach a board

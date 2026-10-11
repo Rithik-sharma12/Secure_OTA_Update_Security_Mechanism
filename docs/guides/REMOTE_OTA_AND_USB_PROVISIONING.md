@@ -20,7 +20,50 @@ firewalls). Everything it wants a device to do is handed over in the answer to
 the device's own heartbeat, so it works on any network the board can reach the
 gateway from.
 
-## 1. Flash and provision over the COM port
+## 0. Bring up a new board from the website (first flash, then OTA)
+
+**Devices → Set up a new board** does the whole first-time path in one go,
+from any computer the board is plugged into:
+
+1. Downloads the **factory image** of the newest release that has one, through
+   the dashboard server (operators only), and checks its SHA-256.
+2. Flashes it at `0x0` over the COM port: through the SecureOTA Agent if it is
+   running, otherwise Web Serial in Chrome/Edge (one-time *Add USB device*
+   prompt). *Erase the whole chip first* is on by default so old settings and
+   OTA slots do not survive.
+3. Reads the board's id over the same cable (`SOTA:INFO`), registers it with
+   the gateway for its own device token.
+4. Writes Wi-Fi, gateway URL and token into NVS (`SOTA:PROVISION`); the board
+   reboots onto the network.
+5. Waits for its first heartbeat. From then on it is updated over the air with
+   signed, encrypted OTA packages; it never needs the cable again.
+
+Why a factory image: a blank board has no bootloader or partition table, so the
+OTA app image (`0x10000`) cannot boot it, and a secure release's OTA asset is
+an encrypted package that would put ciphertext in flash (the dashboard refuses
+to send one to the USB flasher). The factory image is bootloader + partition
+table + `boot_app0` + the **plain** app, merged at `0x0`.
+
+Where it comes from:
+
+* **Release workflow** builds `firmware-<board>-full.bin` for each board before
+  encryption and attaches it to the GitHub release; the webhook attaches it to
+  the gateway release next to the OTA package.
+* **Manually**: `./go-online.sh build` writes `firmware-full.bin`; upload it in
+  *Releases → Publish* as *Factory image* together with the app `.bin` (and,
+  for an encrypted package, its plaintext SHA-256).
+
+The gateway accepts a factory image only if the app inside it (bytes from
+`0x10000`) has the release's plaintext digest (`imageSha256`), so the board
+starts on exactly the build the release ships. Factory images are plain
+firmware: they are never in a device manifest and `GET /api/releases/factory`
+needs the gateway key, not a device token. If the newest release has none,
+the newest one that does is flashed and the board updates itself afterwards.
+
+The Wi-Fi password and token go from the page to the board over USB only
+(through the agent on 127.0.0.1, or Web Serial in the browser).
+
+## 1. Flash and provision over the COM port (individual steps)
 
 1. Start the agent on the computer the board is plugged into:
    `python secureota_agent.py` (download it from the dashboard at
@@ -99,6 +142,8 @@ While on probation the device does not start another update.
 | POST | `/api/devices/{id}/commands/{cid}/result` | device token (or fleet key) |
 | POST | `/api/devices/{id}/ota/status` `{phase, version, progress, detail}` | device token (or fleet key) |
 | POST | `/api/heartbeat` | device token (or fleet key); response now has `commands` and `target_version` |
+| GET | `/api/releases/factory?device_type=ESP32` | fleet key only; merged first-flash image, `X-Firmware-Version`, `X-Firmware-Sha256`, `X-Latest-Version` headers |
+| POST | `/api/releases/upload` | fleet key; optional `factoryImage` file field |
 
 Command types: `update`, `check_update`, `reboot`, `identify`. Lifecycle:
 `queued → delivered → succeeded | failed`, or `expired` after
@@ -184,6 +229,7 @@ automatically. Behind nginx, disable buffering for `/api/stream`
   build.
 * **release-manifest.json.** CI attaches, per asset, the served SHA-256, the
   plaintext `imageSha256` (recorded before encryption) and `securePackage`.
+  Factory images (`*-full.bin`) are listed with `"factory": true`.
 * **GitHub → gateway.** Add a repository webhook: URL
   `https://<gateway>/api/github/webhook`, content type `application/json`,
   event *Releases*, secret = `OTA_GITHUB_WEBHOOK_SECRET`. On *published* the

@@ -21,6 +21,7 @@ from .config import (
     SIGNING_KEY_ID,
 )
 from .crypto import sign_firmware_payload
+from .factory import FactoryImageError, validate_factory_image
 from .package import PackageError, is_hex_digest, looks_like_secure_package, parse_package
 from .state import STATE, push_event_locked, persist_state_locked
 from .utils import (
@@ -248,6 +249,21 @@ def latest_release_for_device_locked(device_type: str) -> dict[str, Any] | None:
     return None
 
 
+def latest_factory_release_locked(device_type: str) -> dict[str, Any] | None:
+    """Newest published release for `device_type` that carries a factory image.
+
+    May be older than the newest release: a board brought up on it simply
+    updates over the air afterwards. Must be called under STATE_LOCK.
+    """
+    for release in STATE.get('releases', []):
+        if str(release.get('status', 'published')) != 'published' or not release.get('factoryImage'):
+            continue
+        compatible = [str(entry) for entry in release.get('compatible', [])]
+        if not compatible or device_type in compatible:
+            return release
+    return None
+
+
 def assigned_release_for_device_locked(device_id: str, device_type: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Release that an in-progress deployment is waiting for this device to install.
 
@@ -332,6 +348,7 @@ def create_release_locked(
     artifact_label: str | None = None,
     image_sha256: str | None = None,
     secure_package: bool | None = None,
+    factory_bytes: bytes | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Create a release, manifest, and pipeline. Must be called under STATE_LOCK.
 
@@ -340,6 +357,9 @@ def create_release_locked(
       * `source_file_path` / OTA_GATEWAY_RELEASE_ARTIFACT — a path on the
         gateway's own filesystem (CLI / automation flow).
     `artifact_bytes` wins when both are supplied.
+
+    `factory_bytes` is an optional merged first-flash image for blank boards
+    (see gateway/factory.py). It must contain this release's app image.
     """
     normalized_version = normalize_version(version)
 
@@ -442,6 +462,17 @@ def create_release_locked(
         release['securePackage'] = bool(secure_package)
     elif looks_like_secure_package(firmware_payload):
         release['securePackage'] = True
+
+    if factory_bytes is not None:
+        try:
+            factory_record = validate_factory_image(
+                factory_bytes, image_digest_for_release(release, firmware_payload)
+            )
+        except FactoryImageError as exc:
+            raise ValueError(f'Factory image rejected: {exc}') from exc
+        factory_name = f"firmware_v{normalized_version}_factory.bin"
+        (FIRMWARE_CACHE_DIR / factory_name).write_bytes(factory_bytes)
+        release['factoryImage'] = {'name': factory_name, **factory_record}
 
     # ── Stage 3: sign the manifest ─────────────────────────────────
     stage_begin = datetime.now(timezone.utc)

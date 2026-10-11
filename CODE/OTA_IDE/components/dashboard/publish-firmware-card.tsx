@@ -33,7 +33,10 @@ function formatBytes(bytes: number) {
  */
 export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void }) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const factoryInputRef = React.useRef<HTMLInputElement>(null);
   const [file, setFile] = React.useState<File | null>(null);
+  const [factoryFile, setFactoryFile] = React.useState<File | null>(null);
+  const [imageSha256, setImageSha256] = React.useState('');
   const [version, setVersion] = React.useState('');
   const [changelog, setChangelog] = React.useState('');
   const [targets, setTargets] = React.useState<string[]>(['ESP32']);
@@ -45,7 +48,18 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
   const mayPublish = can('firmware.publish');
 
   const versionIsValid = /^\d+(\.\d+)*$/.test(version.trim().replace(/^v/i, ''));
-  const canPublish = mayPublish && Boolean(file) && versionIsValid && !isPublishing;
+  const digestIsValid = imageSha256.trim() === '' || /^[0-9a-fA-F]{64}$/.test(imageSha256.trim());
+  const canPublish = mayPublish && Boolean(file) && versionIsValid && digestIsValid && !isPublishing;
+
+  const handleFactoryFile = (selected: File | null) => {
+    setError(null);
+    if (selected && !selected.name.toLowerCase().endsWith('.bin')) {
+      setFactoryFile(null);
+      setError(`"${selected.name}" is not a .bin file. Pick the merged firmware-full.bin.`);
+      return;
+    }
+    setFactoryFile(selected);
+  };
 
   const handleFile = (selected: File | null) => {
     setError(null);
@@ -90,6 +104,8 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
       form.set('version', version.trim().replace(/^v/i, ''));
       form.set('changelog', changelog.trim());
       form.set('compatible', targets.join(','));
+      if (factoryFile) form.set('factoryImage', factoryFile, factoryFile.name);
+      if (imageSha256.trim()) form.set('imageSha256', imageSha256.trim().toLowerCase());
 
       const response = await apiFetch('/api/firmware/publish', { method: 'POST', body: form });
       const payload = await response.json().catch(() => null);
@@ -106,10 +122,15 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
       });
 
       setFile(null);
+      setFactoryFile(null);
+      setImageSha256('');
       setVersion('');
       setChangelog('');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+      }
+      if (factoryInputRef.current) {
+        factoryInputRef.current.value = '';
       }
 
       onPublished?.();
@@ -181,6 +202,45 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
               onChange={(event) => setChangelog(event.target.value)}
             />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="factory-file">Factory image for blank boards (optional)</Label>
+          <label
+            htmlFor="factory-file"
+            className="flex items-center gap-3 rounded-md border border-dashed border-border px-4 py-3 cursor-pointer hover:border-primary/60 hover:bg-muted/40 transition-colors"
+          >
+            <FileUp className="w-4 h-4 text-muted-foreground shrink-0" />
+            <span className="text-sm text-foreground/80 truncate">
+              {factoryFile ? `${factoryFile.name} — ${formatBytes(factoryFile.size)}` : 'firmware-full.bin from the same build…'}
+            </span>
+          </label>
+          <input
+            id="factory-file"
+            ref={factoryInputRef}
+            type="file"
+            accept=".bin"
+            className="sr-only"
+            onChange={(event) => handleFactoryFile(event.target.files?.[0] || null)}
+          />
+          <p className="text-xs text-muted-foreground">
+            The merged bootloader + partitions + app image (<code>./go-online.sh build</code> writes it). It lets
+            Devices → Set up a new board bring up a blank board over USB. The gateway refuses it unless it contains
+            exactly this release&apos;s app.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="image-sha256">Plaintext image SHA-256 (encrypted packages only)</Label>
+          <Input
+            id="image-sha256"
+            placeholder="Printed by tools/create_secure_test_package.py"
+            value={imageSha256}
+            onChange={(event) => setImageSha256(event.target.value)}
+            aria-invalid={!digestIsValid}
+            className="font-mono text-xs"
+          />
+          {!digestIsValid && <p className="text-xs text-destructive">64 hexadecimal characters.</p>}
         </div>
 
         <div className="space-y-2">

@@ -10,12 +10,13 @@ from cryptography.hazmat.primitives import serialization
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
-from ..config import MANIFEST_FILE
+from ..config import FIRMWARE_CACHE_DIR, MANIFEST_FILE
 from ..crypto import get_signing_key, signing_fingerprint_hex
 from ..config import SIGNING_ALGORITHM, SIGNING_KEY_ID
 from ..models import ReleaseCreatePayload
 from ..release import (
     create_release_locked,
+    latest_factory_release_locked,
     latest_release_for_device_locked,
     manifest_for_release_locked as _manifest_for_release_locked,
     published_device_types_locked,
@@ -83,6 +84,9 @@ async def upload_release(
     compatible: str = Form(''),
     imageSha256: str = Form('', description='SHA-256 of the plaintext image, for secure packages'),
     securePackage: bool | None = Form(None, description='Artifact is an encrypted package'),
+    factoryImage: UploadFile | None = File(
+        None, description='Optional merged first-flash image (bootloader + partitions + app) written at 0x0'
+    ),
     _auth: None = Depends(_require_write_auth),
 ) -> dict[str, Any]:
     """Publish a release directly from an uploaded firmware binary.
@@ -105,6 +109,14 @@ async def upload_release(
             detail=f'Firmware exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB upload limit.',
         )
 
+    factory_payload: bytes | None = None
+    if factoryImage is not None and (factoryImage.filename or '').strip():
+        factory_payload = await factoryImage.read()
+        if not factory_payload:
+            raise HTTPException(status_code=400, detail='Uploaded factory image is empty.')
+        if len(factory_payload) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail='Factory image exceeds the upload limit.')
+
     requested = [entry.strip() for entry in compatible.split(',') if entry.strip()]
     compatibility = normalize_compatibility(requested or None)
 
@@ -120,6 +132,7 @@ async def upload_release(
                 artifact_label=f'upload:{original_name}',
                 image_sha256=imageSha256 or None,
                 secure_package=securePackage,
+                factory_bytes=factory_payload,
             )
             STATE['updatedAt'] = utc_now_iso()
             persist_state_locked()
@@ -140,6 +153,55 @@ def latest_release(_read: None = Depends(require_read_auth)) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail='No release available.')
 
     return {'ok': True, 'release': releases[0], 'manifest': snapshot.get('manifest')}
+
+
+@router.get('/api/releases/factory')
+def download_factory_image(
+    device_type: str = Query(default='ESP32'),
+    _read: None = Depends(require_read_auth),
+) -> Any:
+    """Merged first-flash image for a blank board, written over USB at 0x0.
+
+    Operator-only (the gateway key, never a device token): it is plain
+    firmware, and a secure release exists so the image is not handed out in
+    the clear. Not referenced by any device manifest. Returns the newest
+    published release for `device_type` that has one, which may be older than
+    the newest release; the board then updates over the air.
+    """
+    resolved_type = normalize_device_type(device_type)
+    with STATE_LOCK:
+        release = latest_factory_release_locked(resolved_type)
+        newest = latest_release_for_device_locked(resolved_type)
+        factory = dict(release.get('factoryImage') or {}) if release else {}
+        version = str(release.get('version', '')) if release else ''
+    if not release or not factory.get('name'):
+        raise HTTPException(
+            status_code=404,
+            detail={
+                'message': (
+                    f'No published {resolved_type} release has a factory image. Publish one with the '
+                    'merged firmware-full.bin (go-online.sh build, or the release workflow).'
+                ),
+                'deviceType': resolved_type,
+            },
+        )
+
+    path = (FIRMWARE_CACHE_DIR / str(factory['name'])).resolve()
+    if path.parent != FIRMWARE_CACHE_DIR or not path.is_file():
+        raise HTTPException(status_code=503, detail=f'Factory image for v{version} is missing from the gateway cache.')
+
+    return FileResponse(
+        path=path,
+        media_type='application/octet-stream',
+        filename=str(factory['name']),
+        headers={
+            'Cache-Control': 'no-store',
+            'X-Firmware-Version': version,
+            'X-Firmware-Sha256': str(factory.get('sha256', '')),
+            'X-Firmware-Filename': str(factory['name']),
+            'X-Latest-Version': str(newest.get('version', '')) if newest else version,
+        },
+    )
 
 
 @router.get('/releases/latest/manifest')

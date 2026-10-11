@@ -139,6 +139,32 @@ jobs:
           cp .pio/build/esp32s3/firmware.bin   release-assets/firmware-esp32s3.bin
           cp .pio/build/esp32c3/firmware.bin   release-assets/firmware-esp32c3.bin
 
+      # ── 7a. Factory images for first flash over USB ───────
+      # A blank board has no bootloader or partition table, and the OTA asset
+      # below becomes an encrypted package, so neither can bring it up over
+      # USB. Merge bootloader + partitions + boot_app0 + the plain app into one
+      # image written at 0x0. The gateway attaches it to the release (only if
+      # its app region matches the release's plaintext digest) and serves it
+      # to signed-in operators for the dashboard's "Set up a new board" flow.
+      # Kept out of release-assets/ until after encryption so it stays plain.
+      - name: Build factory images
+        run: |
+          TAG=${{ github.ref_name }}
+          pip install -q esptool
+          BOOT_APP0=$(ls -d ~/.platformio/packages/framework-arduinoespressif32*/tools/partitions/boot_app0.bin | head -1)
+          mkdir -p factory-assets
+          for pair in esp32dev:esp32:esp32:0x1000 esp32s3:esp32s3:esp32s3:0x0 esp32c3:esp32c3:esp32c3:0x0; do
+            IFS=: read -r ENV CHIP NAME BOOT_OFF <<< "$pair"
+            OUT=.pio/build/$ENV
+            python -m esptool --chip "$CHIP" merge_bin -o "factory-assets/firmware-$NAME-full.bin" \
+              "$BOOT_OFF" "$OUT/bootloader.bin" \
+              0x8000 "$OUT/partitions.bin" \
+              0xe000 "$BOOT_APP0" \
+              0x10000 "$OUT/firmware.bin"
+            cp "factory-assets/firmware-$NAME-full.bin" "factory-assets/firmware-$NAME-$TAG-full.bin"
+          done
+          ls -l factory-assets
+
       # ── 7b. Record what CI built, before anything is encrypted ─
       # imageSha256 is the digest of the PLAINTEXT image. The gateway cannot
       # derive it from an encrypted package without the AES key, and the
@@ -206,9 +232,11 @@ jobs:
       # ── 9. Compute SHA-256 checksums + release manifest ───
       # release-manifest.json is what the gateway's GitHub webhook
       # (/api/github/webhook) reads: per asset, the digest as served, the
-      # plaintext digest and whether it is an encrypted package.
+      # plaintext digest and whether it is an encrypted package. Factory
+      # images join here, after encryption, so they stay plain.
       - name: Compute checksums and release manifest
         run: |
+          cp factory-assets/*.bin release-assets/
           cd release-assets
           sha256sum *.bin > checksums.txt
           cat checksums.txt
@@ -221,7 +249,11 @@ jobs:
               'tag': '${{ github.ref_name }}',
               'commit': '${{ github.sha }}',
               'assets': {
-                  name: {'sha256': digest, 'imageSha256': plain.get(name), 'securePackage': secure}
+                  name: (
+                      {'sha256': digest, 'factory': True, 'securePackage': False}
+                      if name.endswith('-full.bin') else
+                      {'sha256': digest, 'imageSha256': plain.get(name), 'securePackage': secure}
+                  )
                   for name, digest in served.items()
               },
           }
@@ -243,11 +275,16 @@ jobs:
             | `firmware-esp32.bin` | ESP32 DevKit |
             | `firmware-esp32s3.bin` | ESP32-S3 |
             | `firmware-esp32c3.bin` | ESP32-C3 |
+            | `firmware-*-full.bin` | Factory image for a blank board (bootloader + partitions + app), written at 0x0 |
 
-            ### How to flash manually (USB)
+            ### First flash of a blank board (USB)
+            Dashboard → Devices → **Set up a new board** flashes the factory
+            image over the COM port, provisions Wi-Fi and the device token,
+            and waits for the first heartbeat. Manually:
             ```bash
-            esptool.py --chip esp32 --port COM3 write_flash 0x0 firmware-esp32.bin
+            esptool.py --chip esp32 --port COM3 write_flash 0x0 firmware-esp32-full.bin
             ```
+            The `firmware-esp32.bin` assets are OTA packages, not for USB.
 
             ### OTA
             If the gateway's GitHub webhook is configured, this release is

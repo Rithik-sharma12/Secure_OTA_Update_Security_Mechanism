@@ -241,3 +241,59 @@ def test_webhook_ping_and_unconfigured(client, monkeypatch):
     raw = b'{"zen":"hi"}'
     sig = 'sha256=' + hmac.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
     assert client.post('/api/github/webhook', content=raw, headers={'x-hub-signature-256': sig, 'x-github-event': 'ping'}).json()['pong']
+
+
+def _merged_factory(app: bytes) -> bytes:
+    head = bytearray(b'\xff' * 0x10000)
+    head[0x1000] = 0xE9
+    return bytes(head) + app
+
+
+def test_webhook_attaches_the_ci_factory_image(client, fleet, webhook_env, monkeypatch, tmp_path):
+    keys = tmp_path / 'ci'
+    keys.mkdir()
+    private = load_or_create_packaging_key(keys / 'priv.pem', keys / 'pub.pem')
+    aes = 'Q' * 32
+    firmware = b'\xe9' + b'\x6b' * 30_000
+    package = build_package(firmware, private, aes, version='9.4.0')
+    factory = _merged_factory(firmware)
+    monkeypatch.setenv('OTA_RELEASE_RSA_PUBKEY_PATH', str(keys / 'pub.pem'))
+    monkeypatch.setenv('OTA_RELEASE_AES_KEY', aes)
+
+    webhook_env['firmware-esp32.bin'] = package
+    webhook_env['firmware-esp32-full.bin'] = factory
+    webhook_env['release-manifest.json'] = json.dumps({'assets': {
+        'firmware-esp32.bin': {'sha256': hashlib.sha256(package).hexdigest(), 'securePackage': True},
+        'firmware-esp32-full.bin': {'sha256': hashlib.sha256(factory).hexdigest(), 'factory': True},
+    }}).encode()
+
+    raw, headers = _signed(_release_event('v9.4.0', webhook_env))
+    response = client.post('/api/github/webhook', content=raw, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()['published'][0]['version'] == '9.4.0'
+
+    served = client.get('/api/releases/factory', params={'device_type': 'ESP32'}, headers=fleet)
+    assert served.status_code == 200
+    assert served.headers['x-firmware-version'] == '9.4.0'
+    assert served.content == factory
+
+
+def test_webhook_publishes_ota_even_when_the_factory_image_is_wrong(client, fleet, webhook_env):
+    firmware = b'\xe9' + b'\x6c' * 30_000
+    other = b'\xe9' + b'\x6d' * 30_000
+    factory = _merged_factory(other)  # a different build
+    webhook_env['firmware-esp32.bin'] = firmware
+    webhook_env['firmware-esp32-full.bin'] = factory
+    webhook_env['release-manifest.json'] = json.dumps({'assets': {
+        'firmware-esp32.bin': {'sha256': hashlib.sha256(firmware).hexdigest(), 'securePackage': False},
+        'firmware-esp32-full.bin': {'sha256': hashlib.sha256(factory).hexdigest(), 'factory': True},
+    }}).encode()
+
+    raw, headers = _signed(_release_event('v9.5.0', webhook_env))
+    body = client.post('/api/github/webhook', content=raw, headers=headers).json()
+    assert body['published'][0]['version'] == '9.5.0'
+    assert any('firmware-esp32-full.bin: not attached' in entry for entry in body['skipped'])
+    # The OTA release went out; the factory endpoint still offers the last good one.
+    served = client.get('/api/releases/factory', params={'device_type': 'ESP32'}, headers=fleet)
+    assert served.headers['x-firmware-version'] == '9.4.0'
+    assert served.headers['x-latest-version'] == '9.5.0'

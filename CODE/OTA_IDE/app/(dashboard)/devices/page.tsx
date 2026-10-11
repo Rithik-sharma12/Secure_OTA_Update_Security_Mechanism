@@ -26,6 +26,7 @@ import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard'
 import { HostAccessCard } from '@/components/devices/HostAccessCard';
 import { WebSerialFlashCard } from '@/components/devices/WebSerialFlashCard';
 import { UsbProvisionCard } from '@/components/devices/UsbProvisionCard';
+import { NewBoardSetupCard } from '@/components/devices/NewBoardSetupCard';
 import {
   type DeviceCommandType,
   deployToDevices,
@@ -224,6 +225,8 @@ export default function DevicesPage() {
       </div>
       {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
       {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
+
+      <NewBoardSetupCard />
 
       <HostAccessCard
         onDeployToHost={(ip) => {

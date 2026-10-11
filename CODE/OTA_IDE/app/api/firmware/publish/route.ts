@@ -82,6 +82,29 @@ export async function POST(request: Request) {
       outbound.set('changelog', String(form.get('changelog') || '').trim() || 'Security and reliability updates.');
       outbound.set('compatible', String(form.get('compatible') || '').trim());
 
+      // Optional first-flash image for blank boards; the gateway checks that it
+      // contains this release's app before accepting it.
+      const factory = form.get('factoryImage');
+      if (factory instanceof File && factory.size > 0) {
+        if (!factory.name.toLowerCase().endsWith('.bin')) {
+          return NextResponse.json({ ok: false, error: `"${factory.name}" is not a .bin file.` }, { status: 400 });
+        }
+        if (factory.size > MAX_UPLOAD_BYTES) {
+          return NextResponse.json(
+            { ok: false, error: `Factory image exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB limit.` },
+            { status: 413 }
+          );
+        }
+        outbound.set('factoryImage', factory, factory.name);
+      }
+      const imageSha256 = String(form.get('imageSha256') || '').trim().toLowerCase();
+      if (imageSha256) {
+        if (!/^[0-9a-f]{64}$/.test(imageSha256)) {
+          return NextResponse.json({ ok: false, error: 'imageSha256 must be 64 hexadecimal characters.' }, { status: 400 });
+        }
+        outbound.set('imageSha256', imageSha256);
+      }
+
       const headers: Record<string, string> = { ...actorHeader(auth) };
       if (gatewayApiKey) {
         headers['x-api-key'] = gatewayApiKey;

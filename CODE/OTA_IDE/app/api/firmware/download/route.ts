@@ -16,6 +16,7 @@ type GatewayManifest = {
   filename?: string;
   sha256?: string;
   size?: number;
+  securePackage?: boolean;
 };
 
 /**
@@ -61,6 +62,8 @@ export async function GET(request: Request) {
         return NextResponse.json({ ok: false, error: 'Invalid device_type.' }, { status: 400 });
       }
 
+      const imageKind = new URL(request.url).searchParams.get('image') === 'factory' ? 'factory' : 'app';
+
       const headers: Record<string, string> = {};
       if (gatewayApiKey) {
         headers['x-api-key'] = gatewayApiKey;
@@ -70,6 +73,45 @@ export async function GET(request: Request) {
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
       try {
+        // Factory image: the merged first-flash image for a blank board,
+        // written at 0x0. The gateway serves it to the operator key only.
+        if (imageKind === 'factory') {
+          const factoryResponse = await fetch(
+            `${gatewayUrl}/api/releases/factory?device_type=${encodeURIComponent(deviceType)}`,
+            { headers, signal: controller.signal, cache: 'no-store' }
+          );
+          if (!factoryResponse.ok) {
+            const detail = await readGatewayDetail(factoryResponse);
+            return NextResponse.json(
+              {
+                ok: false,
+                error:
+                  detail.message ||
+                  `Gateway factory image request failed (${factoryResponse.status}).`,
+              },
+              { status: factoryResponse.status === 404 ? 404 : 502 }
+            );
+          }
+          const bytes = await factoryResponse.arrayBuffer();
+          const version = factoryResponse.headers.get('X-Firmware-Version') || '';
+          const filename = factoryResponse.headers.get('X-Firmware-Filename') || `firmware_v${version}_factory.bin`;
+          logger.info('FirmwareDownload', `Served factory image ${filename} (${bytes.byteLength} bytes) for ${deviceType}`);
+          return new NextResponse(bytes, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'Content-Length': String(bytes.byteLength),
+              'Content-Disposition': `attachment; filename="${filename}"`,
+              'Cache-Control': 'no-store',
+              'X-Image-Kind': 'factory',
+              'X-Firmware-Version': version,
+              'X-Firmware-Filename': filename,
+              'X-Firmware-Sha256': factoryResponse.headers.get('X-Firmware-Sha256') || '',
+              'X-Latest-Version': factoryResponse.headers.get('X-Latest-Version') || version,
+            },
+          });
+        }
+
         const manifestResponse = await fetch(
           `${gatewayUrl}/releases/latest/manifest?device_type=${encodeURIComponent(deviceType)}`,
           { headers, signal: controller.signal, cache: 'no-store' }
@@ -103,6 +145,20 @@ export async function GET(request: Request) {
         }
 
         const manifest = (await manifestResponse.json()) as GatewayManifest;
+        // An encrypted OTA package is for the board's own update path; written
+        // over USB it would put ciphertext in flash and the board would not
+        // boot. The factory image is the USB route.
+        if (manifest.securePackage) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error:
+                `v${manifest.version} is an encrypted OTA package and cannot be flashed over USB. ` +
+                'Use Set up a new board (factory image) to bring a board up, then it updates over the air.',
+            },
+            { status: 409 }
+          );
+        }
         const filename = String(manifest.filename || '').trim();
         // Same shape the gateway's safe_cache_path accepts: a bare file name.
         if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
@@ -130,6 +186,7 @@ export async function GET(request: Request) {
             'Content-Length': String(bytes.byteLength),
             'Content-Disposition': `attachment; filename="${filename}"`,
             'Cache-Control': 'no-store',
+            'X-Image-Kind': 'app',
             'X-Firmware-Version': String(manifest.version || ''),
             'X-Firmware-Filename': filename,
             'X-Firmware-Sha256': String(manifest.sha256 || ''),
