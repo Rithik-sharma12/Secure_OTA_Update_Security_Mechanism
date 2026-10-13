@@ -165,7 +165,7 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
           >
             <FileUp className="w-5 h-5 text-muted-foreground shrink-0" />
             <span className="text-sm text-foreground/80 truncate">
-              {file ? `${file.name} — ${formatBytes(file.size)}` : 'Choose a .bin file…'}
+              {file ? `${file.name} (${formatBytes(file.size)})` : 'Choose a .bin file…'}
             </span>
           </label>
           <input
@@ -212,7 +212,7 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
           >
             <FileUp className="w-4 h-4 text-muted-foreground shrink-0" />
             <span className="text-sm text-foreground/80 truncate">
-              {factoryFile ? `${factoryFile.name} — ${formatBytes(factoryFile.size)}` : 'firmware-full.bin from the same build…'}
+              {factoryFile ? `${factoryFile.name} (${formatBytes(factoryFile.size)})` : 'firmware-full.bin from the same build…'}
             </span>
           </label>
           <input
@@ -254,7 +254,7 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
                   type="button"
                   onClick={() => toggleTarget(deviceType)}
                   aria-pressed={active}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
                     active
                       ? 'border-primary bg-primary/15 text-primary'
                       : 'border-border text-muted-foreground hover:border-primary/40'
@@ -278,7 +278,7 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
           <div className="rounded-md border border-chart-1/40 bg-chart-1/10 px-3 py-2 text-sm">
             <div className="flex items-center gap-2 font-medium text-chart-1">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
-              Published v{result.version} — devices will update on their next check.
+              Published v{result.version}. Devices update on their next check.
             </div>
             <dl className="mt-2 space-y-1 text-xs text-foreground/70">
               <div className="flex gap-2">

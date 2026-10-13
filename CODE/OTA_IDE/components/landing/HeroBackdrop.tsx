@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { useTheme } from 'next-themes';
-import { useReducedMotion } from './motion';
+import { useReducedMotion, whenPageIdle } from './motion';
+import { ACCENTS, useAccent } from '@/lib/accent';
 
 /**
  * Hero background, three layers:
@@ -13,11 +14,16 @@ import { useReducedMotion } from './motion';
  * 2. A canvas "fleet": devices scattered around a gateway, signed packages
  *    travelling out, heartbeats travelling back, and the occasional package
  *    rejected before it reaches a board. It is the product, drawn.
- * 3. A soft amber spotlight that follows the pointer.
+ * 3. A soft, fixed amber light behind the headline.
  *
  * The canvas pauses when the hero is off-screen or the tab is hidden, and
  * draws a single still frame under reduced motion.
  */
+
+function hexToRgb(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
 
 type Node = { x: number; y: number; r: number; glow: number; phase: number };
 type Packet = { from: Node; to: Node; t: number; speed: number; kind: 'update' | 'heartbeat' | 'rejected' };
@@ -35,6 +41,7 @@ export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: stri
   const reduced = useReducedMotion();
   const { resolvedTheme } = useTheme();
   const light = resolvedTheme === 'light';
+  const [accent] = useAccent();
   const [videoReady, setVideoReady] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
@@ -51,7 +58,12 @@ export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: stri
     if (!canvas || !wrap) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const { ember: EMBER, amber: AMBER, bone: BONE, core: CORE } = light ? PALETTE.light : PALETTE.dark;
+    const base = light ? PALETTE.light : PALETTE.dark;
+    // Other colour themes swap the two accents; bone/core stay neutral.
+    const themed = accent === 'ember' ? null : ACCENTS[accent];
+    const EMBER = themed ? (light ? hexToRgb(themed.deep) : themed.mainRgb) : base.ember;
+    const AMBER = themed ? (light ? hexToRgb(themed.main) : themed.secondRgb) : base.amber;
+    const { bone: BONE, core: CORE } = base;
 
     let width = 0;
     let height = 0;
@@ -220,41 +232,40 @@ export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: stri
       }
     };
 
+    // Paint one still frame now (cheap), animate once the page is idle.
     layout();
-    start();
+    draw(performance.now(), false);
+    let started = false;
+    const cancelIdle = whenPageIdle(() => {
+      started = true;
+      start();
+    });
 
     const resize = new ResizeObserver(() => {
       layout();
-      start();
+      if (started) start();
+      else draw(performance.now(), false);
     });
     resize.observe(wrap);
 
     const io = new IntersectionObserver(([entry]) => {
       visible = entry.isIntersecting;
-      start();
+      if (started) start();
     });
     io.observe(wrap);
 
-    const onVisibility = () => start();
+    const onVisibility = () => started && start();
     document.addEventListener('visibilitychange', onVisibility);
 
-    // The copy sits above this layer, so listen on the hero section itself.
-    const host = wrap.parentElement;
-    const onPointerMove = (event: PointerEvent) => {
-      const rect = wrap.getBoundingClientRect();
-      wrap.style.setProperty('--mx', `${event.clientX - rect.left}px`);
-      wrap.style.setProperty('--my', `${event.clientY - rect.top}px`);
-    };
-    host?.addEventListener('pointermove', onPointerMove);
 
     return () => {
-      host?.removeEventListener('pointermove', onPointerMove);
+      cancelIdle();
       cancelAnimationFrame(frame);
       resize.disconnect();
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [reduced, light]);
+  }, [reduced, light, accent]);
 
   return (
     <div ref={wrapRef} className="lp-hero-media" aria-hidden="true">
@@ -266,7 +277,6 @@ export function HeroBackdrop({ videoSources }: { videoSources: Array<{ src: stri
           loop
           playsInline
           preload="metadata"
-          poster="/brand/landing-bg.jpg"
           data-ready={videoReady ? 'true' : 'false'}
           onCanPlay={() => setVideoReady(true)}
           onLoadedData={() => setVideoReady(true)}

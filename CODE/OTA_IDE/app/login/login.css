@@ -1,0 +1,345 @@
+/* ===========================================================================
+   Sign-in page: a glowing animated media card beside a glass form.
+   Responsive by width AND height, so it fits phones, tablets, laptops,
+   ultrawide screens and landscape phones without scrolling where possible.
+   =========================================================================== */
+
+.ota-login {
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(12px, 2.5dvh, 28px);
+  padding: clamp(16px, 4dvh, 48px) clamp(16px, 4vw, 56px);
+  background:
+    radial-gradient(60% 50% at 30% 40%, rgba(var(--acc-rgb), 0.14), transparent 70%),
+    radial-gradient(50% 40% at 80% 70%, rgba(var(--acc2-rgb), 0.08), transparent 70%),
+    var(--background);
+  overflow-x: hidden;
+}
+.ota-login > * {
+  position: relative;
+  z-index: 1;
+}
+.ota-login-toolbar {
+  position: absolute;
+  top: clamp(12px, 2.5dvh, 24px);
+  right: clamp(12px, 2.5vw, 28px);
+  z-index: 3;
+}
+
+.ota-login-stage {
+  width: 100%;
+  max-width: 1200px;
+  display: grid;
+  grid-template-columns: minmax(360px, 640px) minmax(340px, 420px);
+  justify-content: center;
+  align-items: center;
+  gap: clamp(28px, 5vw, 80px);
+}
+
+/* ── Media card ─────────────────────────────────────────────────────────── */
+.ota-login-media {
+  position: relative;
+  width: 100%;
+  height: min(84dvh, 760px);
+  min-height: 520px;
+  justify-self: stretch;
+}
+.ota-login-glow {
+  position: absolute;
+  inset: -5%;
+  border-radius: 40px;
+  background: radial-gradient(60% 55% at 50% 55%, rgba(var(--acc-rgb), 0.45), transparent 70%);
+  filter: blur(48px);
+  opacity: 0.6;
+  z-index: 0;
+}
+.ota-login-card {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  width: 100%;
+  border-radius: 32px;
+  overflow: hidden;
+  background: #050a1a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 40px 80px -30px rgba(0, 0, 0, 0.8);
+  color: #fff;
+}
+.ota-login-card-shade {
+  position: absolute;
+  inset: 0;
+  /* Keep the photo bright at the top; darken only behind the text. */
+  background:
+    linear-gradient(180deg, rgba(3, 6, 18, 0.35) 0%, transparent 18%, transparent 38%, rgba(3, 6, 18, 0.62) 58%, rgba(3, 6, 18, 0.94) 100%),
+    linear-gradient(135deg, rgba(var(--acc-rgb), 0.18), transparent 45%);
+  pointer-events: none;
+}
+/* The photo: cropped to the towers and the network arc, slowly drifting. */
+.ota-login-photo {
+  object-fit: cover;
+  object-position: 62% 35%;
+  transform-origin: 62% 40%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ota-login-photo {
+    animation: ota-login-drift 24s ease-in-out infinite alternate;
+  }
+}
+@keyframes ota-login-drift {
+  from {
+    transform: scale(1.04) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.12) translate3d(-1.5%, -1%, 0);
+  }
+}
+/* Glossy sheen across the top of the card. */
+.ota-login-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 28%);
+  pointer-events: none;
+}
+.ota-login-card-top {
+  position: absolute;
+  top: clamp(16px, 2.4vw, 26px);
+  left: clamp(16px, 2.4vw, 26px);
+  right: clamp(16px, 2.4vw, 26px);
+}
+.ota-login-chip {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font: 600 11px/1 var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.ota-login-card-body {
+  position: absolute;
+  left: clamp(18px, 2.8vw, 36px);
+  right: clamp(18px, 2.8vw, 36px);
+  bottom: clamp(18px, 2.8vw, 36px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 1.8dvh, 18px);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.45);
+}
+.ota-login-headline {
+  margin: 0;
+  font: 600 clamp(24px, 4dvh, 40px) / 1.12 var(--font-display);
+  max-width: 18ch;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.ota-login-headline span {
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--gradient-cta);
+  color: #fff;
+}
+.ota-login-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: clamp(8px, 1.2dvh, 12px);
+}
+.ota-login-chain li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ota-login-chain li > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ota-login-chain strong {
+  font: 600 15px/1.3 var(--font-ui);
+}
+.ota-login-chain small {
+  font: 400 13px/1.45 var(--font-ui);
+  color: rgba(255, 255, 255, 0.78);
+}
+.ota-login-chain-icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  color: rgb(var(--acc2-rgb));
+  background: rgba(8, 12, 28, 0.55);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.ota-login-chain-tick {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 9px/1 var(--font-ui);
+  color: #fff;
+  background: var(--ember);
+  opacity: 0;
+  transform: scale(0.4);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ota-login-chain-tick {
+    animation: ota-login-tick 0.45s var(--ease-emphasis, ease-out) var(--d, 0.5s) forwards;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ota-login-chain-tick {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ota-login-tick {
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ── Form panel ─────────────────────────────────────────────────────────── */
+.ota-login-form {
+  width: 100%;
+  padding: clamp(22px, 3.5dvh, 36px) clamp(20px, 3vw, 34px);
+  border-radius: 28px;
+  background-color: color-mix(in srgb, var(--card) 70%, transparent);
+  background-image: linear-gradient(180deg, var(--gloss-glass-hi), transparent 40%);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--gloss-glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--gloss-glass-hi),
+    0 30px 60px -30px rgba(0, 0, 0, 0.6);
+}
+.ota-login-form-head {
+  margin-bottom: clamp(18px, 3dvh, 28px);
+  text-align: center;
+}
+.ota-login-form-head h1 {
+  margin: 0 0 6px;
+  font: 600 clamp(24px, 3.2dvh, 30px) / 1.2 var(--font-display);
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+.ota-login-form-head p {
+  margin: 0;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--foreground) 72%, transparent);
+}
+.ota-login-foot a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ota-login-foot {
+  margin: 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--foreground) 55%, transparent);
+  text-align: center;
+}
+
+/* ── Tablets and narrow laptops: card becomes a banner above the form ───── */
+@media (max-width: 1023px) {
+  .ota-login-stage {
+    grid-template-columns: minmax(0, 640px);
+    gap: clamp(16px, 3dvh, 28px);
+  }
+  .ota-login-media {
+    height: auto;
+    min-height: 0;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+  }
+  .ota-login-chain {
+    display: none;
+  }
+  .ota-login-glow {
+    inset: -4%;
+    filter: blur(40px);
+  }
+}
+/* ── Phones ─────────────────────────────────────────────────────────────── */
+@media (max-width: 639px) {
+  .ota-login {
+    justify-content: flex-start;
+    padding-top: 64px;
+  }
+  .ota-login-media {
+    aspect-ratio: 16 / 9;
+  }
+  .ota-login-card {
+    border-radius: 24px;
+  }
+  .ota-login-chip {
+    display: none;
+  }
+  .ota-login-headline {
+    font-size: 21px;
+  }
+  .ota-login-form {
+    border-radius: 24px;
+  }
+}
+/* ── Laptop-height screens: keep the trust chain, drop its detail lines ── */
+@media (min-width: 1024px) and (max-height: 800px) {
+  .ota-login-chain small {
+    display: none;
+  }
+  .ota-login-media {
+    min-height: 480px;
+  }
+}
+/* ── Short screens (landscape phones, small laptop windows) ─────────────── */
+@media (max-height: 620px) and (min-width: 640px) {
+  .ota-login-media {
+    display: none;
+  }
+  .ota-login-stage {
+    grid-template-columns: minmax(0, 420px);
+  }
+}
+@media (max-height: 520px) {
+  .ota-login-media {
+    display: none;
+  }
+  .ota-login {
+    justify-content: flex-start;
+    padding-top: 56px;
+  }
+}
+/* ── Large and ultrawide screens: a little more room ────────────────────── */
+@media (min-width: 1600px) and (min-height: 900px) {
+  .ota-login-media {
+    height: min(82dvh, 820px);
+  }
+  .ota-login-stage {
+    max-width: 1320px;
+    grid-template-columns: minmax(420px, 720px) minmax(380px, 440px);
+  }
+}

@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Ban, Loader2, RotateCcw, Rocket } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -292,8 +293,10 @@ export default function DeploymentsPage() {
         })}
         {deployments.length === 0 && (
           <Card>
-            <CardContent className="py-6 text-center text-sm text-muted-foreground">
-              No deployments yet. Pick a release and devices above.
+            <CardContent>
+              <EmptyState icon={<Rocket className="h-5 w-5" />} title="No deployments yet" compact>
+                Pick a release and the boards above, then press Deploy. Each board reports download, install and confirm here.
+              </EmptyState>
             </CardContent>
           </Card>
         )}

@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from 'next'
-import { Geist, Geist_Mono, Montserrat, Poppins, Source_Sans_3 } from 'next/font/google'
+import { Montserrat, Poppins, Source_Sans_3 } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
-import { ClerkProvider } from '@clerk/nextjs'
 import { ThemeProvider } from '@/components/theme-provider'
+import { ACCENT_BOOT_SCRIPT } from '@/lib/accent-config'
+import { BASE_OPEN_GRAPH, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from '@/lib/site'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+// Geist / Geist Mono were imported here but never applied (their classNames
+// were unused), yet each still added a preloaded font file to every page.
 
 // Ember/carbon design system faces. Montserrat carries display and UI-caps,
 // Source Sans 3 the body, Poppins the `secureota` wordmark. Exposed as CSS
@@ -32,19 +33,37 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: 'SECUREOTA: A SECURE HETEROGENEOUS OTA UPDATE MECHANISM FOR RESOURCE-CONSTRAINED IOT DEVICES',
-  description: 'Secure OTA firmware delivery for heterogeneous IoT device fleets',
+  // Absolute URLs (canonical, Open Graph images) resolve against this.
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_TITLE,
+    template: `%s · ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  // No site-wide canonical: each indexable page declares its own, so private
+  // and sign-in pages never point search engines at the home page.
+  openGraph: {
+    ...BASE_OPEN_GRAPH,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    url: '/',
+    // app/opengraph-image.tsx supplies the image.
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+  },
+  formatDetection: { telephone: false, email: false, address: false },
   icons: {
-    // Only /icon.svg is referenced. The previous entries pointed at
-    // /icon-light-32x32.png, /icon-dark-32x32.png and /apple-icon.png, none of
-    // which exist in public/ — every tab requested three 404s and fell back to
-    // a blank favicon. Add the raster variants back here when the files exist.
+    // Generated from pics/logo-secureota.png (transparent, trimmed).
     icon: [
-      {
-        url: '/icon.svg',
-        type: 'image/svg+xml',
-      },
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon-48.png', type: 'image/png', sizes: '48x48' },
+      { url: '/icon.png', type: 'image/png', sizes: '192x192' },
     ],
+    apple: [{ url: '/apple-icon.png', sizes: '180x180' }],
   },
 }
 
@@ -57,27 +76,6 @@ export const viewport: Viewport = {
   ],
 }
 
-/**
- * Clerk's prebuilt pieces (sign-up dialog, UserButton menu) in the
- * ember/carbon palette, so they read as part of the console.
- */
-const clerkAppearance = {
-  // CSS variables, so the dialog follows the light/dark switch live.
-  variables: {
-    colorPrimary: '#ff2803',
-    colorDanger: '#d42000',
-    colorBackground: 'var(--card)',
-    colorForeground: 'var(--foreground)',
-    colorMutedForeground: 'var(--muted-foreground)',
-    colorMuted: 'var(--muted)',
-    colorInput: 'var(--input)',
-    colorInputForeground: 'var(--foreground)',
-    colorNeutral: 'var(--foreground)',
-    colorBorder: 'var(--border)',
-    borderRadius: '10px',
-    fontFamily: 'var(--font-source-sans), system-ui, sans-serif',
-  },
-} as const
 
 export default function RootLayout({
   children,
@@ -99,25 +97,21 @@ export default function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Applies the saved colour theme and layout before first paint. */}
+        <script dangerouslySetInnerHTML={{ __html: ACCENT_BOOT_SCRIPT }} />
+      </head>
       <body
         className={`${montserrat.variable} ${sourceSans.variable} ${poppins.variable} min-h-svh overflow-x-hidden font-sans antialiased bg-background text-foreground`}
       >
-        {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ? (
-          <ClerkProvider
-            // Our own pages, not Clerk's hosted Account Portal.
-            signInUrl="/login"
-            signUpUrl="/login"
-            afterSignOutUrl="/login"
-            signInFallbackRedirectUrl="/dashboard"
-            signUpFallbackRedirectUrl="/dashboard"
-            appearance={clerkAppearance}
-          >
-            {app}
-          </ClerkProvider>
-        ) : (
-          app
-        )}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {/* Clerk is mounted by the layouts that need it (sign-in, SSO
+            callback, console), not here: the public landing page has no
+            account UI, and loading Clerk there cost ~200 KB of script. */}
+        {app}
+        {/* Vercel Analytics only works when hosted on Vercel. Self-hosted
+            (Docker + Cloudflare tunnel) it requested /_vercel/insights/script.js
+            on every page and got a 404 logged to the console. */}
+        {process.env.NODE_ENV === 'production' && process.env.VERCEL === '1' && <Analytics />}
       </body>
     </html>
   )

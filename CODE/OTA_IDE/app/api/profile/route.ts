@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withSecureApi } from '@/lib/api-security';
-import { getManagedUser, updateOwnCredentials } from '@/lib/auth';
+import { getManagedUser, refreshClerkProfile, updateOwnCredentials } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,6 +44,23 @@ export async function PATCH(request: Request) {
         newPassword: body.newPassword,
       });
 
+      return NextResponse.json({ ok: true, user });
+    },
+    { requireAuth: true }
+  );
+}
+
+/**
+ * Re-sync the signed-in Clerk account now (name, photo, connected accounts)
+ * instead of waiting for the profile cache to expire.
+ */
+export async function POST(request: Request) {
+  return withSecureApi(
+    request,
+    '/api/profile',
+    async ({ auth }) => {
+      await refreshClerkProfile();
+      const user = await getManagedUser(auth!.user.id);
       return NextResponse.json({ ok: true, user });
     },
     { requireAuth: true }

@@ -67,7 +67,7 @@ export function TelemetryCharts({ points, hours }: { points: TelemetryPoint[]; h
             <figcaption className="mb-2 flex items-baseline justify-between gap-2">
               <span className="text-sm font-medium text-foreground">{metric.title}</span>
               <span className="text-xs text-muted-foreground">
-                latest {latest === undefined || latest === null ? '—' : `${latest}${metric.unit}`}
+                latest {latest === undefined || latest === null ? 'none yet' : `${latest}${metric.unit}`}
               </span>
             </figcaption>
             <ResponsiveContainer width="100%" height={180}>

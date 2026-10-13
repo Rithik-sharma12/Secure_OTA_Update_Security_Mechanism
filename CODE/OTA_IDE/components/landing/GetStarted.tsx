@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Check, Copy, Download } from 'lucide-react';
-import { trackPointer, useInView, useReducedMotion } from './motion';
+import { useInView, useReducedMotion } from './motion';
 
 const STEP_MS = 7000;
 
@@ -65,7 +65,7 @@ const STEPS: Step[] = [
     render: () => (
       <>
         <Terminal
-          title="Terminal — your computer"
+          title="Terminal on your computer"
           lines={[
             { text: AGENT_COMMAND, kind: 'cmd' },
             { text: 'SecureOTA agent v1.1.0 listening on http://127.0.0.1:17317' },
@@ -116,7 +116,7 @@ const STEPS: Step[] = [
   },
   {
     title: 'Provision the board',
-    sub: 'Wi-Fi, gateway and its own token — written over the cable.',
+    sub: 'Wi-Fi, gateway address and its own token, written over the cable.',
     render: () => (
       <>
         <div className="lp-field">
@@ -248,8 +248,7 @@ export function GetStarted() {
         id={`lp-step-panel-${active}`}
         role="tabpanel"
         aria-labelledby={`lp-step-tab-${active}`}
-        className="lp-card lp-spot lp-stage"
-        onPointerMove={trackPointer}
+        className="lp-card lp-stage"
       >
         <div className="lp-eyebrow">Step {active + 1} of 4</div>
         <h3 style={{ margin: 0, font: 'var(--type-heading-md)' }}>{STEPS[active].title}</h3>

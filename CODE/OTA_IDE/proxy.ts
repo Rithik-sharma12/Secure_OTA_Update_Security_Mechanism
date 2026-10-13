@@ -21,6 +21,8 @@ const isPublicPage = createRouteMatcher([
   '/',
   '/login(.*)',
   '/sso-callback(.*)',
+  '/privacy',
+  '/terms',
 ]);
 
 // Routes that authenticate by other means. Cron uses CRON_SECRET; a Clerk
@@ -37,6 +39,17 @@ const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES || process.env.O
   .map((value) => value.trim().replace(/\/$/, ''))
   .filter(Boolean);
 
+// Clerk rejects a session token whose timestamps are more than 5 s away from
+// this machine's clock. A PC clock a few seconds slow is common (Windows only
+// resyncs occasionally) and makes every fresh token look "issued in the
+// future": the sign-in succeeds at Clerk, the app never sees it, and the
+// browser bounces between /login and the dashboard. Allow a wider window;
+// CLERK_CLOCK_SKEW_MS overrides it (0-300000).
+const clockSkewInMs = (() => {
+  const value = Number(process.env.CLERK_CLOCK_SKEW_MS);
+  return Number.isFinite(value) && value >= 0 && value <= 300_000 ? value : 60_000;
+})();
+
 const protectedMiddleware = clerkMiddleware(
   async (auth, request) => {
     if (isApi(request) || isPublicPage(request) || isPublicApiRoute(request)) return;
@@ -45,6 +58,7 @@ const protectedMiddleware = clerkMiddleware(
   {
     signInUrl: '/login',
     signUpUrl: '/login',
+    clockSkewInMs,
     // In production, list the dashboard origin(s) so a session token minted
     // for another site on the same parent domain is not accepted here.
     ...(authorizedParties.length > 0 ? { authorizedParties } : {}),

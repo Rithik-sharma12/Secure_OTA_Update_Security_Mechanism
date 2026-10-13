@@ -34,7 +34,7 @@ const RANGES = [
 const PHASE_ORDER = ['downloading', 'rebooting', 'health_check', 'succeeded'];
 
 function when(iso?: string | null) {
-  return iso ? new Date(iso).toLocaleString() : '—';
+  return iso ? new Date(iso).toLocaleString() : 'Never';
 }
 
 export default function DeviceDetailPage() {
@@ -159,7 +159,7 @@ export default function DeviceDetailPage() {
               <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>
                   <span className="font-medium capitalize">{ota.phase.replace('_', ' ')}</span> · v{ota.version}
-                  {ota.detail ? <span className="text-muted-foreground"> — {ota.detail}</span> : null}
+                  {ota.detail ? <span className="text-muted-foreground">: {ota.detail}</span> : null}
                 </span>
                 <span className="text-muted-foreground">{when(ota.at)}</span>
               </div>
@@ -177,7 +177,7 @@ export default function DeviceDetailPage() {
                       {entry.phase.replace('_', ' ')}
                     </span>{' '}
                     v{entry.version}
-                    {entry.detail ? ` — ${entry.detail}` : ''}
+                    {entry.detail ? `: ${entry.detail}` : ''}
                   </span>
                   <span>{when(entry.at)}</span>
                 </li>
@@ -236,7 +236,7 @@ export default function DeviceDetailPage() {
                     <TableRow key={entry.id}>
                       <TableCell className="font-mono text-xs">{entry.type}</TableCell>
                       <TableCell className={entry.status === 'failed' || entry.status === 'expired' ? 'text-chart-4' : ''}>{entry.status}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{entry.result || '—'}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{entry.result || 'None'}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{when(entry.createdAt)}</TableCell>
                     </TableRow>
                   ))}

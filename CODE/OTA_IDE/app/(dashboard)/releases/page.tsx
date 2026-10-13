@@ -4,7 +4,8 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, Plus, Archive, Eye } from 'lucide-react';
+import { Download, Plus, Archive, Eye, Package } from 'lucide-react';
+import { EmptyState, SkeletonRows } from '@/components/ui/empty-state';
 import { formatNumber, formatUtcDate } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { PublishFirmwareCard } from '@/components/dashboard/publish-firmware-card';
@@ -135,14 +136,18 @@ export default function ReleasesPage() {
       <div className="space-y-4">
         {isLoading && releases.length === 0 && (
           <Card className="glass border-border/50">
-            <CardContent className="pt-6 text-sm text-foreground/60">Loading live releases...</CardContent>
+            <CardContent className="pt-6">
+              <SkeletonRows rows={3} columns={4} />
+            </CardContent>
           </Card>
         )}
 
         {!isLoading && releases.length === 0 && (
           <Card className="glass border-border/50">
-            <CardContent className="pt-6 text-sm text-foreground/60">
-              No live releases published yet. Push a gateway manifest to populate this section.
+            <CardContent>
+              <EmptyState icon={<Package className="h-5 w-5" />} title="No releases yet">
+                Upload a compiled .bin above and publish it. Signed releases appear here and become available to your fleet.
+              </EmptyState>
             </CardContent>
           </Card>
         )}

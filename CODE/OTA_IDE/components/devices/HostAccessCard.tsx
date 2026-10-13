@@ -308,7 +308,7 @@ export function HostAccessCard({ onDeployToHost }: HostAccessCardProps) {
             </DialogTitle>
             <DialogDescription>
               SecureOTA needs permission to use the USB serial port your board is plugged into on this
-              computer. Your browser will show a list of connected devices — pick the board (for an ESP32
+              computer. Your browser will show a list of connected devices. Pick the board (for an ESP32
               devkit this is usually <span className="font-mono">CP210x</span>, <span className="font-mono">CH340</span> or{' '}
               <span className="font-mono">USB JTAG/serial</span>). Nothing is sent to the server; the permission
               stays in your browser and can be revoked here at any time.

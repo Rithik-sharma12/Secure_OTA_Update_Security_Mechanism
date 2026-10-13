@@ -3,6 +3,9 @@
 /* Ember/carbon design system: raw brand tokens, type scale, motion and the
    .ota-brand / .type-* / .ds-* utilities. Scoped to .ds-root. */
 @import './design-system.css';
+@import './themes.css';
+/* Glossy buttons, glass cards and pill navigation (after the themes). */
+@import './gloss.css';
 
 /* ---------------------------------------------------------------------------
    SecureOTA console theme.
@@ -54,7 +57,7 @@
   --destructive-foreground: #ffffff;
   --border: rgba(255, 255, 255, 0.12);
   --input: #212121;
-  --ring: rgba(255, 40, 3, 0.55);
+  --ring: rgba(var(--acc-rgb), 0.55);
 
   /* Categorical ramp, entirely inside the brand ramp. The semantic roles are
      load-bearing and must not be reordered: chart-1 is success/online
@@ -79,7 +82,7 @@
   --sidebar-accent: #ff9742;
   --sidebar-accent-foreground: #181818;
   --sidebar-border: rgba(255, 255, 255, 0.12);
-  --sidebar-ring: rgba(255, 40, 3, 0.55);
+  --sidebar-ring: rgba(var(--acc-rgb), 0.55);
 
   /* ── Console surfaces ─────────────────────────────────────────────────── */
   --app-ink: #ffffff;
@@ -93,9 +96,9 @@
   --app-hover: rgba(255, 255, 255, 0.06);
   --app-link: #ff9742;
   --app-err-ink: #ff2803;
-  --app-err-bg: rgba(255, 40, 3, 0.16);
+  --app-err-bg: rgba(255, 40, 3, 0.16); /* errors stay red in every theme */
   --app-warn-ink: #ff9742;
-  --app-warn-bg: rgba(255, 151, 66, 0.18);
+  --app-warn-bg: rgba(var(--acc2-rgb), 0.18);
   --app-ok-ink: #ffffff;
   --app-ok-bg: rgba(255, 255, 255, 0.1);
 
@@ -106,20 +109,20 @@
      backdrop photo, and a radial scrim. Applied by .app-canvas below. */
   --app-bg-scrim: radial-gradient(
     90% 70% at 0% 0%,
-    rgba(255, 40, 3, 0.14) 0%,
-    rgba(255, 151, 66, 0.05) 32%,
+    rgba(var(--acc-rgb), 0.14) 0%,
+    rgba(var(--acc2-rgb), 0.05) 32%,
     rgba(18, 18, 18, 0) 62%
   );
 
   --elevation-1: var(--app-elev);
   --elevation-2: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, var(--app-elev);
-  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(255, 40, 3, 0.18) 0 0 28px 0;
+  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(var(--acc-rgb), 0.18) 0 0 28px 0;
 
-  --glow-accent: rgba(255, 40, 3, 0.42) 0 0 28px 0, rgba(255, 151, 66, 0.28) 0 0 64px 0;
+  --glow-accent: rgba(var(--acc-rgb), 0.42) 0 0 28px 0, rgba(var(--acc2-rgb), 0.28) 0 0 64px 0;
   --glow-primary: var(--glow-accent);
 
-  --neo-glow: rgba(255, 40, 3, 0.32);
-  --neo-border: rgba(255, 40, 3, 0.62);
+  --neo-glow: rgba(var(--acc-rgb), 0.32);
+  --neo-border: rgba(var(--acc-rgb), 0.62);
   --neo-hover-text: #ffffff;
 
   --glass-bg: rgba(33, 33, 33, 0.72);
@@ -164,7 +167,7 @@
   --destructive-foreground: #ffffff;
   --border: rgba(255, 255, 255, 0.12);
   --input: #212121;
-  --ring: rgba(255, 40, 3, 0.55);
+  --ring: rgba(var(--acc-rgb), 0.55);
   --chart-1: #f0f0ee;
   --chart-2: #c9c6c1;
   --chart-3: #ff9742;
@@ -177,7 +180,7 @@
   --sidebar-accent: #ff9742;
   --sidebar-accent-foreground: #181818;
   --sidebar-border: rgba(255, 255, 255, 0.12);
-  --sidebar-ring: rgba(255, 40, 3, 0.55);
+  --sidebar-ring: rgba(var(--acc-rgb), 0.55);
 }
 
 /* ── Light theme ─────────────────────────────────────────────────────────
@@ -196,7 +199,7 @@
   --popover: #ffffff;
   --popover-foreground: #181818;
   --primary: #ff2803;
-  --primary-foreground: #ffffff;
+  --primary-foreground: #181818; /* carbon on ember: 5.3:1, white was 3.8:1 */
   --secondary: #ff9742;
   --secondary-foreground: #181818;
   --muted: rgba(24, 24, 24, 0.04);
@@ -207,7 +210,7 @@
   --destructive-foreground: #ffffff;
   --border: rgba(24, 24, 24, 0.12);
   --input: #ffffff;
-  --ring: rgba(255, 40, 3, 0.45);
+  --ring: rgba(var(--acc-rgb), 0.45);
 
   --chart-1: #181818;
   --chart-2: #6b6b66;
@@ -222,7 +225,7 @@
   --sidebar-accent: #ff9742;
   --sidebar-accent-foreground: #181818;
   --sidebar-border: rgba(24, 24, 24, 0.12);
-  --sidebar-ring: rgba(255, 40, 3, 0.45);
+  --sidebar-ring: rgba(var(--acc-rgb), 0.45);
 
   --app-ink: #181818;
   --app-ink2: rgba(24, 24, 24, 0.68);
@@ -237,7 +240,7 @@
   --app-err-ink: #c02000;
   --app-err-bg: rgba(255, 40, 3, 0.1);
   --app-warn-ink: #a34c00;
-  --app-warn-bg: rgba(255, 151, 66, 0.18);
+  --app-warn-bg: rgba(var(--acc2-rgb), 0.18);
   --app-ok-ink: #181818;
   --app-ok-bg: rgba(24, 24, 24, 0.06);
   --app-inv-bg: #181818;
@@ -253,20 +256,20 @@
   --app-ring-muted: #8f8a84;
   --app-bg-scrim: radial-gradient(
     90% 70% at 0% 0%,
-    rgba(255, 40, 3, 0.07) 0%,
-    rgba(255, 151, 66, 0.05) 30%,
+    rgba(var(--acc-rgb), 0.07) 0%,
+    rgba(var(--acc2-rgb), 0.05) 30%,
     rgba(246, 244, 241, 0) 60%
   );
 
   --elevation-1: var(--app-elev);
   --elevation-2: 0 12px 32px -14px rgba(24, 24, 24, 0.22), var(--app-elev);
-  --elevation-3: 0 16px 40px -16px rgba(24, 24, 24, 0.28), 0 0 0 1px rgba(255, 40, 3, 0.12);
+  --elevation-3: 0 16px 40px -16px rgba(24, 24, 24, 0.28), 0 0 0 1px rgba(var(--acc-rgb), 0.12);
 
-  --glow-accent: 0 6px 18px -6px rgba(255, 40, 3, 0.45);
+  --glow-accent: 0 6px 18px -6px rgba(var(--acc-rgb), 0.45);
   --glow-primary: var(--glow-accent);
 
-  --neo-glow: rgba(255, 40, 3, 0.18);
-  --neo-border: rgba(255, 40, 3, 0.45);
+  --neo-glow: rgba(var(--acc-rgb), 0.18);
+  --neo-border: rgba(var(--acc-rgb), 0.45);
   --neo-hover-text: #181818;
 
   --glass-bg: rgba(255, 255, 255, 0.86);
@@ -398,6 +401,112 @@
   }
   .app-canvas [data-slot='table-header'] [data-slot='table-row'] {
     border-color: var(--app-line);
+  }
+
+  /* ── Cards ────────────────────────────────────────────────────────────── */
+  /* Solid surfaces over the live wallpaper, one radius and one hover. */
+  .app-canvas [data-slot='card'],
+  .app-canvas .ota-tile {
+    border-color: var(--app-line);
+    transition-property: border-color, box-shadow, transform;
+    transition-duration: 200ms;
+    transition-timing-function: var(--ease-out-quart);
+  }
+  .app-canvas [data-slot='card']:hover,
+  .app-canvas .ota-tile:hover {
+    border-color: color-mix(in srgb, var(--ember) 28%, var(--app-line));
+    box-shadow: var(--app-elev), 0 14px 32px -22px rgba(var(--acc-rgb), 0.45);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .app-canvas .ota-tile:hover,
+    .app-canvas a:hover > [data-slot='card'] {
+      transform: translateY(-2px);
+    }
+    .app-canvas [data-slot='button']:not(:disabled):active {
+      transform: scale(0.97);
+    }
+  }
+  .app-canvas [data-slot='button'] {
+    transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+    transition-duration: 150ms;
+  }
+
+  /* ── Page entrance ────────────────────────────────────────────────────── */
+  /* Each page's sections rise in, slightly staggered, when you navigate. */
+  @keyframes ota-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .ota-page > * > * {
+      animation: ota-rise 420ms var(--ease-out-quart) both;
+    }
+    .ota-page > * > *:nth-child(2) { animation-delay: 50ms; }
+    .ota-page > * > *:nth-child(3) { animation-delay: 100ms; }
+    .ota-page > * > *:nth-child(4) { animation-delay: 150ms; }
+    .ota-page > * > *:nth-child(5) { animation-delay: 200ms; }
+    .ota-page > * > *:nth-child(n + 6) { animation-delay: 250ms; }
+  }
+
+  /* Loading placeholders: a soft shimmer. */
+  .ota-skeleton {
+    display: block;
+    background: var(--app-line);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .ota-skeleton {
+      background: linear-gradient(90deg, var(--app-line2) 0%, var(--app-line) 50%, var(--app-line2) 100%);
+      background-size: 200% 100%;
+      animation: ota-shimmer 1.4s ease-in-out infinite;
+    }
+  }
+  @keyframes ota-shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: -100% 0;
+    }
+  }
+
+  /* Startup spinner: an ember ring. */
+  .ota-spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 3px solid var(--app-line);
+    border-top-color: var(--ember, #ff2803);
+    animation: ota-spin 0.8s linear infinite;
+  }
+  @keyframes ota-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* ── Small screens ────────────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .app-canvas h1.text-3xl {
+      font-size: 1.45rem;
+    }
+    .app-canvas h1.text-3xl + p {
+      font-size: 0.875rem;
+    }
+    .app-canvas [data-slot='card'] {
+      border-radius: 12px;
+    }
+    /* Header rows sit side by side on desktop; stack them on a phone. */
+    .app-canvas .space-y-6 > .flex.items-center.justify-between:first-child,
+    .app-canvas .space-y-6 > .flex.items-start.justify-between:first-child {
+      flex-wrap: wrap;
+      gap: 12px;
+    }
   }
 
   /* ── Elevation ────────────────────────────────────────────────────────── */
@@ -557,4 +666,170 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ── Live wallpaper: aurora glows (GPU-composited CSS, see LiveWallpaper) ── */
+.ota-aurora {
+  overflow: hidden;
+  mix-blend-mode: screen;
+}
+.ota-aurora-light {
+  mix-blend-mode: normal;
+}
+.ota-aurora > span {
+  position: absolute;
+  width: 70vmax;
+  height: 70vmax;
+  border-radius: 50%;
+  opacity: 0.55;
+  will-change: transform;
+}
+.ota-aurora-light > span {
+  opacity: 0.35;
+}
+.ota-aurora > span:nth-child(1) {
+  left: -15vmax;
+  top: -20vmax;
+  background: radial-gradient(closest-side, rgba(var(--g1), 0.55), transparent);
+  animation: ota-drift-a 48s ease-in-out infinite alternate;
+}
+.ota-aurora > span:nth-child(2) {
+  right: -20vmax;
+  top: -10vmax;
+  background: radial-gradient(closest-side, rgba(var(--g2), 0.45), transparent);
+  animation: ota-drift-b 56s ease-in-out infinite alternate;
+}
+.ota-aurora > span:nth-child(3) {
+  left: 10vmax;
+  bottom: -30vmax;
+  background: radial-gradient(closest-side, rgba(var(--g3), 0.5), transparent);
+  animation: ota-drift-b 62s ease-in-out infinite alternate-reverse;
+}
+.ota-aurora > span:nth-child(4) {
+  right: -10vmax;
+  bottom: -25vmax;
+  background: radial-gradient(closest-side, rgba(var(--g4), 0.4), transparent);
+  animation: ota-drift-a 70s ease-in-out infinite alternate-reverse;
+}
+@keyframes ota-drift-a {
+  to {
+    transform: translate3d(18vmax, 12vmax, 0) scale(1.15);
+  }
+}
+@keyframes ota-drift-b {
+  to {
+    transform: translate3d(-16vmax, 14vmax, 0) scale(0.9);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ota-aurora > span {
+    animation: none;
+  }
+}
+
+/* ── Header controls (reference layout: pill nav, round icon buttons) ───── */
+.ota-pillnav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--app-line);
+  background: var(--app-surface2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.ota-pill {
+  display: inline-flex;
+  min-height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  color: var(--app-ink2);
+  font: var(--type-body-md);
+  text-decoration: none;
+  transition-property: background-color, color, border-color, box-shadow;
+  transition-duration: 160ms;
+}
+.ota-pill:hover {
+  color: var(--app-ink);
+  background: var(--app-hover);
+}
+.ota-pill[data-active='true'] {
+  color: var(--app-ink);
+  font: var(--type-body-strong);
+  border-color: rgba(var(--acc-rgb), 0.45);
+  background: linear-gradient(180deg, rgba(var(--acc-rgb), 0.2), rgba(var(--acc-rgb), 0.06));
+  box-shadow: 0 0 18px -6px rgba(var(--acc-rgb), 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.ota-pill-badge {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--app-err-bg);
+  color: var(--app-err-ink);
+}
+.ota-iconbtn {
+  display: inline-flex;
+  height: 40px;
+  width: 40px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--app-line);
+  background: var(--app-surface2);
+  color: var(--app-ink2);
+  cursor: pointer;
+  transition-property: color, border-color, background-color, box-shadow;
+  transition-duration: 160ms;
+}
+.ota-iconbtn:hover {
+  color: var(--app-ink);
+  border-color: rgba(var(--acc-rgb), 0.45);
+  box-shadow: 0 0 16px -6px rgba(var(--acc-rgb), 0.7);
+}
+.ota-iconbtn:focus-visible,
+.ota-pill:focus-visible {
+  outline: 2px solid rgb(var(--acc-rgb));
+  outline-offset: 2px;
+}
+.ota-iconbtn-dot {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(var(--acc-rgb));
+  box-shadow: 0 0 0 2px var(--app-nav), 0 0 8px rgb(var(--acc-rgb));
+}
+.ota-userchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 10px 0 4px;
+  border-radius: 10px;
+  border: 1px solid var(--app-line);
+  background: var(--app-surface2);
+  color: var(--app-ink);
+  cursor: pointer;
+  transition-property: border-color, box-shadow;
+  transition-duration: 160ms;
+}
+.ota-userchip:hover {
+  border-color: rgba(var(--acc-rgb), 0.45);
+}
+
+/* Cards: a touch more depth, as in the reference (dark only). */
+.dark .app-canvas [data-slot='card'],
+.dark .app-canvas .ota-tile {
+  border-radius: 18px;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 40%);
 }

@@ -2,11 +2,12 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { SignUpButton, useSignIn } from '@clerk/nextjs';
-import { Github, KeyRound, Loader2, MailCheck, ShieldCheck, User2 } from 'lucide-react';
+import { SignUpButton, useAuth, useClerk, useSignIn, useUser } from '@clerk/nextjs';
+import { Github, KeyRound, Loader2, LogOut, MailCheck, RefreshCw, ShieldCheck, User2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { go, postLoginPath, rememberPostLoginPath } from '@/lib/post-login';
+import { apiFetch, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
 
 /**
  * Sign-in with Clerk, built on the Core 3 `useSignIn()` API (@clerk/nextjs 7).
@@ -31,7 +32,111 @@ function messageOf(error: unknown, fallback: string) {
   return clerk.errors?.[0]?.longMessage || clerk.errors?.[0]?.message || clerk.longMessage || clerk.message || fallback;
 }
 
+/** Clerk refuses a new sign-in while a session exists ("You're already signed in"). */
+function isSessionExists(error: unknown) {
+  const clerk = error as { code?: string; errors?: Array<{ code?: string }> } | null;
+  return clerk?.code === 'session_exists' || clerk?.errors?.some((item) => item.code === 'session_exists') === true;
+}
+
+type Confirm = 'checking' | 'failed';
+
+/**
+ * Shown when Clerk already has a session in this browser. The app only lets
+ * someone in once its own API accepts that session, so ask it, then continue;
+ * if it refuses, say why instead of offering a form Clerk would reject.
+ */
+function SignedInPanel() {
+  const router = useRouter();
+  const { signOut } = useClerk();
+  const { user } = useUser();
+  const [state, setState] = React.useState<Confirm>('checking');
+  const [attempt, setAttempt] = React.useState(0);
+  const [leaving, setLeaving] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const confirm = async () => {
+      // A freshly minted session can take a moment to reach the server.
+      for (let tries = 0; tries < 3 && !cancelled; tries += 1) {
+        try {
+          const response = await apiFetch('/api/auth/session', { cache: 'no-store' });
+          const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; user?: StoredAuthUser };
+          if (response.ok && payload.ok && payload.user) {
+            persistAuthSession(payload.user);
+            if (!cancelled) router.replace(postLoginPath());
+            return;
+          }
+        } catch {
+          // network hiccup: retry below
+        }
+        await new Promise((resolve) => setTimeout(resolve, 900 * (tries + 1)));
+      }
+      if (!cancelled) setState('failed');
+    };
+    setState('checking');
+    void confirm();
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt, router]);
+
+  const who = user?.primaryEmailAddress?.emailAddress || user?.username || user?.fullName || 'your account';
+
+  if (state === 'checking') {
+    return (
+      <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-foreground/75" role="status">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        <p>
+          Signed in as <strong className="text-foreground">{who}</strong>. Opening the console…
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-chart-4/40 bg-chart-4/10 px-4 py-3 text-sm text-foreground/85">
+        <p className="font-semibold text-foreground">You are signed in as {who}, but the console could not confirm the session.</p>
+        <p className="mt-1.5 text-foreground/75">
+          The most common cause is a computer clock that is a few seconds off. Turn on
+          &ldquo;Set time automatically&rdquo; and press &ldquo;Sync now&rdquo; in Windows Settings → Time &amp; language,
+          then try again.
+        </p>
+      </div>
+      <Button type="button" className="h-11 w-full text-base" onClick={() => setAttempt((value) => value + 1)}>
+        <RefreshCw className="mr-2 h-4 w-4" /> Try again
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className="h-11 w-full text-base"
+        disabled={leaving}
+        onClick={() => {
+          setLeaving(true);
+          void signOut({ redirectUrl: '/login' });
+        }}
+      >
+        {leaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+        Sign out and use another account
+      </Button>
+    </div>
+  );
+}
+
 export function ClerkSignInPanel() {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) {
+    return (
+      <div className="flex justify-center py-8" role="status" aria-label="Loading sign-in">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+  if (isSignedIn) return <SignedInPanel />;
+  return <SignInForm />;
+}
+
+function SignInForm() {
   const router = useRouter();
   const { signIn, fetchStatus } = useSignIn();
   const [email, setEmail] = React.useState('');
@@ -108,6 +213,10 @@ export function ClerkSignInPanel() {
     setNotice(null);
     try {
       const { error: passwordError } = await signIn.password({ identifier: email.trim(), password });
+      if (isSessionExists(passwordError)) {
+        go(postLoginPath(), (path) => router.replace(path));
+        return;
+      }
       if (passwordError) {
         setError(messageOf(passwordError, 'Email or password is incorrect.'));
         return;
@@ -170,6 +279,10 @@ export function ClerkSignInPanel() {
       redirectUrl: postLoginPath(),
     });
     // On success the browser is already leaving for the provider.
+    if (isSessionExists(ssoError)) {
+      go(postLoginPath(), (path) => router.replace(path));
+      return;
+    }
     if (ssoError) {
       setError(messageOf(ssoError, 'Unable to continue with social sign-in.'));
       setBusy(null);
@@ -206,7 +319,7 @@ export function ClerkSignInPanel() {
           {busy === 'code' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Verify and sign in
         </Button>
-        <div className="flex justify-between text-sm text-foreground/60">
+        <div className="flex justify-between text-sm text-foreground/75">
           <button type="button" className="hover:underline" onClick={() => void startOver()}>
             Use a different account
           </button>
@@ -233,7 +346,7 @@ export function ClerkSignInPanel() {
         </Button>
       </div>
 
-      <div className="my-6 flex items-center gap-3 text-xs text-foreground/45">
+      <div className="my-6 flex items-center gap-3 text-xs text-foreground/65">
         <div className="h-px flex-1 bg-border" />
         <span>OR CONTINUE WITH EMAIL</span>
         <div className="h-px flex-1 bg-border" />
@@ -273,16 +386,16 @@ export function ClerkSignInPanel() {
 
       <div className="mt-8 flex items-start gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-chart-1" />
-        <p className="text-xs leading-relaxed text-foreground/60">
+        <p className="text-xs leading-relaxed text-foreground/75">
           New accounts start as viewers. An admin raises the role in Settings → Users, or sets
           <code className="mx-1">role</code>in the user&apos;s Clerk public metadata.
         </p>
       </div>
 
-      <div className="mt-4 text-center text-sm text-foreground/60">
+      <div className="mt-4 text-center text-sm text-foreground/75">
         Need an account?{' '}
         <SignUpButton mode="modal" forceRedirectUrl={postLoginPath()}>
-          <button type="button" className="font-medium text-primary hover:underline">
+          <button type="button" className="font-semibold text-[color:var(--app-link)] underline-offset-2 hover:underline">
             Sign up
           </button>
         </SignUpButton>

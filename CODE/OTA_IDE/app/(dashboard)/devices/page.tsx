@@ -21,7 +21,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
+import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff, Cpu } from 'lucide-react';
+import { EmptyState, SkeletonRows } from '@/components/ui/empty-state';
 import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard';
 import { HostAccessCard } from '@/components/devices/HostAccessCard';
 import { WebSerialFlashCard } from '@/components/devices/WebSerialFlashCard';
@@ -417,10 +418,13 @@ export default function DevicesPage() {
                 })}
               </TableBody>
             </Table>
+            {isLoading && filteredDevices.length === 0 && <SkeletonRows rows={4} columns={6} />}
             {!isLoading && filteredDevices.length === 0 && (
-              <p className="py-6 text-center text-sm text-foreground/50">
-                No live devices reported yet. Start heartbeat publishing to populate this table.
-              </p>
+              <EmptyState icon={<Cpu className="h-5 w-5" />} title={snapshot.devices.length ? 'No devices match' : 'No devices yet'}>
+                {snapshot.devices.length
+                  ? 'Try a different search or filter.'
+                  : 'Flash a board over USB above, or power on a provisioned board. It appears here on its first heartbeat.'}
+              </EmptyState>
             )}
           </div>
         </CardContent>

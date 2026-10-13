@@ -246,7 +246,7 @@ export default function CodePage() {
       h: 'bg-blue-500/20 text-blue-400',
       python: 'bg-green-500/20 text-green-400',
       javascript: 'bg-orange-500/20 text-orange-400',
-      xml: 'bg-purple-500/20 text-purple-400',
+      xml: 'bg-teal-500/20 text-teal-400',
     };
     return colors[lang];
   };

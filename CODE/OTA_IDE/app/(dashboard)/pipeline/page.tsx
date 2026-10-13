@@ -192,23 +192,20 @@ export default function PipelinePage() {
       {/* Pipeline Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Started', value: livePipeline ? formatUtcDateTime(livePipeline.createdAt) : 'n/a', icon: '📅' },
+          { label: 'Started', value: livePipeline ? formatUtcDateTime(livePipeline.createdAt) : 'n/a' },
           {
             label: 'Duration',
-            value: livePipeline ? `${(livePipeline.stages.reduce((sum, s) => sum + (s.duration || 0), 0) / 60).toFixed(1)}m` : 'n/a',
-            icon: '⏱️'
+            value: livePipeline ? `${(livePipeline.stages.reduce((sum, s) => sum + (s.duration || 0), 0) / 60).toFixed(1)}m` : 'n/a'
           },
           {
             label: 'Completed Stages',
             value: livePipeline
               ? `${livePipeline.stages.filter(s => s.status === 'success').length}/${livePipeline.stages.length}`
-              : '0/0',
-            icon: '✓'
+              : '0/0'
           },
           {
             label: 'Status',
-            value: livePipeline ? livePipeline.status.charAt(0).toUpperCase() + livePipeline.status.slice(1) : 'Idle',
-            icon: '🔄'
+            value: livePipeline ? livePipeline.status.charAt(0).toUpperCase() + livePipeline.status.slice(1) : 'Idle'
           },
         ].map((stat) => (
           <Card key={stat.label} className="glass border-border/50">

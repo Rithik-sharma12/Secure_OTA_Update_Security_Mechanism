@@ -19,6 +19,9 @@ const allowedDevOrigins = Array.from(new Set([
 ]));
 
 const nextConfig = {
+  // No "X-Powered-By: Next.js" header: it advertises the stack and is a
+  // "made with" tag in every response.
+  poweredByHeader: false,
   // Was `ignoreBuildErrors: true`, which shipped whatever tsc complained
   // about. The tree is clean as of this commit, so the suppression is gone and
   // a type error fails the build again.

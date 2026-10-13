@@ -20,11 +20,15 @@
   --lp-inv-ink: #181818;
   --lp-line: rgba(255, 255, 255, 0.1);
   --lp-card: rgba(28, 28, 28, 0.72);
-  --lp-hero-photo: url('/brand/landing-bg.jpg');
+  /* No stock photo behind the hero: the animated fleet canvas carries it. */
+  --lp-hero-photo: none;
   --lp-accent: var(--amber);
   color: var(--lp-ink);
   background: var(--lp-bg);
   overflow-x: clip;
+  /* Own stacking context, so the wallpaper (z-index -1) sits above the page
+     ground and below every section. */
+  isolation: isolate;
 }
 
 .lp-container {
@@ -139,7 +143,7 @@
   width: 100%;
   transform-origin: 0 50%;
   background: var(--gradient-cta);
-  box-shadow: 0 0 12px rgba(255, 40, 3, 0.7);
+  box-shadow: 0 0 12px rgba(var(--acc-rgb), 0.7);
 }
 
 .lp-menu-button {
@@ -250,7 +254,7 @@
 .lp-hero-shade {
   z-index: 1;
   background:
-    radial-gradient(120% 80% at 75% 40%, rgba(255, 40, 3, 0.16) 0%, rgba(var(--lp-bg-rgb), 0) 55%),
+    radial-gradient(120% 80% at 75% 40%, rgba(var(--acc-rgb), 0.16) 0%, rgba(var(--lp-bg-rgb), 0) 55%),
     linear-gradient(90deg, rgba(var(--lp-bg-rgb), 0.96) 0%, rgba(var(--lp-bg-rgb), 0.78) 45%, rgba(var(--lp-bg-rgb), 0.35) 100%),
     linear-gradient(0deg, var(--lp-bg) 0%, rgba(var(--lp-bg-rgb), 0) 30%);
 }
@@ -258,7 +262,7 @@
 .lp-hero-spot {
   z-index: 3;
   pointer-events: none;
-  background: radial-gradient(420px circle at var(--mx, 70%) var(--my, 40%), rgba(255, 151, 66, 0.1), transparent 60%);
+  background: radial-gradient(420px circle at var(--mx, 70%) var(--my, 40%), rgba(var(--acc2-rgb), 0.1), transparent 60%);
 }
 
 .lp-hero-copy {
@@ -324,7 +328,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: 6px;
   border: 1px solid rgba(var(--lp-fg-rgb), 0.14);
   background: rgba(var(--lp-bg-rgb), 0.55);
   font: var(--type-caption);
@@ -347,22 +351,51 @@
 }
 
 .lp-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 40px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 28px;
+  margin: 0;
   padding-top: 24px;
   border-top: 1px solid var(--lp-line);
 }
 
 .lp-stat-value {
-  font: 700 34px/1 var(--font-display);
+  font: 700 22px/1.15 var(--font-display);
+  text-wrap: balance;
   font-variant-numeric: tabular-nums;
 }
 
 .lp-stat-label {
-  margin-top: 6px;
+  margin: 6px 0 0;
   font: var(--type-caption);
   color: var(--lp-muted);
+}
+
+/* Release targets: a static list (no ticker). */
+.lp-boards {
+  padding: 28px 0;
+  border-top: 1px solid var(--lp-line);
+  border-bottom: 1px solid var(--lp-line);
+}
+.lp-boards-title {
+  margin: 0 0 14px;
+  font: var(--type-caption);
+  color: var(--lp-muted);
+}
+.lp-boards-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lp-boards-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 18px/1.2 var(--font-display);
+  color: var(--lp-ink);
 }
 
 .lp-scroll-cue {
@@ -448,7 +481,7 @@
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: radial-gradient(360px circle at var(--px, -200px) var(--py, -200px), rgba(255, 151, 66, 0.12), transparent 55%);
+  background: radial-gradient(360px circle at var(--px, -200px) var(--py, -200px), rgba(var(--acc2-rgb), 0.12), transparent 55%);
   opacity: 0;
   transition: opacity var(--dur-base) var(--ease-standard);
 }
@@ -460,7 +493,7 @@
   border-radius: inherit;
   padding: 1px;
   pointer-events: none;
-  background: radial-gradient(260px circle at var(--px, -200px) var(--py, -200px), rgba(255, 40, 3, 0.8), transparent 60%);
+  background: radial-gradient(260px circle at var(--px, -200px) var(--py, -200px), rgba(var(--acc-rgb), 0.8), transparent 60%);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -503,7 +536,7 @@
   display: grid;
   place-items: center;
   color: var(--lp-ink);
-  background: linear-gradient(152deg, rgba(255, 151, 66, 0.3), rgba(192, 32, 0, 0.35));
+  background: linear-gradient(152deg, rgba(var(--acc2-rgb), 0.3), rgba(192, 32, 0, 0.35));
   border: 1px solid var(--hairline-glow);
 }
 
@@ -869,13 +902,13 @@
 }
 
 .lp-pipe-step[data-state='active'] {
-  background: rgba(255, 151, 66, 0.08);
+  background: rgba(var(--acc2-rgb), 0.08);
   color: var(--lp-ink);
 }
 
 .lp-pipe-step[data-state='active'] .lp-pipe-icon {
   border-color: var(--amber);
-  box-shadow: 0 0 0 4px rgba(255, 151, 66, 0.14);
+  box-shadow: 0 0 0 4px rgba(var(--acc2-rgb), 0.14);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -886,7 +919,7 @@
 
 @keyframes lp-ring {
   50% {
-    box-shadow: 0 0 0 9px rgba(255, 151, 66, 0);
+    box-shadow: 0 0 0 9px rgba(var(--acc2-rgb), 0);
   }
 }
 
@@ -902,7 +935,7 @@
 
 .lp-pipe-step[data-state='failed'] {
   color: var(--lp-ink);
-  background: rgba(255, 40, 3, 0.12);
+  background: rgba(var(--acc-rgb), 0.12);
 }
 
 .lp-pipe-step[data-state='failed'] .lp-pipe-icon {
@@ -1055,13 +1088,13 @@
 .lp-layer[aria-pressed='true'] {
   color: var(--lp-ink);
   border-color: var(--hairline-glow);
-  background: linear-gradient(96deg, rgba(255, 40, 3, 0.2), rgba(var(--lp-panel-rgb), 0.9) 60%);
+  background: linear-gradient(96deg, rgba(var(--acc-rgb), 0.2), rgba(var(--lp-panel-rgb), 0.9) 60%);
   transform: translateX(10px);
 }
 
 .lp-layer[data-hit='true'] {
   border-color: var(--ember);
-  box-shadow: 0 0 0 1px var(--ember), 0 0 28px -4px rgba(255, 40, 3, 0.7);
+  box-shadow: 0 0 0 1px var(--ember), 0 0 28px -4px rgba(var(--acc-rgb), 0.7);
   color: var(--lp-ink);
 }
 
@@ -1100,9 +1133,9 @@
 .lp-attack {
   min-height: 40px;
   padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 40, 3, 0.45);
-  background: rgba(255, 40, 3, 0.08);
+  border-radius: 8px;
+  border: 1px solid rgba(var(--acc-rgb), 0.45);
+  background: rgba(var(--acc-rgb), 0.08);
   color: var(--lp-ink);
   font: var(--type-caption);
   font-weight: 600;
@@ -1111,7 +1144,7 @@
 
 .lp-attack:hover,
 .lp-attack[aria-pressed='true'] {
-  background: rgba(255, 40, 3, 0.22);
+  background: rgba(var(--acc-rgb), 0.22);
 }
 
 /* ── Boards marquee ─────────────────────────────────────────────────────── */
@@ -1171,7 +1204,7 @@
   position: absolute;
   inset: -40%;
   z-index: -1;
-  background: conic-gradient(from 0deg, #ff2803, #ff9742, #c02000, #212121, #ff2803);
+  background: conic-gradient(from 0deg, var(--ember), var(--amber), var(--ember-deep), #212121, var(--ember));
   filter: blur(60px);
   opacity: 0.55;
 }

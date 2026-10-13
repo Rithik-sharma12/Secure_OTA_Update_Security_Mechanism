@@ -29,7 +29,7 @@ export function ThemeToggle({ className = '', compact = false }: { className?: s
     <div
       role="radiogroup"
       aria-label="Colour theme"
-      className={`inline-flex items-center gap-0.5 rounded-full border p-0.5 ${className}`}
+      className={`inline-flex items-center gap-0.5 rounded-lg border p-0.5 ${className}`}
       style={{ borderColor: 'var(--app-line)', background: 'var(--app-surface2)' }}
     >
       {OPTIONS.map(({ value, label, Icon }) => {
@@ -43,7 +43,7 @@ export function ThemeToggle({ className = '', compact = false }: { className?: s
             aria-label={label}
             title={label}
             onClick={() => setTheme(value)}
-            className="inline-flex items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             style={{
               width: compact ? 28 : 32,
               height: compact ? 28 : 32,

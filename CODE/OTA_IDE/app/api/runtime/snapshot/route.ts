@@ -494,7 +494,12 @@ export async function GET(request: Request) {
 
   const reachable = Boolean(dashboard || manifestPayload);
   const ok = Boolean(dashboard && manifestPayload);
-  const errorMessage = [dashboardError, manifestError].filter(Boolean).join(' | ') || null;
+  // Node reports an unreachable host as a bare "fetch failed", twice (one per
+  // request). Say what it means, once.
+  const rawErrors = Array.from(new Set([dashboardError, manifestError].filter(Boolean) as string[]));
+  const errorMessage = !reachable
+    ? `Can't reach the gateway at ${gatewayUrl}. Start it (start-gateway.cmd) and this page will update on its own.`
+    : rawErrors.join(' | ') || null;
 
   return NextResponse.json({
     ok,

@@ -16,6 +16,10 @@ export interface UserRecord {
   supabaseId?: string;
   /** Clerk user id (user_...) when the account signs in through Clerk. */
   clerkId?: string;
+  /** Name, photo and sign-in methods copied from Clerk on each sync. */
+  displayName?: string;
+  imageUrl?: string;
+  authProviders?: string[];
   passwordHash?: string;
   role: 'admin' | 'operator' | 'viewer';
   isActive: boolean;

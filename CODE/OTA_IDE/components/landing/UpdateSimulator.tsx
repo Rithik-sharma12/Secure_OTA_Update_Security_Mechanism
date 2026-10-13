@@ -20,7 +20,7 @@ type StepState = 'idle' | 'active' | 'done' | 'failed' | 'skipped';
 
 const STEPS = [
   { key: 'assign', label: 'Deployment assigned', note: 'Queued for the next heartbeat' },
-  { key: 'manifest', label: 'Signed manifest checked', note: 'Version, board and size' },
+  { key: 'manifest', label: 'Manifest read', note: 'Version, size and the SHA-256 to expect' },
   { key: 'download', label: 'Image downloaded', note: 'Progress reported at 25 / 50 / 75 %' },
   { key: 'digest', label: 'SHA-256 matches the manifest', note: 'Catches any changed byte' },
   { key: 'signature', label: 'Signature verified', note: 'Only the release key can produce it' },
@@ -36,7 +36,7 @@ function buildScript(scenario: Scenario): Script {
   const script: Script = [
     { step: 0, state: 'done', log: 'dashboard → deployment v2.6.0 assigned to esp32-a1b2c3d4e5f6', led: 'idle', ms: 700 },
     { step: 1, state: 'active', log: '[HB] gateway: update_available (target 2.6.0)', led: 'busy', ms: 700 },
-    { step: 1, state: 'done', log: 'manifest: ESP32, 1.21 MB, signature present', kind: 'ok', led: 'busy', ms: 600 },
+    { step: 1, state: 'done', log: 'manifest: v2.6.0, 1.21 MB, sha256 published', kind: 'ok', led: 'busy', ms: 600 },
     { step: 2, state: 'active', log: '[Update] downloading… 25%', led: 'busy', ms: 650 },
     { step: 2, state: 'active', log: '[Update] downloading… 50%', led: 'busy', ms: 650 },
     { step: 2, state: 'active', log: '[Update] downloading… 75%', led: 'busy', ms: 650 },
@@ -44,7 +44,7 @@ function buildScript(scenario: Scenario): Script {
   ];
   if (scenario === 'tampered') {
     script.push({ step: 3, state: 'failed', log: '[Update] ERROR: image does not match the manifest sha256', kind: 'bad', led: 'bad', ms: 900 });
-    script.push({ step: 4, state: 'skipped', log: 'nothing written — v2.5.0 keeps running; deployment marked failed', kind: 'ok', led: 'ok', version: '2.5.0', ms: 0 });
+    script.push({ step: 4, state: 'skipped', log: 'nothing written. v2.5.0 keeps running; deployment marked failed', kind: 'ok', led: 'ok', version: '2.5.0', ms: 0 });
     return script;
   }
   script.push({ step: 3, state: 'done', log: '[Update] sha256 matches', kind: 'ok', led: 'busy', ms: 600 });
@@ -53,11 +53,11 @@ function buildScript(scenario: Scenario): Script {
   script.push({ step: 6, state: 'done', log: '[OTA] rebooting into v2.6.0', led: 'busy', version: '2.6.0', ms: 900 });
   script.push({ step: 7, state: 'active', log: '[Gate] v2.6.0 on probation: 120 s to reach the gateway', led: 'busy', version: '2.6.0', ms: 1100 });
   if (scenario === 'broken') {
-    script.push({ step: 7, state: 'failed', log: '[Gate] no accepted heartbeat in time — rolling back', kind: 'bad', led: 'bad', version: '2.6.0', ms: 1000 });
+    script.push({ step: 7, state: 'failed', log: '[Gate] no accepted heartbeat in time, rolling back', kind: 'bad', led: 'bad', version: '2.6.0', ms: 1000 });
     script.push({ step: 8, state: 'skipped', log: 'bootloader restored v2.5.0; dashboard shows "rolled back"', kind: 'ok', led: 'ok', version: '2.5.0', ms: 0 });
     return script;
   }
-  script.push({ step: 7, state: 'done', log: '[Gate] heartbeat accepted — image marked valid', kind: 'ok', led: 'ok', version: '2.6.0', ms: 700 });
+  script.push({ step: 7, state: 'done', log: '[Gate] heartbeat accepted, image marked valid', kind: 'ok', led: 'ok', version: '2.6.0', ms: 700 });
   script.push({ step: 8, state: 'done', log: 'deployment confirmed: device reports v2.6.0', kind: 'ok', led: 'ok', version: '2.6.0', ms: 0 });
   return script;
 }
@@ -186,7 +186,7 @@ export function UpdateSimulator() {
           </div>
         </div>
         <p className="lp-sim-label" style={{ margin: 0 }}>
-          Interactive simulation — no real device or gateway is contacted. The stages and messages mirror the SecureOTA
+          Interactive simulation. No real device or gateway is contacted. The stages and messages mirror the SecureOTA
           firmware.
         </p>
       </div>

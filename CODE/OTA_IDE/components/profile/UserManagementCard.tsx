@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { ProviderIcon, UserAvatar, providerLabel } from '@/components/profile/identity';
 import { AlertCircle, CheckCircle2, Loader2, Pencil, Trash2, UserPlus, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -204,7 +205,7 @@ export function UserManagementCard({ currentUserId }: { currentUserId: string })
             onClick={() => setDraft({ ...draft, role: option.value })}
             aria-pressed={draft.role === option.value}
             title={option.description}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
               draft.role === option.value
                 ? 'border-primary bg-primary/15 text-primary'
                 : 'border-border text-muted-foreground hover:border-primary/40'
@@ -230,7 +231,7 @@ export function UserManagementCard({ currentUserId }: { currentUserId: string })
               User management
             </CardTitle>
             <CardDescription>
-              Create, edit and remove dashboard accounts. Admin only — every action here is re-checked
+              Create, edit and remove dashboard accounts. Admin only. Every action here is re-checked
               on the server.
             </CardDescription>
           </div>
@@ -265,7 +266,7 @@ export function UserManagementCard({ currentUserId }: { currentUserId: string })
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Username</TableHead>
+                <TableHead>User</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Last login</TableHead>
@@ -279,10 +280,25 @@ export function UserManagementCard({ currentUserId }: { currentUserId: string })
                 return (
                   <TableRow key={user.id}>
                     <TableCell className="font-medium">
-                      {user.username}
-                      {user.id === currentUserId && (
-                        <span className="ml-2 text-xs text-muted-foreground">(you)</span>
-                      )}
+                      <div className="flex items-center gap-3">
+                        <UserAvatar name={user.displayName || user.username} imageUrl={user.imageUrl} size={32} />
+                        <div className="min-w-0">
+                          <div className="truncate">
+                            {user.displayName || user.username}
+                            {user.id === currentUserId && (
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">(you)</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                            {(user.authProviders ?? []).map((provider) => (
+                              <span key={provider} title={`Signs in with ${providerLabel(provider)}`}>
+                                <ProviderIcon provider={provider} size={11} />
+                              </span>
+                            ))}
+                            <span className="truncate">{user.email || user.username}</span>
+                          </div>
+                        </div>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge className={roleBadgeClass(user.role)}>{user.role}</Badge>
@@ -296,7 +312,7 @@ export function UserManagementCard({ currentUserId }: { currentUserId: string })
                       {user.lastLoginAt ? formatUtcDateTime(user.lastLoginAt) : 'never'}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {user.createdAt ? formatUtcDateTime(user.createdAt) : '—'}
+                      {user.createdAt ? formatUtcDateTime(user.createdAt) : 'Unknown'}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">

@@ -1,0 +1,286 @@
+/* ===========================================================================
+ Colour themes (accents). Chosen in the header palette menu or Settings and
+ stored per browser; lib/accent-config.ts sets data-accent on <html> before
+ first paint. Ember is the default and needs no overrides. Light/dark
+ (next-themes) stays independent: each accent works in both.
+ =========================================================================== */
+
+:root {
+  --acc-rgb: 255, 40, 3;
+  --acc2-rgb: 255, 151, 66;
+  --acc-deep-rgb: 192, 32, 0;
+}
+
+/* ── ocean ── */
+html[data-accent='ocean'],
+html[data-accent='ocean'] .ds-root {
+  --acc-rgb: 59, 130, 246;
+  --acc2-rgb: 34, 211, 238;
+  --acc-deep-rgb: 29, 78, 216;
+  --ember: #3b82f6;
+  --ember-deep: #1d4ed8;
+  --amber: #22d3ee;
+  --hairline-glow: rgba(59, 130, 246, 0.34);
+  --gradient-cta: linear-gradient(96deg, #3b82f6 0%, #22d3ee 100%);
+  --primary: #3b82f6;
+  --secondary: #22d3ee;
+  --accent: #22d3ee;
+  --ring: rgba(59, 130, 246, 0.55);
+  --chart-3: #22d3ee;
+  --chart-4: #3b82f6;
+  --chart-5: #1d4ed8;
+  --sidebar-primary: #3b82f6;
+  --sidebar-accent: #22d3ee;
+  --sidebar-ring: rgba(59, 130, 246, 0.55);
+  --app-link: #22d3ee;
+  --app-bg-scrim: radial-gradient(90% 70% at 0% 0%, rgba(59, 130, 246, 0.16) 0%, rgba(34, 211, 238, 0.05) 32%, rgba(0, 0, 0, 0) 62%);
+  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(59, 130, 246, 0.18) 0 0 28px 0;
+  --glow-accent: rgba(59, 130, 246, 0.42) 0 0 28px 0, rgba(34, 211, 238, 0.28) 0 0 64px 0;
+  --neo-glow: rgba(59, 130, 246, 0.32);
+  --neo-border: rgba(59, 130, 246, 0.62);
+}
+html.dark[data-accent='ocean'] {
+  --background: #080b11;
+  --card: #121823;
+  --popover: #121823;
+  --app-surface: #121823;
+  --glass-bg: rgba(18, 24, 35, 0.78);
+  --glass-lg-bg: rgba(18, 24, 35, 0.9);
+  --app-canvas-ground: #0a0e15;
+  --app-nav: rgba(8, 11, 17, 0.86);
+}
+html.light[data-accent='ocean'] {
+  --app-link: #1d4ed8;
+  --chart-3: #1d4ed8;
+}
+
+/* ── emerald ── */
+html[data-accent='emerald'],
+html[data-accent='emerald'] .ds-root {
+  --acc-rgb: 16, 185, 129;
+  --acc2-rgb: 163, 230, 53;
+  --acc-deep-rgb: 4, 120, 87;
+  --ember: #10b981;
+  --ember-deep: #047857;
+  --amber: #a3e635;
+  --hairline-glow: rgba(16, 185, 129, 0.34);
+  --gradient-cta: linear-gradient(96deg, #10b981 0%, #a3e635 100%);
+  --primary: #10b981;
+  --secondary: #a3e635;
+  --accent: #a3e635;
+  --ring: rgba(16, 185, 129, 0.55);
+  --chart-3: #a3e635;
+  --chart-4: #10b981;
+  --chart-5: #047857;
+  --sidebar-primary: #10b981;
+  --sidebar-accent: #a3e635;
+  --sidebar-ring: rgba(16, 185, 129, 0.55);
+  --app-link: #a3e635;
+  --app-bg-scrim: radial-gradient(90% 70% at 0% 0%, rgba(16, 185, 129, 0.16) 0%, rgba(163, 230, 53, 0.05) 32%, rgba(0, 0, 0, 0) 62%);
+  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(16, 185, 129, 0.18) 0 0 28px 0;
+  --glow-accent: rgba(16, 185, 129, 0.42) 0 0 28px 0, rgba(163, 230, 53, 0.28) 0 0 64px 0;
+  --neo-glow: rgba(16, 185, 129, 0.32);
+  --neo-border: rgba(16, 185, 129, 0.62);
+}
+html.dark[data-accent='emerald'] {
+  --background: #070d0b;
+  --card: #111a17;
+  --popover: #111a17;
+  --app-surface: #111a17;
+  --glass-bg: rgba(17, 26, 23, 0.78);
+  --glass-lg-bg: rgba(17, 26, 23, 0.9);
+  --app-canvas-ground: #09110e;
+  --app-nav: rgba(7, 13, 11, 0.86);
+}
+html.light[data-accent='emerald'] {
+  --app-link: #047857;
+  --chart-3: #047857;
+}
+
+/* ── rose ── */
+html[data-accent='rose'],
+html[data-accent='rose'] .ds-root {
+  --acc-rgb: 244, 63, 94;
+  --acc2-rgb: 251, 146, 60;
+  --acc-deep-rgb: 190, 18, 60;
+  --ember: #f43f5e;
+  --ember-deep: #be123c;
+  --amber: #fb923c;
+  --hairline-glow: rgba(244, 63, 94, 0.34);
+  --gradient-cta: linear-gradient(96deg, #f43f5e 0%, #fb923c 100%);
+  --primary: #f43f5e;
+  --secondary: #fb923c;
+  --accent: #fb923c;
+  --ring: rgba(244, 63, 94, 0.55);
+  --chart-3: #fb923c;
+  --chart-4: #f43f5e;
+  --chart-5: #be123c;
+  --sidebar-primary: #f43f5e;
+  --sidebar-accent: #fb923c;
+  --sidebar-ring: rgba(244, 63, 94, 0.55);
+  --app-link: #fb923c;
+  --app-bg-scrim: radial-gradient(90% 70% at 0% 0%, rgba(244, 63, 94, 0.16) 0%, rgba(251, 146, 60, 0.05) 32%, rgba(0, 0, 0, 0) 62%);
+  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(244, 63, 94, 0.18) 0 0 28px 0;
+  --glow-accent: rgba(244, 63, 94, 0.42) 0 0 28px 0, rgba(251, 146, 60, 0.28) 0 0 64px 0;
+  --neo-glow: rgba(244, 63, 94, 0.32);
+  --neo-border: rgba(244, 63, 94, 0.62);
+}
+html.dark[data-accent='rose'] {
+  --background: #0f090b;
+  --card: #1e1418;
+  --popover: #1e1418;
+  --app-surface: #1e1418;
+  --glass-bg: rgba(30, 20, 24, 0.78);
+  --glass-lg-bg: rgba(30, 20, 24, 0.9);
+  --app-canvas-ground: #130b0e;
+  --app-nav: rgba(15, 9, 11, 0.86);
+}
+html.light[data-accent='rose'] {
+  --app-link: #be123c;
+  --chart-3: #be123c;
+}
+
+/* ── mono ── */
+html[data-accent='mono'],
+html[data-accent='mono'] .ds-root {
+  --acc-rgb: 229, 229, 229;
+  --acc2-rgb: 163, 163, 163;
+  --acc-deep-rgb: 64, 64, 64;
+  --ember: #e5e5e5;
+  --ember-deep: #404040;
+  --amber: #a3a3a3;
+  --hairline-glow: rgba(229, 229, 229, 0.34);
+  --gradient-cta: linear-gradient(96deg, #e5e5e5 0%, #a3a3a3 100%);
+  --primary: #e5e5e5;
+  --secondary: #a3a3a3;
+  --accent: #a3a3a3;
+  --ring: rgba(229, 229, 229, 0.55);
+  --chart-3: #a3a3a3;
+  --chart-4: #e5e5e5;
+  --chart-5: #404040;
+  --sidebar-primary: #e5e5e5;
+  --sidebar-accent: #a3a3a3;
+  --sidebar-ring: rgba(229, 229, 229, 0.55);
+  --app-link: #a3a3a3;
+  --app-bg-scrim: radial-gradient(90% 70% at 0% 0%, rgba(229, 229, 229, 0.16) 0%, rgba(163, 163, 163, 0.05) 32%, rgba(0, 0, 0, 0) 62%);
+  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(229, 229, 229, 0.18) 0 0 28px 0;
+  --glow-accent: rgba(229, 229, 229, 0.42) 0 0 28px 0, rgba(163, 163, 163, 0.28) 0 0 64px 0;
+  --neo-glow: rgba(229, 229, 229, 0.32);
+  --neo-border: rgba(229, 229, 229, 0.62);
+}
+html.light[data-accent='mono'] {
+  --app-link: #404040;
+  --chart-3: #404040;
+  --primary: #262626;
+  --primary-foreground: #ffffff;
+  --ember: #262626;
+  --gradient-cta: linear-gradient(96deg, #404040 0%, #737373 100%);
+}
+html.light[data-accent='mono'] .ds-root {
+  --ember: #262626;
+  --gradient-cta: linear-gradient(96deg, #404040 0%, #737373 100%);
+}
+
+/* ── crimson ── */
+html[data-accent='crimson'],
+html[data-accent='crimson'] .ds-root {
+  --acc-rgb: 230, 0, 35;
+  --acc2-rgb: 255, 107, 129;
+  --acc-deep-rgb: 184, 0, 28;
+  --ember: #e60023;
+  --ember-deep: #b8001c;
+  --amber: #ff6b81;
+  --hairline-glow: rgba(230, 0, 35, 0.34);
+  --gradient-cta: linear-gradient(96deg, #e60023 0%, #ff6b81 100%);
+  --primary: #e60023;
+  --secondary: #ff6b81;
+  --accent: #ff6b81;
+  --ring: rgba(230, 0, 35, 0.55);
+  --chart-3: #ff6b81;
+  --chart-4: #e60023;
+  --chart-5: #b8001c;
+  --sidebar-primary: #e60023;
+  --sidebar-accent: #ff6b81;
+  --sidebar-ring: rgba(230, 0, 35, 0.55);
+  --app-link: #ff6b81;
+  --app-bg-scrim: radial-gradient(90% 70% at 0% 0%, rgba(230, 0, 35, 0.16) 0%, rgba(255, 107, 129, 0.05) 32%, rgba(0, 0, 0, 0) 62%);
+  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(230, 0, 35, 0.18) 0 0 28px 0;
+  --glow-accent: rgba(230, 0, 35, 0.42) 0 0 28px 0, rgba(255, 107, 129, 0.28) 0 0 64px 0;
+  --neo-glow: rgba(230, 0, 35, 0.32);
+  --neo-border: rgba(230, 0, 35, 0.62);
+}
+html.dark[data-accent='crimson'] {
+  --background: #110708;
+  --card: #1f1013;
+  --popover: #1f1013;
+  --app-surface: #1f1013;
+  --glass-bg: rgba(31, 16, 19, 0.78);
+  --glass-lg-bg: rgba(31, 16, 19, 0.9);
+  --app-canvas-ground: #140809;
+  --app-nav: rgba(17, 7, 8, 0.86);
+}
+html.light[data-accent='crimson'] {
+  --app-link: #b8001c;
+  --chart-3: #b8001c;
+}
+
+/* ── sunset ── */
+html[data-accent='sunset'],
+html[data-accent='sunset'] .ds-root {
+  --acc-rgb: 249, 115, 22;
+  --acc2-rgb: 245, 158, 11;
+  --acc-deep-rgb: 194, 65, 12;
+  --ember: #f97316;
+  --ember-deep: #c2410c;
+  --amber: #f59e0b;
+  --hairline-glow: rgba(249, 115, 22, 0.34);
+  --gradient-cta: linear-gradient(96deg, #f97316 0%, #f59e0b 100%);
+  --primary: #f97316;
+  --secondary: #f59e0b;
+  --accent: #f59e0b;
+  --ring: rgba(249, 115, 22, 0.55);
+  --chart-3: #f59e0b;
+  --chart-4: #f97316;
+  --chart-5: #c2410c;
+  --sidebar-primary: #f97316;
+  --sidebar-accent: #f59e0b;
+  --sidebar-ring: rgba(249, 115, 22, 0.55);
+  --app-link: #f59e0b;
+  --app-bg-scrim: radial-gradient(90% 70% at 0% 0%, rgba(249, 115, 22, 0.16) 0%, rgba(245, 158, 11, 0.05) 32%, rgba(0, 0, 0, 0) 62%);
+  --elevation-3: rgba(0, 0, 0, 0.55) 0 24px 60px -20px, rgba(249, 115, 22, 0.18) 0 0 28px 0;
+  --glow-accent: rgba(249, 115, 22, 0.42) 0 0 28px 0, rgba(245, 158, 11, 0.28) 0 0 64px 0;
+  --neo-glow: rgba(249, 115, 22, 0.32);
+  --neo-border: rgba(249, 115, 22, 0.62);
+}
+html.dark[data-accent='sunset'] {
+  --background: #120a08;
+  --card: #211512;
+  --popover: #211512;
+  --app-surface: #211512;
+  --glass-bg: rgba(33, 21, 18, 0.78);
+  --glass-lg-bg: rgba(33, 21, 18, 0.9);
+  --app-canvas-ground: #160c09;
+  --app-nav: rgba(18, 10, 8, 0.86);
+}
+html.light[data-accent='sunset'] {
+  --app-link: #c2410c;
+  --chart-3: #c2410c;
+}
+
+/* ── Console layout: framed (default) or full width ─────────────────────── */
+@media (min-width: 1024px) {
+  html:not([data-layout='full']) .ota-shell {
+    height: 100svh;
+    padding: 14px;
+    background:
+      radial-gradient(70% 60% at 50% 0%, rgba(var(--acc-rgb), 0.16), transparent 70%),
+      var(--background);
+  }
+  html:not([data-layout='full']) .ota-frame {
+    height: 100%;
+    border: 1px solid var(--app-line);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.7);
+  }
+}

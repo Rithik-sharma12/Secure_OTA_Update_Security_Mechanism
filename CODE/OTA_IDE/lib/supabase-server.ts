@@ -15,7 +15,16 @@ function parseRequestCookies(request: Request) {
     });
 }
 
+/**
+ * Supabase as the *sign-in* provider. Clerk takes precedence: when Clerk keys
+ * are set, accounts live in Clerk (mirrored to the local store and, through
+ * lib/supabase-sync.ts, to Supabase tables), so Supabase keys must not switch
+ * login, logout or Settings → Users over to Supabase Auth.
+ */
 export function isSupabaseAuthConfigured() {
+  if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY) {
+    return false;
+  }
   return Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY

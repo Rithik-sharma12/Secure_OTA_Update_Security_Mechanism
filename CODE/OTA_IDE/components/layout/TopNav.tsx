@@ -2,13 +2,12 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { Show, UserButton } from '@clerk/nextjs';
-import { ClerkSignOutButton } from '@/components/auth/ClerkSignOutButton';
-import { clerkEnabled } from '@/lib/post-login';
+import { usePathname } from 'next/navigation';
+import { AccountMenu } from '@/components/profile/AccountMenu';
 import {
   Activity,
   AlertCircle,
+  Bell,
   BarChart3,
   Code,
   Cpu,
@@ -29,9 +28,8 @@ import {
 } from 'lucide-react';
 import Logo from '@/components/brand/Logo';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
-import { clearAuthSession, getStoredAuthUser } from '@/lib/client-auth';
-import { useGuidedMode } from '@/lib/use-guided-mode';
-import { ThemeToggle } from '@/components/theme-toggle';
+import { AppearanceMenu } from '@/components/layout/AppearanceMenu';
+import { ConsoleSearch } from '@/components/layout/ConsoleSearch';
 
 type NavItem = { label: string; href: string; icon: React.ReactNode };
 type NavGroup = { title: string; icon: React.ReactNode; items: NavItem[] };
@@ -97,16 +95,8 @@ function relativeTime(from: Date | null): string {
 
 export default function TopNav() {
   const pathname = usePathname();
-  const router = useRouter();
   const { snapshot } = useRuntimeSnapshot(5000);
-  const [guided, setGuided] = useGuidedMode();
-  const [userName, setUserName] = React.useState('Admin');
   const [, forceTick] = React.useReducer((n: number) => n + 1, 0);
-
-  React.useEffect(() => {
-    const user = getStoredAuthUser();
-    if (user?.username) setUserName(user.username);
-  }, []);
 
   // Keep the "updated Ns ago" label honest between snapshot polls.
   React.useEffect(() => {
@@ -124,6 +114,8 @@ export default function TopNav() {
     (d) => d.health === 'poor' || d.health === 'critical'
   ).length;
 
+  const alerts = offline + held;
+
   const lastSync = snapshot.devices.reduce<Date | null>((latest, d) => {
     if (!d.lastSync) return latest;
     return !latest || d.lastSync > latest ? d.lastSync : latest;
@@ -132,13 +124,6 @@ export default function TopNav() {
   const activeGroup =
     groups.find((g) => g.items.some((i) => pathname === i.href || pathname.startsWith(i.href + '/'))) ??
     groups[0];
-
-  const handleSignOut = async () => {
-    await clearAuthSession();
-    router.replace('/login');
-  };
-
-  const initials = userName.slice(0, 2).toUpperCase();
 
   return (
     <header
@@ -149,128 +134,61 @@ export default function TopNav() {
         backdropFilter: 'blur(8px)',
       }}
     >
-      {/* ── Row 1: brand, groups, controls ──────────────────────────────── */}
-      <div className="flex min-h-[60px] flex-wrap items-center gap-4 px-6 py-2">
+      {/* ── Row 1: brand · pill navigation + search · notifications, appearance, account ── */}
+      <div className="flex min-h-[60px] flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2.5 sm:min-h-[64px] sm:gap-x-4 sm:px-6">
         <Link href="/dashboard" className="flex shrink-0 items-center" aria-label="SecureOTA dashboard">
           <Logo size={30} wordmarkSize={20} />
         </Link>
 
-        <nav
-          aria-label="Sections"
-          className="ota-nav-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-          style={{ scrollbarWidth: 'none' }}
-        >
-          {groups.map((group) => {
-            const isActive = group.title === activeGroup.title;
-            const badge = group.title === 'Security' && held > 0 ? held : null;
-            return (
-              <Link
-                key={group.title}
-                href={group.items[0].href}
-                className="ds-navchip inline-flex min-h-[38px] shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-[15px]"
-                data-active={isActive ? 'true' : undefined}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                {group.icon}
-                {group.title}
-                {badge !== null && (
-                  <span
-                    className="type-micro-cap tabular"
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      background: 'var(--app-err-bg)',
-                      color: 'var(--app-err-ink)',
-                    }}
-                    title={`${badge} device${badge === 1 ? '' : 's'} held back by ASH`}
-                  >
-                    {badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="flex shrink-0 items-center gap-3">
-          {/* Density toggle */}
-          <div
-            className="flex items-center gap-0.5 p-[3px]"
-            style={{ borderRadius: 24, border: '1px solid var(--app-line)' }}
-            role="group"
-            aria-label="Console density"
-          >
-            {(['Guided', 'Dense'] as const).map((mode) => {
-              const on = (mode === 'Guided') === guided;
+        <div className="flex min-w-0 items-center gap-2 md:flex-1 md:justify-center">
+          {/* Phones use the bottom bar below instead of these tabs. */}
+          <nav aria-label="Sections" className="ota-pillnav gloss-pillbar ota-nav-scroll hidden min-w-0 overflow-x-auto md:flex" style={{ scrollbarWidth: 'none' }}>
+            {groups.map((group) => {
+              const isActive = group.title === activeGroup.title;
+              const badge = group.title === 'Security' && held > 0 ? held : null;
               return (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setGuided(mode === 'Guided')}
-                  aria-pressed={on}
-                  className="type-button-cap-light inline-flex min-h-[30px] items-center rounded-full px-3.5"
-                  style={{
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: on ? 'var(--ember)' : 'transparent',
-                    color: on ? '#fff' : 'var(--app-ink2)',
-                    transitionProperty: 'background-color, color',
-                    transitionDuration: 'var(--dur-fast)',
-                    transitionTimingFunction: 'var(--ease-standard)',
-                  }}
+                <Link
+                  key={group.title}
+                  href={group.items[0].href}
+                  className="ota-pill gloss-pill"
+                  data-active={isActive ? 'true' : undefined}
+                  aria-current={isActive ? 'page' : undefined}
                 >
-                  {mode}
-                </button>
+                  {group.icon}
+                  {group.title}
+                  {badge !== null && (
+                    <span className="ota-pill-badge tabular" title={`${badge} device${badge === 1 ? '' : 's'} held back by ASH`}>
+                      {badge}
+                    </span>
+                  )}
+                </Link>
               );
             })}
-          </div>
+          </nav>
+          <ConsoleSearch groups={groups} />
+        </div>
 
-          <ThemeToggle compact />
-
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <Link
-            href="/profile"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full"
-            style={{
-              background: 'var(--gradient-cta)',
-              color: 'var(--carbon)',
-              font: '700 12px/1 var(--font-display)',
-            }}
-            title={`${userName} — view profile`}
-            aria-label="View your profile"
+            href="/event-logs"
+            className="ota-iconbtn gloss-iconbtn relative"
+            aria-label={alerts > 0 ? `${alerts} devices need attention. Open event logs` : 'Event logs'}
+            title={alerts > 0 ? `${alerts} device${alerts === 1 ? '' : 's'} offline or held back` : 'Event logs'}
           >
-            {initials || 'AD'}
+            <Bell className="h-[18px] w-[18px]" />
+            {alerts > 0 && <span className="ota-iconbtn-dot" aria-hidden="true" />}
           </Link>
-
-          {clerkEnabled && (
-            <Show when="signed-in">
-              <UserButton />
-            </Show>
-          )}
-
-          {clerkEnabled ? (
-            <ClerkSignOutButton
-              className="ds-ghost inline-flex min-h-[36px] items-center rounded-lg px-4"
-              style={{ background: 'transparent', cursor: 'pointer' }}
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="ds-ghost inline-flex min-h-[36px] items-center rounded-lg px-4"
-              style={{ background: 'transparent', cursor: 'pointer' }}
-            >
-              Sign Out
-            </button>
-          )}
+          <AppearanceMenu />
+          <AccountMenu />
         </div>
       </div>
 
       {/* ── Row 2: sub-nav + live status ────────────────────────────────── */}
       <div
-        className="flex flex-wrap items-center gap-3 px-6 pb-2.5 pt-2.5"
+        className="flex items-center gap-3 px-4 pb-2.5 pt-2.5 sm:px-6"
         style={{ borderTop: '1px solid var(--app-line2)' }}
       >
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+        <div className="ota-nav-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto lg:flex-wrap" style={{ scrollbarWidth: 'none' }}>
           {activeGroup.items.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             return (
@@ -279,7 +197,7 @@ export default function TopNav() {
                 href={item.href}
                 aria-current={isActive ? 'page' : undefined}
                 data-active={isActive ? 'true' : undefined}
-                className="ds-subchip inline-flex min-h-[32px] shrink-0 items-center gap-2 whitespace-nowrap rounded-[20px] px-3"
+                className="ds-subchip inline-flex min-h-[32px] shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3"
               >
                 {item.icon}
                 {item.label}
@@ -289,7 +207,7 @@ export default function TopNav() {
         </div>
 
         <div
-          className="type-caption flex shrink-0 items-center gap-2"
+          className="type-caption hidden shrink-0 items-center gap-2 md:flex"
           style={{ color: 'var(--app-ink2)' }}
         >
           <span
@@ -307,6 +225,42 @@ export default function TopNav() {
           </span>
         </div>
       </div>
+
     </header>
+  );
+}
+
+/**
+ * Phones: a glossy bottom tab bar (like a native app) in place of the header
+ * tabs. Rendered by ConsoleLayout outside the header, because the header's
+ * backdrop blur would otherwise become the bar's positioning context.
+ */
+export function MobileTabBar() {
+  const pathname = usePathname();
+  const onProfile = pathname.startsWith('/profile');
+  const activeGroup =
+    groups.find((g) => g.items.some((i) => pathname === i.href || pathname.startsWith(i.href + '/'))) ??
+    groups[0];
+  return (
+    <nav aria-label="Sections" className="gloss-bottomnav md:hidden">
+      {groups.map((group) => {
+        const isActive = group.title === activeGroup.title && !onProfile;
+        return (
+          <Link
+            key={group.title}
+            href={group.items[0].href}
+            data-active={isActive ? 'true' : undefined}
+            aria-current={isActive ? 'page' : undefined}
+          >
+            {group.icon}
+            <span>{group.title}</span>
+          </Link>
+        );
+      })}
+      <Link href="/profile" data-active={onProfile ? 'true' : undefined} aria-current={onProfile ? 'page' : undefined}>
+        <UserRound className="h-4 w-4" />
+        <span>Account</span>
+      </Link>
+    </nav>
   );
 }

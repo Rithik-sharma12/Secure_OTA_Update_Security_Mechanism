@@ -18,7 +18,7 @@ const LAYERS = [
     id: 'signature',
     name: 'Signed firmware',
     detail:
-      'Release packages are signed at build time and the signature is checked on the board before the boot partition changes. Manifests from the gateway carry their own Ed25519 signature.',
+      'Secure packages carry an RSA-2048 signature over the version and the image digest. The board checks it before it writes a byte. The gateway also signs every release with its Ed25519 key.',
   },
   {
     id: 'digest',
@@ -44,13 +44,13 @@ const LAYERS = [
   {
     id: 'audit',
     name: 'Audit trail',
-    detail: 'Every change through the gateway is recorded with who made it and from where — including the requests that were refused.',
+    detail: 'Every change through the gateway is recorded with who made it and from where, including the requests that were refused.',
   },
 ];
 
 const ATTACKS = [
   { id: 'swap', label: 'Swap the firmware file', stops: 'digest', result: 'The SHA-256 does not match the manifest. Nothing is written; the board keeps running.' },
-  { id: 'forge', label: 'Forge a release', stops: 'signature', result: 'Without the release key the signature cannot verify, so the board refuses to boot into it.' },
+  { id: 'forge', label: 'Forge a release', stops: 'signature', result: 'Without the release key the signature cannot verify, so the board refuses to write it.' },
   { id: 'downgrade', label: 'Push an old, buggy version', stops: 'version', result: 'Anti-rollback: the gateway will not offer it and the board will not accept it.' },
   { id: 'impersonate', label: 'Pretend to be another board', stops: 'tokens', result: 'The stolen token only works for the board it was issued to.' },
   { id: 'replay', label: 'Replay an old status packet', stops: 'encryption', result: 'The packet counter has moved on; the replay is discarded.' },

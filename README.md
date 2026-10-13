@@ -1,4 +1,4 @@
-# SecureOTA — Secure OTA Update Mechanism for Resource-Constrained IoT Devices
+# SecureOTA : Secure OTA Update Mechanism for Resource-Constrained IoT Devices
 
 <p align="center">
   <img src="pics/1.png" alt="SecureOTA Dashboard" width="900">
@@ -443,12 +443,14 @@ SecureOTA implements multiple security controls throughout the update lifecycle.
 
 ### Authentication
 
-* Session-based dashboard authentication
-* Password hashing using `scrypt`
-* Token hashing using `SHA-256`
-* Session expiration
-* Session revocation
-* Strong administrator credentials
+* Clerk Auth handles dashboard sign-in, sign-up, and sessions when
+  `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` are configured
+* Clerk user metadata supplies the dashboard role (`admin`, `operator`, or
+  `viewer`)
+* A local profile cache preserves role-aware API permissions and audit
+  ownership
+* Local `scrypt` authentication remains available as a development fallback
+  when Clerk is not configured
 
 ### API Security
 

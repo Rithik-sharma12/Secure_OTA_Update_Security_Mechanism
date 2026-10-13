@@ -22,6 +22,7 @@ import {
   isSupabaseAuthConfigured,
 } from '@/lib/supabase-server';
 import { supabaseServiceAdmin } from '@/lib/supabase';
+import { mirrorProfile } from '@/lib/supabase-sync';
 
 const SESSION_TTL_HOURS = Number(process.env.OTA_SESSION_TTL_HOURS || 24);
 const DISALLOWED_BOOTSTRAP_USERNAMES = new Set(['admin', 'administrator', 'root']);
@@ -212,9 +213,37 @@ type ClerkUserLike = {
   id: string;
   username?: string | null;
   firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  imageUrl?: string | null;
+  hasImage?: boolean;
+  passwordEnabled?: boolean;
+  externalAccounts?: Array<{ provider?: string | null }> | null;
   primaryEmailAddress?: { emailAddress: string } | null;
   publicMetadata?: Record<string, unknown> | null;
 };
+
+/** Name, photo and sign-in methods, as stored alongside the role locally. */
+function clerkIdentity(clerkUser: ClerkUserLike) {
+  const displayName =
+    clerkUser.fullName?.trim() ||
+    [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ').trim() ||
+    '';
+  // The Backend API reports providers as "oauth_google"; the browser SDK as "google".
+  const providers = new Set(
+    (clerkUser.externalAccounts || [])
+      .map((account) => String(account.provider || '').replace(/^oauth_/, ''))
+      .filter(Boolean)
+  );
+  if (clerkUser.passwordEnabled || providers.size === 0) providers.add('email');
+  return {
+    displayName,
+    // Clerk always returns an imageUrl; without hasImage it is a generated
+    // placeholder, and the UI's initials read better than that.
+    imageUrl: clerkUser.hasImage === false ? '' : clerkUser.imageUrl || '',
+    authProviders: Array.from(providers),
+  };
+}
 
 function isRole(value: unknown): value is UserRole {
   return value === 'admin' || value === 'operator' || value === 'viewer';
@@ -258,11 +287,14 @@ async function syncClerkProfile(clerkUser: ClerkUserLike): Promise<UserRecord | 
   if (existing) {
     if (existing.isActive === false) return null;
     const role: UserRole = metadataRole ?? (adminByEmail ? 'admin' : existing.role);
+    const identity = clerkIdentity(clerkUser);
     await usersStore.update(
       { _id: existing._id },
-      { $set: { clerkId: clerkUser.id, email, role, lastLoginAt: now, updatedAt: now } }
+      { $set: { clerkId: clerkUser.id, email, role, ...identity, lastLoginAt: now, updatedAt: now } }
     );
-    return { ...existing, clerkId: clerkUser.id, email, role, lastLoginAt: now };
+    const updated = { ...existing, clerkId: clerkUser.id, email, role, ...identity, lastLoginAt: now };
+    mirrorProfile(updated);
+    return updated;
   }
 
   let role: UserRole = metadataRole ?? (adminByEmail ? 'admin' : 'viewer');
@@ -282,9 +314,10 @@ async function syncClerkProfile(clerkUser: ClerkUserLike): Promise<UserRecord | 
   const taken = await usersStore.findOne({ username: preferred });
   const username = taken ? `${preferred}-${clerkUser.id.slice(-6)}` : preferred;
 
-  return usersStore.insert({
+  const created = await usersStore.insert({
     clerkId: clerkUser.id,
     email,
+    ...clerkIdentity(clerkUser),
     username,
     passwordHash: '',
     role,
@@ -293,6 +326,8 @@ async function syncClerkProfile(clerkUser: ClerkUserLike): Promise<UserRecord | 
     createdAt: now,
     updatedAt: now,
   });
+  mirrorProfile(created);
+  return created;
 }
 
 /**
@@ -334,6 +369,21 @@ async function authenticateWithClerk(): Promise<AuthContext | null> {
     },
     tokenHash,
   };
+}
+
+/**
+ * Re-read the signed-in Clerk user now instead of within the cache window,
+ * after they change their name, photo or connected accounts.
+ */
+export async function refreshClerkProfile(): Promise<boolean> {
+  if (!isClerkConfigured()) return false;
+  const { userId } = await clerkAuth();
+  if (!userId) return false;
+  clerkProfileCache.delete(userId);
+  const user = await clerkCurrentUser();
+  const profile = user ? await syncClerkProfile(user as unknown as ClerkUserLike) : null;
+  clerkProfileCache.set(userId, { profile, at: Date.now() });
+  return Boolean(profile);
 }
 
 /** Drop a cached Clerk profile, e.g. after an admin changes that user's role. */
@@ -457,6 +507,7 @@ export async function loginWithPassword(
       },
     }
   );
+    mirrorProfile({ ...user, lastLoginAt: new Date().toISOString() });
   } catch (dbError: unknown) {
     logger.error('Auth', `Failed to update lastLoginAt for user ${user._id}: ${dbError instanceof Error ? dbError.message : String(dbError)}`, dbError);
     errorTracker.track(dbError, 'Auth:DBUpdate:LastLogin');
@@ -638,6 +689,10 @@ export const USER_ROLES: readonly UserRole[] = ['admin', 'operator', 'viewer'] a
 /** A user as the API returns it — never carries `passwordHash`. */
 export interface ManagedUser extends PublicUser {
   isActive: boolean;
+  email?: string;
+  displayName?: string;
+  imageUrl?: string;
+  authProviders?: string[];
   createdAt?: string | Date;
   updatedAt?: string | Date;
 }
@@ -649,6 +704,10 @@ function sanitizeManagedUser(user: UserRecord): ManagedUser {
   return {
     ...sanitizeUser(user),
     isActive: Boolean(user.isActive),
+    email: user.email || undefined,
+    displayName: user.displayName || undefined,
+    imageUrl: user.imageUrl || undefined,
+    authProviders: user.authProviders?.length ? user.authProviders : user.clerkId ? undefined : ['local'],
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

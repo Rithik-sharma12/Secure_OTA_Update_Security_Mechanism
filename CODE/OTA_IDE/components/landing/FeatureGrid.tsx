@@ -4,7 +4,6 @@ import React from 'react';
 import Link from 'next/link';
 import { Activity, ArrowRight, Globe, History, KeyRound, Rocket, ShieldCheck } from 'lucide-react';
 import { Reveal } from './Reveal';
-import { trackPointer } from './motion';
 
 const FEATURES = [
   {
@@ -16,7 +15,7 @@ const FEATURES = [
   {
     icon: KeyRound,
     title: 'Set up over the cable',
-    copy: 'Flash a release and hand the board its Wi-Fi, gateway address and its own token through the COM port. One binary fits every board.',
+    copy: 'Flash a release and hand the board its Wi-Fi, gateway address and its own token through the COM port. One release binary fits every ESP32.',
     href: '/devices',
   },
   {
@@ -34,7 +33,7 @@ const FEATURES = [
   {
     icon: Activity,
     title: 'Live health and history',
-    copy: 'Health score, Wi-Fi signal and memory per board over the last week, with every firmware change marked. Pages update as it happens.',
+    copy: 'Health score, Wi-Fi signal and free memory for every board, charted with each firmware change marked. Pages update live.',
     href: '/devices',
   },
   {
@@ -61,8 +60,7 @@ export function FeatureGrid() {
           <Reveal key={feature.title} delay={(index % 3) * 90} style={{ height: '100%' }}>
             <Link
               href={`/login?next=${encodeURIComponent(feature.href)}`}
-              className="lp-card lp-spot lp-feature"
-              onPointerMove={trackPointer}
+              className="lp-card lp-feature"
             >
               <span className="lp-feature-icon" aria-hidden="true">
                 <Icon size={20} />

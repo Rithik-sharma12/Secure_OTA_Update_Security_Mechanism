@@ -116,7 +116,7 @@ export default function DeadLetterQueuePage() {
                   <div className="space-y-2 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-foreground truncate">{webhook.type || 'unknown-event'}</span>
-                      <span className="text-xs bg-chart-4/20 text-chart-4 px-2 py-0.5 rounded-full font-medium">
+                      <span className="text-xs bg-chart-4/20 text-chart-4 px-2 py-0.5 rounded-md font-medium">
                         FAILED
                       </span>
                     </div>

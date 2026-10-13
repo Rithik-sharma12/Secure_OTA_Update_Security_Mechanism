@@ -50,7 +50,7 @@ const STEPS: Array<{ id: StepId; label: string }> = [
   { id: 'flash', label: 'Flash over USB' },
   { id: 'identify', label: 'Read board & issue its token' },
   { id: 'provision', label: 'Write Wi-Fi and gateway' },
-  { id: 'online', label: 'First heartbeat — OTA ready' },
+  { id: 'online', label: 'First heartbeat: OTA ready' },
 ];
 
 type Target =

@@ -1,0 +1,309 @@
+/* ===========================================================================
+   Surface layer: controls, glass cards and navigation
+
+   Design rules for this product (set by the project owner):
+   - Buttons and tabs are rectangles with 8px corners. No pill shapes.
+   - Solid fills from the theme colour. No purple, no glow halos.
+   - Motion is limited to short state changes (press, hover, focus).
+
+   Everything reads the theme tokens (--primary, --ember, --card, --app-*),
+   so every colour theme and both light and dark get the same treatment.
+   "Solid" surfaces (Appearance menu) turns the frosted glass off.
+   =========================================================================== */
+
+:root {
+  --ctl-radius: 8px;
+  --gloss-radius-card: 14px;
+  --gloss-hi: rgba(255, 255, 255, 0.18);
+  --gloss-lip: rgba(0, 0, 0, 0.28);
+  --gloss-glass-border: rgba(255, 255, 255, 0.09);
+  --gloss-glass-hi: rgba(255, 255, 255, 0.06);
+  --gloss-glass-alpha: 78%;
+  --gloss-blur: 16px;
+}
+.light {
+  --gloss-hi: rgba(255, 255, 255, 0.5);
+  --gloss-lip: rgba(24, 24, 24, 0.14);
+  --gloss-glass-border: rgba(24, 24, 24, 0.08);
+  --gloss-glass-hi: rgba(255, 255, 255, 0.9);
+  --gloss-glass-alpha: 80%;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+[data-slot='button'] {
+  border-radius: var(--ctl-radius);
+  transition:
+    transform 120ms ease-out,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    filter 120ms ease;
+}
+[data-slot='button'][data-variant='default'] {
+  background-color: var(--primary);
+  background-image: linear-gradient(180deg, var(--gloss-hi), transparent 55%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.25);
+  border: none;
+}
+[data-slot='button'][data-variant='destructive'] {
+  background-color: #d92d2d;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 55%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.25);
+  color: #fff;
+}
+[data-slot='button'][data-variant='outline'],
+[data-slot='button'][data-variant='secondary'] {
+  background-color: color-mix(in srgb, var(--card) 85%, transparent);
+  border: 1px solid var(--gloss-glass-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.light [data-slot='button'][data-variant='outline'],
+.light [data-slot='button'][data-variant='secondary'] {
+  background-color: #ffffff;
+  border-color: rgba(24, 24, 24, 0.12);
+  box-shadow: 0 1px 2px rgba(24, 24, 24, 0.06);
+}
+[data-slot='button']:not(:disabled):hover {
+  filter: brightness(1.07);
+}
+[data-slot='button']:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* The brand call-to-action (landing, sign-in, 404). */
+.ds-cta,
+.ds-ghost {
+  border-radius: var(--ctl-radius);
+}
+.ds-cta {
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.ds-cta:active {
+  transform: translateY(1px);
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────────────── */
+[data-slot='input'],
+[data-slot='select-trigger'],
+[data-slot='textarea'] {
+  border-radius: var(--ctl-radius);
+  background-color: color-mix(in srgb, var(--input, var(--card)) 70%, transparent);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: box-shadow 140ms ease, border-color 140ms ease;
+}
+.light [data-slot='input'],
+.light [data-slot='select-trigger'],
+.light [data-slot='textarea'] {
+  box-shadow: inset 0 1px 2px rgba(24, 24, 24, 0.06);
+}
+[data-slot='input']:focus-visible,
+[data-slot='select-trigger']:focus-visible,
+[data-slot='textarea']:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+/* ── Frosted glass cards (console) ───────────────────────────────────────── */
+html:not([data-surface='solid']) .app-canvas [data-slot='card'],
+html:not([data-surface='solid']) .app-canvas .glass,
+html:not([data-surface='solid']) .app-canvas .ota-tile {
+  background-color: color-mix(in srgb, var(--card) var(--gloss-glass-alpha), transparent);
+  background-image: linear-gradient(180deg, var(--gloss-glass-hi), transparent 38%);
+  -webkit-backdrop-filter: blur(var(--gloss-blur)) saturate(1.4);
+  backdrop-filter: blur(var(--gloss-blur)) saturate(1.4);
+  border: 1px solid var(--gloss-glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--gloss-glass-hi),
+    0 1px 2px rgba(0, 0, 0, 0.18),
+    0 22px 48px -30px rgba(0, 0, 0, 0.65);
+}
+.light:not([data-surface='solid']) .app-canvas [data-slot='card'],
+.light:not([data-surface='solid']) .app-canvas .glass,
+.light:not([data-surface='solid']) .app-canvas .ota-tile {
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 1px 2px rgba(24, 24, 24, 0.05),
+    0 22px 48px -30px rgba(40, 40, 90, 0.35);
+}
+.app-canvas [data-slot='card'],
+.app-canvas .ota-tile {
+  border-radius: var(--gloss-radius-card);
+}
+
+/* ── Section navigation (header): a segmented control ───────────────────── */
+.gloss-pillbar.gloss-pillbar {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  background-color: color-mix(in srgb, var(--card) 85%, transparent);
+  border: 1px solid var(--gloss-glass-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.light .gloss-pillbar.gloss-pillbar {
+  background-color: #f4f3f1;
+}
+.gloss-pillbar .gloss-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--ctl-radius);
+  white-space: nowrap;
+  color: var(--app-ink2);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+.gloss-pillbar .gloss-pill:hover {
+  color: var(--app-ink);
+  background: color-mix(in srgb, var(--app-ink) 6%, transparent);
+}
+.gloss-pillbar .gloss-pill[data-active='true'] {
+  color: #fff;
+  background-color: var(--ember);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 60%);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.gloss-iconbtn.gloss-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  color: var(--app-ink);
+  background-color: color-mix(in srgb, var(--card) 85%, transparent);
+  border: 1px solid var(--gloss-glass-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+.light .gloss-iconbtn.gloss-iconbtn {
+  background-color: #ffffff;
+}
+.gloss-iconbtn:hover {
+  background-color: color-mix(in srgb, var(--app-ink) 8%, var(--card));
+}
+.gloss-iconbtn:active {
+  transform: translateY(1px);
+}
+
+/* ── Mobile bottom navigation (phones) ───────────────────────────────────── */
+.gloss-bottomnav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  background-color: color-mix(in srgb, var(--card) 92%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--gloss-glass-border);
+}
+.gloss-bottomnav a,
+.gloss-bottomnav button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 52px;
+  border-radius: var(--ctl-radius);
+  color: var(--app-ink2);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+}
+.gloss-bottomnav [data-active='true'] {
+  color: var(--ember);
+  background-color: color-mix(in srgb, var(--ember) 12%, transparent);
+}
+.gloss-bottomnav [data-active='true']::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 25%;
+  right: 25%;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ember);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='button'],
+  .gloss-pill,
+  .gloss-iconbtn {
+    transition: none;
+  }
+}
+
+/* Graphite's accent is near-white: dark ink on its active tabs and buttons. */
+html[data-accent='mono'] .gloss-pill[data-active='true'],
+html[data-accent='mono'] [data-slot='button'][data-variant='default'] {
+  color: #141414;
+}
+
+/* ── "Glass orbs" wallpaper scene: glossy spheres drifting (reference 2) ── */
+.ota-orbs {
+  overflow: hidden;
+}
+.ota-orbs > span {
+  position: absolute;
+  border-radius: 50%;
+  /* Specular highlight top-left, accent body, darker rim, soft reflected light. */
+  background:
+    radial-gradient(circle at 30% 26%, rgba(255, 255, 255, 0.95) 0 6%, rgba(255, 255, 255, 0.35) 14%, transparent 32%),
+    radial-gradient(circle at 70% 78%, rgba(var(--acc2-rgb), 0.55), transparent 46%),
+    radial-gradient(circle at 50% 50%, rgba(var(--acc-rgb), 0.55) 0%, rgba(var(--acc-deep-rgb), 0.75) 62%, rgba(var(--acc-deep-rgb), 0.95) 100%);
+  box-shadow:
+    inset -10px -16px 40px rgba(0, 0, 0, 0.35),
+    inset 8px 10px 30px rgba(255, 255, 255, 0.25),
+    0 30px 60px -20px rgba(var(--acc-rgb), 0.45);
+  will-change: transform;
+  animation: ota-orb-float 26s ease-in-out infinite alternate;
+}
+.ota-orbs-light > span {
+  opacity: 0.85;
+}
+.ota-orbs > span:nth-child(1) { width: 22vmax; height: 22vmax; left: -6vmax; top: -5vmax; animation-duration: 30s; }
+.ota-orbs > span:nth-child(2) { width: 16vmax; height: 16vmax; right: -4vmax; top: 8vh; animation-duration: 34s; animation-delay: -6s; }
+.ota-orbs > span:nth-child(3) { width: 5vmax; height: 5vmax; left: 34vw; top: 6vh; animation-duration: 22s; animation-delay: -3s; }
+.ota-orbs > span:nth-child(4) { width: 9vmax; height: 9vmax; right: 12vw; bottom: 10vh; animation-duration: 28s; animation-delay: -12s; }
+.ota-orbs > span:nth-child(5) { width: 3vmax; height: 3vmax; left: 12vw; bottom: 22vh; animation-duration: 18s; animation-delay: -8s; }
+.ota-orbs > span:nth-child(6) { width: 26vmax; height: 26vmax; left: 38vw; bottom: -18vmax; animation-duration: 40s; animation-delay: -15s; opacity: 0.7; }
+.ota-orbs > span:nth-child(7) { width: 2vmax; height: 2vmax; right: 34vw; top: 30vh; animation-duration: 16s; animation-delay: -5s; }
+@keyframes ota-orb-float {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(2vmax, -3vmax, 0) scale(1.04); }
+  100% { transform: translate3d(-2vmax, 2vmax, 0) scale(0.97); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ota-orbs > span { animation: none; }
+}
+
+/* Tablets and up use the header tabs; the bottom bar is for phones only. */
+@media (min-width: 768px) {
+  .gloss-bottomnav {
+    display: none;
+  }
+}
+
+/* The pill nav is the desktop/tablet nav; phones use the bottom tab bar. */
+@media (min-width: 768px) {
+  .gloss-pillbar.gloss-pillbar { display: flex; }
+}
+
+/* Phones: slightly smaller header buttons so brand, search and actions share one row. */
+@media (max-width: 639px) {
+  .gloss-iconbtn.gloss-iconbtn { width: 36px; height: 36px; }
+}

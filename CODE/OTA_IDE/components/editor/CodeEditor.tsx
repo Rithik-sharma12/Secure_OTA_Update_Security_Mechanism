@@ -45,7 +45,7 @@ export function CodeEditor({
     const colors: Record<string, string> = {
       json: 'bg-yellow-500/20 text-yellow-400',
       c: 'bg-blue-500/20 text-blue-400',
-      python: 'bg-purple-500/20 text-purple-400',
+      python: 'bg-sky-500/20 text-sky-400',
       javascript: 'bg-green-500/20 text-green-400',
       xml: 'bg-orange-500/20 text-orange-400',
     };

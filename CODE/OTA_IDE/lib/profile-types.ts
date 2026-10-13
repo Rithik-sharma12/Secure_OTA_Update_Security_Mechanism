@@ -15,6 +15,12 @@ export interface ManagedUser {
   username: string;
   role: UserRole;
   isActive: boolean;
+  email?: string;
+  /** Present for Clerk accounts: name and photo from Google, GitHub or Clerk. */
+  displayName?: string;
+  imageUrl?: string;
+  /** How the account can sign in: 'google', 'github', 'email'. */
+  authProviders?: string[];
   lastLoginAt?: string | Date;
   createdAt?: string | Date;
   updatedAt?: string | Date;

@@ -1,17 +1,18 @@
+import { AmbientWallpaper } from '@/components/brand/LiveWallpaper';
 import fs from 'node:fs';
 import path from 'node:path';
 import Link from 'next/link';
 import { ArrowRight, Cpu } from 'lucide-react';
 import Logo from '@/components/brand/Logo';
-import { CountUp } from '@/components/landing/CountUp';
 import { DefenseStack } from '@/components/landing/DefenseStack';
 import { FeatureGrid } from '@/components/landing/FeatureGrid';
 import { GetStarted } from '@/components/landing/GetStarted';
 import { HeroBackdrop } from '@/components/landing/HeroBackdrop';
 import { LandingHeader } from '@/components/landing/LandingHeader';
 import { Reveal } from '@/components/landing/Reveal';
-import { RotatingWord } from '@/components/landing/RotatingWord';
 import { UpdateSimulator } from '@/components/landing/UpdateSimulator';
+import type { Metadata } from 'next';
+import { BASE_OPEN_GRAPH, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL, SOURCE_REPOSITORY } from '@/lib/site';
 import './landing.css';
 
 // Public marketing surface. This route previously did `redirect('/login')`, so
@@ -19,44 +20,53 @@ import './landing.css';
 // ("Open the console" / "Sign in to the console") now carry that job.
 export const revalidate = 60;
 
-
-
+export const metadata: Metadata = {
+  title: { absolute: SITE_TITLE },
+  description: SITE_DESCRIPTION,
+  alternates: { canonical: '/' },
+  other: {
+    'google-site-verification': 'ot1Vz4NP_A5oXLJT37QxjAyFwDlWwMwOrDyGXDpYDgE',
+  },
+  openGraph: { ...BASE_OPEN_GRAPH, url: '/', title: SITE_TITLE, description: SITE_DESCRIPTION },
+};
 
 /**
- * Real fleet numbers, server-side.
- *
- * The design mock bound these to simulated state and carried a "data are
- * simulated" disclaimer. Publishing invented device counts on a public page
- * would be the same class of mistake the gateway forbids internally, so these
- * come from the live gateway instead — and fall back to an em dash when it
- * cannot be reached, rather than to a plausible-looking number.
+ * Structured data describing what this page actually is: the website, and
+ * the open-source software it presents. No ratings, prices or organisation
+ * details are claimed because none exist to cite.
  */
-async function getFleetStats(): Promise<{ devices: string; releases: string }> {
-  const base = process.env.EDGE_GATEWAY_URL || 'http://localhost:5000';
-  const key = process.env.EDGE_GATEWAY_API_KEY;
-  const url = key
-    ? `${base}/api/dashboard?api_key=${encodeURIComponent(key)}`
-    : `${base}/api/dashboard`;
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${SITE_URL}/#website`,
+      url: `${SITE_URL}/`,
+      name: SITE_NAME,
+      description: SITE_DESCRIPTION,
+      inLanguage: 'en',
+    },
+    {
+      '@type': 'SoftwareSourceCode',
+      '@id': `${SITE_URL}/#software`,
+      name: SITE_NAME,
+      description:
+        'Secure over-the-air firmware update platform for ESP32 devices: signed releases, on-device verification, health-gated rollback and a web console.',
+      codeRepository: SOURCE_REPOSITORY,
+      programmingLanguage: ['TypeScript', 'Python', 'C++'],
+      runtimePlatform: ['Next.js', 'FastAPI', 'ESP32 (Arduino)'],
+      url: `${SITE_URL}/`,
+    },
+  ],
+};
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
-    const res = await fetch(url, { signal: controller.signal, next: { revalidate: 60 } });
-    clearTimeout(timer);
-    if (!res.ok) return { devices: '—', releases: '—' };
-
-    const data = (await res.json()) as {
-      devices?: unknown[];
-      releases?: unknown[];
-    };
-    return {
-      devices: Array.isArray(data.devices) ? String(data.devices.length) : '—',
-      releases: Array.isArray(data.releases) ? String(data.releases.length) : '—',
-    };
-  } catch {
-    return { devices: '—', releases: '—' };
-  }
+/** JSON-LD, serialised so no value can close the script tag early. */
+function jsonLd(value: unknown) {
+  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 }
+
+
+
 
 /**
  * The hero video is optional: drop hero-loop.webm and/or hero-loop.mp4 into
@@ -80,7 +90,21 @@ function heroVideoSources(): Array<{ src: string; type: string }> {
     .map((entry) => ({ src: `/brand/${entry.file}`, type: entry.type }));
 }
 
-const BOARDS = ['ESP32', 'ESP32-S3', 'ESP32-C3', 'ESP8266', 'STM32F103', 'ATmega328P'];
+// Release targets the gateway and the publish form accept (see
+// DEVICE_TYPES in components/dashboard/publish-firmware-card.tsx).
+const BOARDS = ['ESP32', 'ESP8266', 'STM32F103', 'ATmega328P'];
+
+/**
+ * Product facts shown under the hero. Each one is a property of the code
+ * (firmware OTA_HEALTH_GATE_TIMEOUT_SECONDS, the secure package format, the
+ * heartbeat command channel), not a usage number, so nothing here can go
+ * stale or be invented.
+ */
+const FACTS = [
+  { value: '120 s', label: 'for a new build to prove itself. Miss it and the board reverts.' },
+  { value: 'RSA‑2048 + AES‑256', label: 'signed, encrypted packages, checked on the board before a byte is written.' },
+  { value: 'Outbound only', label: 'boards call the gateway on their heartbeat. No port forwarding on site.' },
+];
 
 function SectionHeading({ eyebrow, title, lead }: { eyebrow: string; title: string; lead?: string }) {
   return (
@@ -93,11 +117,13 @@ function SectionHeading({ eyebrow, title, lead }: { eyebrow: string; title: stri
 }
 
 export default async function LandingPage() {
-  const stats = await getFleetStats();
   const videoSources = heroVideoSources();
 
   return (
     <div className="ds-root lp">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(structuredData) }} />
+      {/* Live wallpaper behind every section; .lp isolates it above the page ground. */}
+      <AmbientWallpaper fixed intensity={0.55} zIndex={-1} />
       <a href="#ota-main" className="sr-only focus:not-sr-only" style={{ position: 'absolute', left: 8, top: 8, zIndex: 99, padding: '10px 16px', background: 'var(--ember)', color: '#fff', borderRadius: 8 }}>
         Skip to main content
       </a>
@@ -113,24 +139,18 @@ export default async function LandingPage() {
               <Reveal>
                 <div className="lp-hero-badges">
                   <span className="lp-chip">
-                    <span className="lp-dot" data-pulse="true" aria-hidden="true" /> Signed · Verified · Self-healing
+                    <span className="lp-dot" aria-hidden="true" /> Firmware delivery for ESP32 fleets
                   </span>
-                  <span className="lp-chip">ESP32 fleets over the internet</span>
                 </div>
               </Reveal>
               <Reveal delay={80}>
-                <h1 id="lp-hero-title">
-                  <span className="lp-sr">Update every board, anywhere, without bricking it.</span>
-                  <span aria-hidden="true">
-                    Update every board, anywhere — without{' '}
-                    <RotatingWord words={['bricking it', 'guesswork', 'port forwarding', 'a site visit']} />
-                  </span>
-                </h1>
+                <h1 id="lp-hero-title">Update every board in the field. Never drive out to unbrick one.</h1>
               </Reveal>
               <Reveal delay={160}>
                 <p className="lp-lead" style={{ marginTop: 0, fontSize: 18 }}>
-                  Flash and set up a board over USB once. From then on SecureOTA delivers signed firmware to it over
-                  the internet, shows you every step live, and the board rolls itself back if an update goes wrong.
+                  Flash a board over USB once. From then on, SecureOTA ships signed firmware to it over the internet
+                  and shows every stage as it happens. If the new build cannot reach your gateway within 120 seconds,
+                  the board boots its previous firmware on its own.
                 </p>
               </Reveal>
               <Reveal delay={240}>
@@ -139,38 +159,22 @@ export default async function LandingPage() {
                     Open the console <ArrowRight size={18} />
                   </Link>
                   <a href="#start" className="ds-ghost lp-btn">
-                    Get started in 4 steps
+                    See the setup
                   </a>
                 </div>
               </Reveal>
               <Reveal delay={320}>
-                <div className="lp-stats">
-                  <div>
-                    <div className="lp-stat-value">
-                      <CountUp value={stats.devices} />
+                <dl className="lp-stats">
+                  {FACTS.map((fact) => (
+                    <div key={fact.value}>
+                      <dt className="lp-stat-value">{fact.value}</dt>
+                      <dd className="lp-stat-label">{fact.label}</dd>
                     </div>
-                    <div className="lp-stat-label">boards under management</div>
-                  </div>
-                  <div>
-                    <div className="lp-stat-value">
-                      <CountUp value={stats.releases} />
-                    </div>
-                    <div className="lp-stat-label">signed releases published</div>
-                  </div>
-                  <div>
-                    <div className="lp-stat-value">
-                      <CountUp value="120" />s
-                    </div>
-                    <div className="lp-stat-label">to prove an update, or roll back</div>
-                  </div>
-                </div>
+                  ))}
+                </dl>
               </Reveal>
             </div>
           </div>
-          <a href="#start" className="lp-scroll-cue">
-            Scroll
-            <i aria-hidden="true" />
-          </a>
         </section>
 
         {/* ── Get started ──────────────────────────────────────────────── */}
@@ -178,8 +182,8 @@ export default async function LandingPage() {
           <div className="lp-container">
             <SectionHeading
               eyebrow="Get started"
-              title="From a board on your desk to updates over the internet."
-              lead="Four steps, about five minutes. The first three happen once per board; the fourth is every release after that."
+              title="One USB session per board. Every update after that is remote."
+              lead="Four steps. The first three run once per board. The fourth is every release you ship after that."
             />
             <Reveal delay={120}>
               <GetStarted />
@@ -192,8 +196,8 @@ export default async function LandingPage() {
           <div className="lp-container">
             <SectionHeading
               eyebrow="Watch an update"
-              title="See what happens when you press Deploy."
-              lead="Run a normal update, then try a tampered image and a broken build. The board protects itself in both."
+              title="Press Deploy. Watch the board protect itself."
+              lead="Run a clean update, a tampered image and a broken build. In all three, the board ends on firmware that works."
             />
             <Reveal delay={120}>
               <UpdateSimulator />
@@ -202,23 +206,28 @@ export default async function LandingPage() {
         </section>
 
         {/* ── Boards ───────────────────────────────────────────────────── */}
-        <div className="lp-marquee" aria-label="Board profiles">
-          <div className="lp-marquee-track">
-            {[...BOARDS, ...BOARDS].map((board, index) => (
-              <span key={`${board}-${index}`} className="lp-marquee-item" aria-hidden={index >= BOARDS.length}>
-                <Cpu size={20} color="var(--amber)" /> {board}
-              </span>
-            ))}
+        <section className="lp-boards" aria-labelledby="lp-boards-title">
+          <div className="lp-container">
+            <p id="lp-boards-title" className="lp-boards-title">
+              Release targets. Over-the-internet updates with health-gated rollback run on ESP32.
+            </p>
+            <ul className="lp-boards-list">
+              {BOARDS.map((board) => (
+                <li key={board}>
+                  <Cpu size={18} color="var(--amber)" aria-hidden="true" /> {board}
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
+        </section>
 
         {/* ── Features ─────────────────────────────────────────────────── */}
         <section id="features" className="lp-section">
           <div className="lp-container">
             <SectionHeading
-              eyebrow="What you can do"
-              title="Everything a fleet needs after the first flash."
-              lead="Each card opens the part of the console that does it."
+              eyebrow="What you get"
+              title="Run the whole fleet from one console."
+              lead="Each card opens the console page that does the job."
             />
             <FeatureGrid />
           </div>
@@ -230,7 +239,7 @@ export default async function LandingPage() {
             <SectionHeading
               eyebrow="Security"
               title="Try to break it."
-              lead="Pick an attack and see which layer stops it. Pick a layer to read what it does."
+              lead="Pick an attack. See the layer that stops it. Pick a layer to read exactly what it checks."
             />
             <Reveal delay={120}>
               <DefenseStack />
@@ -244,13 +253,13 @@ export default async function LandingPage() {
             <Reveal>
               <div className="lp-final">
                 <div className="lp-eyebrow" style={{ color: '#ffd9bd' }}>
-                  Ready when your board is
+                  Your first board
                 </div>
                 <h2 className="lp-h2" style={{ maxWidth: '18ch' }}>
-                  Plug in a board. Ship your next update from anywhere.
+                  Plug in one board. Ship every update after it from your desk.
                 </h2>
                 <p className="lp-lead" style={{ color: 'rgba(255,255,255,.82)' }}>
-                  Sign in, start the agent, and your first board is reporting in minutes.
+                  Sign in, run the agent, flash the board. It reports its first heartbeat as soon as it joins Wi-Fi.
                 </p>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 28 }}>
                   <Link href="/login" className="ds-cta lp-btn">
@@ -269,12 +278,14 @@ export default async function LandingPage() {
       <footer className="lp-footer">
         <div className="lp-container" style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <Logo size={24} showWordmark={false} />
-          <span>SecureOTA · secure firmware delivery for heterogeneous IoT fleets</span>
-          <span style={{ marginLeft: 'auto', display: 'flex', gap: 18 }}>
-            <a href="#start">Get started</a>
+          <span>SecureOTA. Signed firmware delivery for IoT fleets.</span>
+          <nav aria-label="Footer" style={{ marginLeft: 'auto', display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             <a href="#security">Security</a>
+            <a href={SOURCE_REPOSITORY} rel="noopener">Source code</a>
+            <Link href="/privacy">Privacy policy</Link>
+            <Link href="/terms">Terms and conditions</Link>
             <Link href="/login">Sign in</Link>
-          </span>
+          </nav>
         </div>
       </footer>
     </div>

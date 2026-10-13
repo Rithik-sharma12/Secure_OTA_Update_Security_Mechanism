@@ -63,8 +63,8 @@ export default function AuditPage() {
       <div>
         <h1 className="text-3xl font-bold text-foreground">Audit trail</h1>
         <p className="mt-1 text-foreground/70">
-          Every change made through the gateway — releases, deployments, commands, device registration and removal — with
-          who made it and from where. Refused requests are kept too: a run of 401s is someone guessing keys.
+          Every change made through the gateway (releases, deployments, commands, device registration and removal),
+          with who made it and from where. Refused requests are kept too: a run of 401s is someone guessing keys.
         </p>
       </div>
 
@@ -114,11 +114,11 @@ export default function AuditPage() {
                         {entry.deviceId}
                       </Link>
                     ) : (
-                      '—'
+                      'None'
                     )}
                   </TableCell>
                   <TableCell className={entry.status >= 400 ? 'text-chart-4' : 'text-foreground/80'}>HTTP {entry.status}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{entry.sourceIp || '—'}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{entry.sourceIp || 'Unknown'}</TableCell>
                 </TableRow>
               ))}
               {shown.length === 0 && !loading && (

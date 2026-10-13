@@ -59,7 +59,7 @@ export default function DashboardPage() {
 
   const recentEvents = snapshot.events.slice(0, 5);
   const latestRelease = snapshot.releases[0];
-  const latestVersion = latestRelease?.version ?? devices[0]?.latestVersion ?? '—';
+  const latestVersion = latestRelease?.version ?? devices[0]?.latestVersion ?? 'n/a';
   const onLatestCount = devices.filter((d) => d.firmwareVersion === latestVersion).length;
 
   const pct = (n: number) => (fleetCount > 0 ? Math.round((n / fleetCount) * 100) : 0);
@@ -85,7 +85,7 @@ export default function DashboardPage() {
   }, [versionTicks]);
 
   const versionAxis = React.useMemo(() => {
-    if (versionTicks.length === 0) return ['—'];
+    if (versionTicks.length === 0) return ['None'];
     const keys = versionTicks.map((t) => t.key);
     if (keys.length <= 4) return keys;
     return [keys[0], keys[Math.floor(keys.length / 3)], keys[Math.floor((keys.length * 2) / 3)], keys[keys.length - 1]];
@@ -144,7 +144,7 @@ export default function DashboardPage() {
       return {
         active: false,
         label: 'No rollout',
-        pct: '—',
+        pct: '',
         timer: '--:--',
         note: 'Publish a release to start one',
       };
@@ -244,10 +244,7 @@ export default function DashboardPage() {
             border: '1px solid var(--hairline-glow)',
             backgroundColor: '#181818',
             backgroundImage:
-              'linear-gradient(100deg,rgba(13,13,13,.985) 0%,rgba(13,13,13,.94) 50%,rgba(58,8,0,.88) 100%),linear-gradient(0deg,#ff2803,#ff2803),url("/brand/landing-bg.jpg")',
-            backgroundBlendMode: 'normal,color,normal',
-            backgroundSize: 'cover,cover,cover',
-            backgroundPosition: 'center,center,center',
+              'linear-gradient(100deg,rgba(13,13,13,.98) 0%,rgba(13,13,13,.94) 55%,rgba(var(--acc-deep-rgb),.35) 100%)',
             padding: '26px 28px',
             boxShadow: 'var(--shadow-panel)',
           }}
@@ -335,9 +332,9 @@ export default function DashboardPage() {
           }
           rings={[
             { label: 'online', pct: pct(onlineCount), color: 'var(--app-ink)', glow: 'var(--app-ring-glow)' },
-            { label: 'updating', pct: pct(updatingCount), color: '#ff9742', glow: 'rgba(255,151,66,.7)' },
+            { label: 'updating', pct: pct(updatingCount), color: 'rgb(var(--acc2-rgb))', glow: 'rgba(var(--acc2-rgb), .7)' },
             { label: 'offline', pct: pct(offlineCount), color: 'var(--app-ring-muted)', glow: 'transparent' },
-            { label: 'held', pct: pct(heldCount), color: '#ff2803', glow: 'rgba(255,40,3,.8)' },
+            { label: 'held', pct: pct(heldCount), color: 'rgb(var(--acc-rgb))', glow: 'rgba(var(--acc-rgb), .8)' },
           ]}
         />
 

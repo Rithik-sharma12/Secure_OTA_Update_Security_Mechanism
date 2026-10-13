@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { AnimatedNumber } from '@/components/ui/animated-number';
 
 /**
  * The design's console tiles.
@@ -65,7 +66,7 @@ function Head({
   return (
     <div className="flex items-baseline justify-between gap-2.5">
       <div className="flex items-baseline gap-1.5">
-        <span style={BIG}>{value}</span>
+        <span style={BIG}>{typeof value === 'number' ? <AnimatedNumber value={value} /> : value}</span>
         <span style={UNIT}>{unit}</span>
       </div>
       {right}
@@ -77,7 +78,7 @@ function Head({
 export function PressureTile({ inFlight, total }: { inFlight: number; total: number }) {
   const ratio = total > 0 ? Math.min(1, inFlight / total) : 0;
   return (
-    <div style={CARD}>
+    <div className="ota-tile" style={CARD}>
       <Head value={inFlight} unit="in flight" />
       <div style={{ ...WELL, height: 26, padding: 3 }}>
         <div
@@ -85,7 +86,7 @@ export function PressureTile({ inFlight, total }: { inFlight: number; total: num
             height: '100%',
             borderRadius: 7,
             background:
-              'linear-gradient(90deg,#3a0800 0%,#7a1400 26%,#ff2803 62%,#ff9742 88%,#ffd9bd 100%)',
+              'linear-gradient(90deg, rgba(var(--acc-deep-rgb), .25) 0%, rgb(var(--acc-deep-rgb)) 26%, rgb(var(--acc-rgb)) 62%, rgb(var(--acc2-rgb)) 88%, #fff 100%)',
           }}
         />
         <div
@@ -124,7 +125,7 @@ export function RolloutTile({
   active: boolean;
 }) {
   return (
-    <div style={CARD}>
+    <div className="ota-tile" style={CARD}>
       <div className="flex items-baseline justify-between gap-2.5">
         <span style={MICRO}>Rollout stage</span>
         <span
@@ -136,18 +137,17 @@ export function RolloutTile({
       </div>
       <div
         style={{
-          padding: 4,
-          borderRadius: 22,
-          background: active ? 'linear-gradient(180deg,#ff9742,#ff2803)' : 'var(--app-line)',
-          boxShadow: active ? '0 0 22px -6px rgba(255,40,3,.75)' : 'none',
+          padding: 3,
+          borderRadius: 12,
+          background: active ? 'rgb(var(--acc-rgb))' : 'var(--app-line)',
         }}
       >
-        <div style={{ padding: 3, borderRadius: 19, background: '#0d0d0d' }}>
+        <div style={{ padding: 2, borderRadius: 10, background: '#0d0d0d' }}>
           <div
             className="flex items-center justify-between gap-2.5"
             style={{
               padding: '9px 15px',
-              borderRadius: 16,
+              borderRadius: 8,
               background: 'radial-gradient(120% 200% at 50% 0%,#1f1f1f,#0b0b0b)',
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,.09)',
             }}
@@ -189,7 +189,7 @@ export function VersionTile({
   axis: string[];
 }) {
   return (
-    <div style={CARD}>
+    <div className="ota-tile" style={CARD}>
       <Head
         value={latest}
         unit="signed"
@@ -238,9 +238,9 @@ export function VersionTile({
               bottom: 4,
               left: `${needlePct}%`,
               width: 2,
-              background: '#ff2803',
+              background: 'rgb(var(--acc-rgb))',
               borderRadius: 1,
-              boxShadow: '0 0 9px rgba(255,40,3,.95)',
+              boxShadow: '0 0 9px rgba(var(--acc-rgb), .95)',
             }}
           />
         )}
@@ -267,7 +267,7 @@ export function FleetTile({
   note: string;
 }) {
   return (
-    <div style={CARD}>
+    <div className="ota-tile" style={CARD}>
       <Head
         value={online}
         unit="online"
@@ -338,7 +338,7 @@ export function AdoptionTile({
   hasHistory: boolean;
 }) {
   return (
-    <div style={CARD}>
+    <div className="ota-tile" style={CARD}>
       <Head
         value={onLatest}
         unit={latest ? `on ${latest}` : 'on latest'}
@@ -360,20 +360,20 @@ export function AdoptionTile({
         >
           <defs>
             <linearGradient id="otaRamp" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ff2803" stopOpacity=".55" />
-              <stop offset="100%" stopColor="#ff2803" stopOpacity="0" />
+              <stop offset="0%" style={{ stopColor: 'rgb(var(--acc-rgb))', stopOpacity: 0.55 }} />
+              <stop offset="100%" style={{ stopColor: 'rgb(var(--acc-rgb))', stopOpacity: 0 }} />
             </linearGradient>
           </defs>
           <polygon points={area} fill="url(#otaRamp)" />
           <polyline
             points={line}
             fill="none"
-            stroke="#ff9742"
+            style={{ stroke: 'rgb(var(--acc2-rgb))' }}
             strokeWidth="2"
             strokeLinejoin="round"
             strokeLinecap="round"
           />
-          {dot && <circle cx={dot.x} cy={dot.y} r="3.5" fill="#ff2803" stroke="var(--app-surface)" strokeWidth="1.4" />}
+          {dot && <circle cx={dot.x} cy={dot.y} r="3.5" strokeWidth="1.4" style={{ fill: 'rgb(var(--acc-rgb))', stroke: 'var(--app-surface)' }} />}
         </svg>
       ) : (
         <div
@@ -405,7 +405,7 @@ export function ReleasesTile({
   rotationNote: string;
 }) {
   return (
-    <div style={CARD}>
+    <div className="ota-tile" style={CARD}>
       <Head value={signed} unit={signed === 1 ? 'signed release' : 'signed releases'} />
       <div className="flex gap-1" style={{ height: 34 }}>
         {capsules.map((c) => (
@@ -415,9 +415,9 @@ export function ReleasesTile({
               flex: 1,
               borderRadius: 8,
               background: c.filled
-                ? 'linear-gradient(180deg,#ff9742,#ff2803)'
+                ? 'linear-gradient(180deg,rgb(var(--acc2-rgb)),rgb(var(--acc-rgb)))'
                 : 'var(--app-line2)',
-              boxShadow: c.filled ? '0 0 14px -6px rgba(255,40,3,.9)' : 'none',
+              boxShadow: c.filled ? '0 0 14px -6px rgba(var(--acc-rgb), .9)' : 'none',
             }}
           />
         ))}

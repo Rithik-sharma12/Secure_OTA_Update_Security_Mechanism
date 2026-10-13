@@ -40,10 +40,28 @@ export function useInView<T extends Element>(ref: React.RefObject<T | null>, roo
   return inView;
 }
 
-/** Writes the pointer position into --px/--py on the element (for .lp-spot). */
-export function trackPointer(event: React.PointerEvent<HTMLElement>) {
-  const target = event.currentTarget;
-  const rect = target.getBoundingClientRect();
-  target.style.setProperty('--px', `${event.clientX - rect.left}px`);
-  target.style.setProperty('--py', `${event.clientY - rect.top}px`);
+/**
+ * Runs `callback` once the page has finished loading and the main thread is
+ * idle, so decorative animation never competes with the first render or
+ * with the first interactions. Returns a cancel function.
+ */
+export function whenPageIdle(callback: () => void, timeout = 2500): () => void {
+  let cancelled = false;
+  let idleId: number | undefined;
+  let timer: number | undefined;
+  const run = () => {
+    if (cancelled) return;
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
+    if (w.requestIdleCallback) idleId = w.requestIdleCallback(() => !cancelled && callback(), { timeout });
+    else timer = window.setTimeout(() => !cancelled && callback(), 200);
+  };
+  if (document.readyState === 'complete') run();
+  else window.addEventListener('load', run, { once: true });
+  return () => {
+    cancelled = true;
+    window.removeEventListener('load', run);
+    const w = window as Window & { cancelIdleCallback?: (id: number) => void };
+    if (idleId !== undefined) w.cancelIdleCallback?.(idleId);
+    if (timer !== undefined) window.clearTimeout(timer);
+  };
 }

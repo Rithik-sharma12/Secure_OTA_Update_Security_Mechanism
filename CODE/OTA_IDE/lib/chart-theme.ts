@@ -1,6 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
+import { ACCENTS, useAccent } from '@/lib/accent';
 
 /**
  * Chart theme.
@@ -107,10 +108,19 @@ export const chartTooltipLabelStyleLight = {
 /** The chart palette for the theme currently on screen. */
 export function useChartTheme() {
   const { resolvedTheme } = useTheme();
+  const [accent] = useAccent();
   const light = resolvedTheme === 'light';
+  // The warm series follow the chosen colour theme; ember keeps the
+  // hand-tuned values above.
+  const a = ACCENTS[accent];
+  const base = light ? chartColorsLight : chartColors;
+  const themed =
+    accent === 'ember'
+      ? base
+      : { ...base, warning: light ? a.deep : a.second, error: a.main, accent: light ? a.deep : a.deep };
   return {
     light,
-    chartColors: light ? chartColorsLight : chartColors,
+    chartColors: themed,
     chartAxis: light ? chartAxisLight : chartAxis,
     chartTooltipStyle: light ? chartTooltipStyleLight : chartTooltipStyle,
     chartTooltipLabelStyle: light ? chartTooltipLabelStyleLight : chartTooltipLabelStyle,

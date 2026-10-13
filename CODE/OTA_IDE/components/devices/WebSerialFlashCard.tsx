@@ -490,7 +490,7 @@ export function WebSerialFlashCard({
                   aria-pressed={target.id === selectedDeviceId}
                   disabled={busy || monitoring}
                   title={target.kind === 'agent' ? 'Detected by the SecureOTA Agent' : 'Granted to this browser'}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
                     target.id === selectedDeviceId ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
                   }`}
                 >
@@ -517,7 +517,7 @@ export function WebSerialFlashCard({
               onClick={() => setSource('file')}
               aria-pressed={source === 'file'}
               disabled={busy}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
                 source === 'file' ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
               }`}
             >
@@ -528,7 +528,7 @@ export function WebSerialFlashCard({
               onClick={() => setSource('release')}
               aria-pressed={source === 'release'}
               disabled={busy}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
                 source === 'release' ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
               }`}
             >
@@ -565,7 +565,7 @@ export function WebSerialFlashCard({
                   aria-pressed={layout === entry.id}
                   disabled={busy}
                   title={entry.hint}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
                     layout === entry.id ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
                   }`}
                 >
@@ -595,7 +595,7 @@ export function WebSerialFlashCard({
                           ? `No release has been published for ${entry}`
                           : 'Published releases are not known yet'
                     }
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                       deviceType === entry ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
                     }`}
                   >
@@ -677,7 +677,7 @@ export function WebSerialFlashCard({
               <p className="font-semibold text-foreground">Press and hold the BOOT button on the board now</p>
               <p className="text-foreground/80">
                 Keep it held until the progress bar starts moving, then let go. The board is reset automatically
-                while you hold it — no need to press RESET.
+                while you hold it. No need to press RESET.
               </p>
             </div>
           </div>

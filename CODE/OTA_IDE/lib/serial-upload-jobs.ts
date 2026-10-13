@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { uploadsStore, uploadLogsStore, type UploadRecord, type UploadLogRecord } from '@/lib/local-database';
 import { logger, errorTracker } from '@/lib/logger';
+import { mirrorUpload } from '@/lib/supabase-sync';
 import { findInstalledCoreVersion } from '@/lib/toolchain';
 import { detectConnectedSerialPorts, isConnectedComPort, normalizeComPortName } from '@/lib/serial-port-detection';
 
@@ -241,6 +242,7 @@ async function updateUploadRecord(jobId: string, patch: Partial<UploadRecord>) {
     },
     { upsert: false }
   );
+  mirrorUpload({ jobId, ...patch });
 }
 
 function updateProgress(jobId: string, progress: number) {
@@ -546,6 +548,18 @@ async function launchUploadJob(
       fqbn,
       comPort: requestedPort,
       baudRate: input.baudRate,
+      status: 'queued',
+      progress: 0,
+      startedAt: snapshot.startedAt,
+    });
+    mirrorUpload({
+      jobId,
+      userId: input.userId,
+      fileName: sketch.fileName,
+      fileHash,
+      boardType: input.boardType,
+      fqbn,
+      comPort: requestedPort,
       status: 'queued',
       progress: 0,
       startedAt: snapshot.startedAt,
