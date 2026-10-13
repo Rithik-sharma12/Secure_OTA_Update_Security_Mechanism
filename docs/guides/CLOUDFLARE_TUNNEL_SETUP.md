@@ -157,7 +157,7 @@ Let's Encrypt, Google Trust Services). Read it off your live hostname:
 
 ```bash
 pip install cryptography certifi
-python CODE/firmware_code/tools/fetch_root_ca.py gw.nyx-ctf.tech
+python firmware/tools/fetch_root_ca.py gw.nyx-ctf.tech
 ```
 
 It prints the leaf and root subjects to stderr and a ready-to-paste block to
@@ -178,7 +178,7 @@ The device must be running TLS-capable firmware before it can fetch over HTTPS,
 so this transition cannot be done over the air:
 
 ```bash
-cd CODE/firmware_code
+cd firmware
 pio run -e esp32dev --target upload
 pio device monitor
 ```

@@ -5,7 +5,7 @@ screen-by-screen specs, the end-to-end flow from **login to code upload**, wiref
 and the component/work inventory needed to finish it.
 
 - **Stack:** Next.js 16 (App Router) · React 19 · Tailwind · shadcn/ui · lucide-react
-- **App root:** `CODE/OTA_IDE/`
+- **App root:** `apps/web/`
 - **Audience:** whoever builds or reviews the dashboard UI
 - **Status legend:** ✅ built · 🟡 partial/mock · 🔴 to build
 

@@ -32,7 +32,7 @@ $env:OTA_GATEWAY_CACHE_DIR  = "$env:TEMP\ota-test-cache"
 $env:OTA_GATEWAY_KEYS_DIR   = "$env:TEMP\ota-test-keys"
 $env:OTA_GATEWAY_API_KEY    = "test-key-123"
 $env:OTA_GATEWAY_PUBLIC_URL = "http://127.0.0.1:5099"
-cd src\implementation
+cd apps\gateway
 python -m uvicorn gateway:app --host 127.0.0.1 --port 5099
 ```
 
@@ -168,7 +168,7 @@ These have code but were not exercised. Procedures to verify them yourself.
 ### AT-D1 · Dashboard operator authentication
 
 ```powershell
-cd CODE\OTA_IDE
+cd apps\web
 pnpm dev
 ```
 Then:
@@ -218,9 +218,9 @@ Nine known gaps. Each maps to one `FAIL (expected)` in the suite.
 `POST /api/heartbeat` declares no auth dependency. Every other write route uses `Depends(require_write_auth)`; this one does not. The handler then *creates* a device record for any `device_id` it has never seen, and calls `confirm_device_version_locked()`, which resolves pending deployment targets purely on the reported version string.
 
 **2. Exact file / function**
-- `src/implementation/gateway/routes/heartbeat.py:36` — `receive_heartbeat(payload: dict)`, no `Depends`
-- `src/implementation/gateway/routes/heartbeat.py:59-96` — implicit device creation
-- `src/implementation/gateway/deployment.py:205` — `confirm_device_version_locked()`
+- `apps/gateway/gateway/routes/heartbeat.py:36` — `receive_heartbeat(payload: dict)`, no `Depends`
+- `apps/gateway/gateway/routes/heartbeat.py:59-96` — implicit device creation
+- `apps/gateway/gateway/deployment.py:205` — `confirm_device_version_locked()`
 - Absent: any `routes/devices.py`
 
 **3. Impact — CRITICAL**
@@ -248,7 +248,7 @@ Anyone who can reach the gateway can (a) invent arbitrary devices, (b) poison th
 **2. Exact file / function**
 - `framework-arduinoespressif32/cores/esp32/esp32-hal-misc.c:222-239` — `initArduino()`
 - `esp32-hal-misc.c:204-208` — weak `verifyOta()` / `verifyRollbackLater()`
-- `CODE/firmware_code/esp32_ota_main/esp32_ota_main.ino` — overrides neither
+- `firmware/esp32_ota_main/esp32_ota_main.ino` — overrides neither
 
 **3. Impact — CRITICAL**
 A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot reach the gateway will be selected by the bootloader forever. Recovery requires physical USB access to every affected board. Because updates are fleet-wide, one bad release can brick every device simultaneously.
@@ -276,7 +276,7 @@ A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot r
 
 **2. Exact file** `gateway_keys/ed25519_private_key.pem`, introduced in commit `367720b`, reachable from `origin/main`.
 
-**3. Impact — CRITICAL** Anyone with repo access can forge manifests that the gateway would serve as authentic. Note the currently-live key at `src/implementation/gateway_keys/` differs, so the active signing path may be intact — **verify which key was ever in production before assuming the blast radius is small.**
+**3. Impact — CRITICAL** Anyone with repo access can forge manifests that the gateway would serve as authentic. Note the currently-live key at `apps/gateway/gateway_keys/` differs, so the active signing path may be intact — **verify which key was ever in production before assuming the blast radius is small.**
 
 **4. Fix required**
 1. Confirm whether the exposed key was ever live.
@@ -294,7 +294,7 @@ A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot r
 
 **1. Root cause** `role: 'admin' | 'operator' | 'viewer'` is stored and typed, but no code path ever compares it. `withSecureApi` exposes only `requireAuth`.
 
-**2. Exact file / function** `CODE/OTA_IDE/lib/api-security.ts:12-32` (`SecureApiOptions`), `lib/local-database.ts:16`, `lib/client-auth.ts:7`.
+**2. Exact file / function** `apps/web/lib/api-security.ts:12-32` (`SecureApiOptions`), `lib/local-database.ts:16`, `lib/client-auth.ts:7`.
 
 **3. Impact — HIGH** Any authenticated user — including one created as `viewer` — can publish firmware and create deployments. Privilege separation is cosmetic.
 
@@ -308,7 +308,7 @@ A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot r
 
 **1. Root cause** Nothing computes staleness from `last_seen`. Grep for `offline|online|stale` in `routes/dashboard.py` and `state.py` returns zero matches.
 
-**2. Exact file** `src/implementation/gateway/routes/dashboard.py`; `state.py` `gateway_snapshot()`.
+**2. Exact file** `apps/gateway/gateway/routes/dashboard.py`; `state.py` `gateway_snapshot()`.
 
 **3. Impact — MEDIUM** A device that dies, loses power, or is stolen shows its last-known status forever. Operators cannot distinguish "healthy" from "gone". Fleet health is unmeasurable, and the "device offline" alert class cannot exist.
 
@@ -322,7 +322,7 @@ A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot r
 
 **1. Root cause** No limiter middleware anywhere.
 
-**2. Exact file** `src/implementation/gateway/__init__.py` `create_app()` — CORS is the only middleware.
+**2. Exact file** `apps/gateway/gateway/__init__.py` `create_app()` — CORS is the only middleware.
 
 **3. Impact — MEDIUM** Unbounded heartbeat flooding grows the state file and forces a whole-file rewrite per request, which is a cheap denial of service. Combined with F-1 (no auth) it needs no credentials at all.
 
@@ -340,7 +340,7 @@ A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot r
 
 **3. Impact — HIGH** A release tag today would compile with **empty** WiFi credentials and empty keys, and the signing step warns and continues, publishing **unsigned** binaries that devices with secure OTA provisioned would reject.
 
-**4. Fix required** Set the nine secrets (`complete-setup.ps1 -Phase secrets`), and change the signing step to hard-fail rather than warn when keys are absent on a release tag.
+**4. Fix required** Set the nine secrets (`scripts/complete-setup.ps1 -Phase secrets`), and change the signing step to hard-fail rather than warn when keys are absent on a release tag.
 
 **5. Test after fix** `AT-11.3` → PASS. Then push a tag to a scratch branch and confirm the run produces a signed artifact; separately, temporarily unset a signing secret and confirm the run **fails** instead of publishing unsigned.
 
@@ -350,7 +350,7 @@ A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot r
 
 **1. Root cause** None written. `integration_smoke_test.py` referenced in the README does not exist.
 
-**2. Exact location** No `test_*.py`, `conftest.py`, `*.test.ts` anywhere outside `node_modules`; no `test` script in `CODE/OTA_IDE/package.json`.
+**2. Exact location** No `test_*.py`, `conftest.py`, `*.test.ts` anywhere outside `node_modules`; no `test` script in `apps/web/package.json`.
 
 **3. Impact — HIGH** No regression protection. Every behaviour verified in this audit could silently break on the next commit, including the write-auth guard, whose earlier broken form left all write endpoints open while appearing protected.
 

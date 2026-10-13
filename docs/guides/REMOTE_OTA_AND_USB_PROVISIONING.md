@@ -49,7 +49,7 @@ Where it comes from:
 * **Release workflow** builds `firmware-<board>-full.bin` for each board before
   encryption and attaches it to the GitHub release; the webhook attaches it to
   the gateway release next to the OTA package.
-* **Manually**: `./go-online.sh build` writes `firmware-full.bin`; upload it in
+* **Manually**: `./scripts/go-online.sh build` writes `firmware-full.bin`; upload it in
   *Releases → Publish* as *Factory image* together with the app `.bin` (and,
   for an encrypted package, its plaintext SHA-256).
 
@@ -242,8 +242,8 @@ automatically. Behind nginx, disable buffering for `/api/stream`
 ## 7. Verifying
 
 ```bash
-cd src/implementation && python -m pytest -q        # 156 tests
-cd CODE/OTA_IDE && npx tsc --noEmit && npx vitest run
+cd apps/gateway && python -m pytest -q        # 156 tests
+cd apps/web && npx tsc --noEmit && npx vitest run
 ```
 
 On hardware: flash v2.5.0 over USB, provision, publish a v2.5.1 build, use

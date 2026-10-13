@@ -28,21 +28,21 @@ venv/
 node_modules/
 .next/
 .vercel/
-CODE/OTA_IDE/AGENTS.md
-CODE/OTA_IDE/CLAUDE.md
+apps/web/AGENTS.md
+apps/web/CLAUDE.md
 
 # ── PlatformIO ────────────────────────────────────
 .pio/
 
 # ── Cloudflare Tunnel credentials ─────────────────
 # Grants the ability to run this tunnel into the network. Never commit.
-cloudflared/credentials.json
+**/cloudflared/credentials.json
 *.pem
 
 # Tunnel ingress config: carries the tunnel UUID and the public hostnames.
 # Not a credential on its own, but it maps our infrastructure, so it stays out
 # of the repo. Deploy it from the operator's machine.
-cloudflared/config.yml
+**/cloudflared/config.yml
 
 # ── Gateway runtime state ─────────────────────────
 # Device registry, telemetry, signed manifest and cached firmware binaries.

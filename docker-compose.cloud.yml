@@ -41,13 +41,13 @@ services:
         condition: service_healthy
       ota_ide:
         condition: service_healthy
-    # Locally-managed mode: ingress rules live in cloudflared/config.yml in this
+    # Locally-managed mode: ingress rules live in deploy/cloudflared/config.yml in this
     # repo. Token mode ignores local ingress entirely and answers 503 to every
     # request, which is a confusing failure — keep this as --config.
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     volumes:
       # config.yml is committed; credentials.json is git-ignored.
-      - ./cloudflared:/etc/cloudflared:ro
+      - ./deploy/cloudflared:/etc/cloudflared:ro
     healthcheck:
       test: ["CMD", "cloudflared", "--version"]
       interval: 30s

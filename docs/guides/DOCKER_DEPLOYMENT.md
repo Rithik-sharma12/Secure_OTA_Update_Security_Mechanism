@@ -53,10 +53,10 @@ Run from repository root after Docker login:
 ```powershell
 docker login
 
-docker build -t <dockerhub-user>/secure-ota-gateway:latest ./src/implementation
+docker build -t <dockerhub-user>/secure-ota-gateway:latest ./apps/gateway
 docker push <dockerhub-user>/secure-ota-gateway:latest
 
-docker build -t <dockerhub-user>/secure-ota-ide:latest ./CODE/OTA_IDE
+docker build -t <dockerhub-user>/secure-ota-ide:latest ./apps/web
 docker push <dockerhub-user>/secure-ota-ide:latest
 ```
 

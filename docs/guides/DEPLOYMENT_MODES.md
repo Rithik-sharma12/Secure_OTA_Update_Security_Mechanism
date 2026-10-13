@@ -39,7 +39,7 @@ installs **secure packages** (`FIRMWARE_ENC_KEY` + `FIRMWARE_PUB_KEY` set in
 whoever answers the HTTP request cannot substitute or downgrade it. A board
 without those keys refuses plain images over HTTP unless it is built with
 `OTA_ALLOW_PLAIN_OVER_HTTP=1` (bench only). See
-`CODE/firmware_code/SETUP_GUIDE.md`, "Security Build Switches".
+`firmware/SETUP_GUIDE.md`, "Security Build Switches".
 
 Use it for development, offline demos, and any lab where devices sit on the
 same Wi-Fi.
@@ -68,9 +68,9 @@ are opened and no public IP is needed. Devices can update from anywhere.
 Requires:
 
 - `CLOUDFLARE_TUNNEL_TOKEN` — not used at runtime in config mode, but kept for
-  reference; the tunnel authenticates with `cloudflared/credentials.json`
-- `cloudflared/config.yml` — ingress rules (committed)
-- `cloudflared/credentials.json` — **git-ignored secret**
+  reference; the tunnel authenticates with `deploy/cloudflared/credentials.json`
+- `deploy/cloudflared/config.yml` — ingress rules (committed)
+- `deploy/cloudflared/credentials.json` — **git-ignored secret**
 - `OTA_PUBLIC_URL=https://gw.nyx-ctf.tech`
 
 Setup is in `CLOUDFLARE_TUNNEL_SETUP.md`.
@@ -86,7 +86,7 @@ Manifests advertise `https://`, and the ESP32 needs TLS configured:
 plus a pinned root CA — read it off the live host, don't guess:
 
 ```bash
-python CODE/firmware_code/tools/fetch_root_ca.py gw.nyx-ctf.tech
+python firmware/tools/fetch_root_ca.py gw.nyx-ctf.tech
 ```
 
 A device running local-mode firmware **cannot** fetch over HTTPS, so the

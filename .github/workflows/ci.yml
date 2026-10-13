@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: src/implementation
+        working-directory: apps/gateway
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +37,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: src/implementation/requirements.txt
+          cache-dependency-path: apps/gateway/requirements.txt
 
       - name: Install dependencies
         run: |
@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: CODE/OTA_IDE
+        working-directory: apps/web
 
     steps:
       - uses: actions/checkout@v5
@@ -77,7 +77,7 @@ jobs:
           cache: pnpm
           # `uses:` steps resolve paths from the repository root; only `run:`
           # steps inherit defaults.run.working-directory.
-          cache-dependency-path: CODE/OTA_IDE/pnpm-lock.yaml
+          cache-dependency-path: apps/web/pnpm-lock.yaml
 
       # Installed where the lockfile is. The repository root has npm
       # workspaces and no pnpm lockfile, so a frozen install there fails.
@@ -127,7 +127,7 @@ jobs:
       - name: pip-audit (gateway)
         run: |
           pip install pip-audit
-          pip-audit -r src/implementation/requirements.txt
+          pip-audit -r apps/gateway/requirements.txt
 
   secret-scan:
     name: Secret scan

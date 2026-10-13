@@ -16,8 +16,8 @@ Every ESP32 claim below is grounded in a file that was read during this study, n
 | OTA write path | `libraries/Update/src/Updater.cpp` (`esp_ota_*` calls) |
 | Rollback bootloader config | `framework-arduinoespressif32/tools/sdk/esp32/sdkconfig` |
 | Rollback validation timing | `framework-arduinoespressif32/cores/esp32/esp32-hal-misc.c:203-239` |
-| Device OTA logic | `CODE/firmware_code/esp32_ota_main/esp32_ota_main.ino` |
-| Gateway behaviour | `src/implementation/gateway/**` (all modules read) |
+| Device OTA logic | `firmware/esp32_ota_main/esp32_ota_main.ino` |
+| Gateway behaviour | `apps/gateway/gateway/**` (all modules read) |
 | CI pipeline | `.github/workflows/firmware-release.yml` |
 
 **Framework:** This project uses **Arduino-ESP32**, not bare ESP-IDF. Arduino-ESP32 is a wrapper *over* ESP-IDF, so ESP-IDF partition and `esp_ota_ops` semantics apply — but Arduino adds behaviour of its own, and §1.7 documents one such difference that is decisive for rollback.
@@ -329,7 +329,7 @@ ESP32                                   Gateway
 
 ## 4. Repository analysis
 
-### 4.1 Gateway — `src/implementation/gateway/` (FastAPI)
+### 4.1 Gateway — `apps/gateway/gateway/` (FastAPI)
 
 **Implemented and genuinely good — do not rewrite:**
 
@@ -365,7 +365,7 @@ GET  /releases/download/{filename}
 - **No audit log in the gateway.** Audit rows are written by the dashboard (`lib/api-security.ts`); gateway-side writes are unaudited.
 - No firmware storage abstraction (local filesystem only), no webhook receiver, no rollback command channel.
 
-### 4.2 Dashboard — `CODE/OTA_IDE/` (Next.js 16 / React 19)
+### 4.2 Dashboard — `apps/web/` (Next.js 16 / React 19)
 
 **Implemented:** operator auth (scrypt + sha256 token hashes, expiry, revocation), `withSecureApi` wrapper writing an audit row per request, snapshot aggregation, serial upload job pipeline with WiFi provisioning, firmware publish forwarding with server-side key attachment.
 
@@ -373,7 +373,7 @@ GET  /releases/download/{filename}
 
 **Note:** `pnpm lint` is declared as `eslint .` but eslint is not installed and no config exists. `pnpm build` and `tsc` are the only working gates.
 
-### 4.3 Firmware — `CODE/firmware_code/`
+### 4.3 Firmware — `firmware/`
 
 **Implemented well:** bounded streaming secure install, deferred activation, PKCS#7 validation, NTP sentinel for TLS (`:183` — rejects epoch-0 clocks properly), pinned-root-CA support with an explicit warning when absent, ASH health scoring persisted to NVS with hysteresis (quarantine <40, recovery at 100).
 

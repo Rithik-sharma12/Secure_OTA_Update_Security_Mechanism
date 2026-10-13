@@ -103,8 +103,8 @@ This publishes the platform through a Cloudflare Tunnel. No ports are opened;
 `cloudflared` dials outbound to Cloudflare.
 
 **Requires a one-time Cloudflare setup** — domain on Cloudflare nameservers, a
-tunnel created, `cloudflared/credentials.json` present, and ingress rules in
-`cloudflared/config.yml`. Full walkthrough:
+tunnel created, `deploy/cloudflared/credentials.json` present, and ingress rules in
+`deploy/cloudflared/config.yml`. Full walkthrough:
 [guides/CLOUDFLARE_TUNNEL_SETUP.md](guides/CLOUDFLARE_TUNNEL_SETUP.md).
 
 Once that exists:
@@ -246,4 +246,4 @@ switching requires a USB reflash.
 - [guides/DEPLOYMENT_MODES.md](guides/DEPLOYMENT_MODES.md) — local vs online in depth
 - [guides/CLOUDFLARE_TUNNEL_SETUP.md](guides/CLOUDFLARE_TUNNEL_SETUP.md) — one-time online setup
 - [guides/WEB_OTA_UPDATE_GUIDE.md](guides/WEB_OTA_UPDATE_GUIDE.md) — pushing firmware to devices
-- [../DEPLOYMENT.md](../DEPLOYMENT.md) — cloud VPS / production notes
+- [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md) — cloud VPS / production notes

@@ -1,7 +1,7 @@
 # Backend Operations & Implementation Checklist
 
-Scope: the gateway (FastAPI, `src/implementation/gateway/`) and the dashboard's
-server-side API (`CODE/OTA_IDE/app/api/`). This is a working checklist — tick
+Scope: the gateway (FastAPI, `apps/gateway/gateway/`) and the dashboard's
+server-side API (`apps/web/app/api/`). This is a working checklist — tick
 items as they are verified against a running instance, not just read in source.
 
 Legend: `[x]` done/verified · `[~]` partial · `[ ]` open · 🔴 critical · 🟠 important · 🟢 nice-to-have
@@ -55,7 +55,7 @@ Write endpoints need `x-api-key: <OTA_GATEWAY_API_KEY>`.
 
 ---
 
-## 3. Dashboard server API (`CODE/OTA_IDE/app/api/`)
+## 3. Dashboard server API (`apps/web/app/api/`)
 
 - [ ] `withSecureApi(...)` wraps every internal route (DB init, admin bootstrap, audit row)
 - [ ] `POST /api/auth/login` — scrypt verify, issues token; `logout` revokes; `session` reflects state
@@ -123,7 +123,7 @@ Ordered so each stage unblocks the next.
 - [ ] pytest for the gateway: auth (401/200 matrix), deployment state machine, manifest per-arch filtering, pipeline verify-abort
 - [ ] Wire eslint config + install it, or drop the dead `lint` script
 - [ ] CI job that runs the gateway tests + `pnpm build` + `tsc` on PRs
-- [ ] Convert `docs/architecture/acceptance-test.ps1` into the CI smoke stage
+- [ ] Convert `scripts/acceptance-test.ps1` into the CI smoke stage
 
 ### Stage 4 — operability
 - [ ] Structured logging + request IDs on the gateway

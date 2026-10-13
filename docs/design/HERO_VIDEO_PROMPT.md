@@ -1,12 +1,12 @@
 # Landing hero video — generation prompt and drop-in steps
 
-The landing page (`CODE/OTA_IDE/app/page.tsx`) plays an optional looping
+The landing page (`apps/web/app/page.tsx`) plays an optional looping
 background video behind the hero. It is picked up automatically when either
 file exists:
 
 ```
-CODE/OTA_IDE/public/brand/hero-loop.webm   (preferred, VP9)
-CODE/OTA_IDE/public/brand/hero-loop.mp4    (H.264 fallback)
+apps/web/public/brand/hero-loop.webm   (preferred, VP9)
+apps/web/public/brand/hero-loop.mp4    (H.264 fallback)
 ```
 
 The video sits under a dark gradient at 55 % opacity, with the animated
@@ -62,9 +62,9 @@ ffmpeg -i veo.mp4 -filter_complex \
 
 # 2. Web versions, muted, ~1280px wide, small enough to start instantly.
 ffmpeg -i loop.mp4 -an -vf "scale=1280:-2,fps=24" -c:v libvpx-vp9 -b:v 900k -row-mt 1 \
-  CODE/OTA_IDE/public/brand/hero-loop.webm
+  apps/web/public/brand/hero-loop.webm
 ffmpeg -i loop.mp4 -an -vf "scale=1280:-2,fps=24" -c:v libx264 -profile:v high -crf 28 \
-  -preset slow -movflags +faststart -pix_fmt yuv420p CODE/OTA_IDE/public/brand/hero-loop.mp4
+  -preset slow -movflags +faststart -pix_fmt yuv420p apps/web/public/brand/hero-loop.mp4
 ```
 
 Aim for **under 3 MB each**. Commit both files; the page shows the video on

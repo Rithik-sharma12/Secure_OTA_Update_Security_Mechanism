@@ -28,7 +28,7 @@ jobs:
     # qualified.
     defaults:
       run:
-        working-directory: CODE/firmware_code
+        working-directory: firmware
 
     steps:
       # ── 1. Checkout source ────────────────────────────────
@@ -42,7 +42,7 @@ jobs:
           path: ~/.platformio
           # hashFiles() is always repo-root relative, regardless of
           # defaults.run.working-directory.
-          key: pio-${{ hashFiles('CODE/firmware_code/platformio.ini') }}
+          key: pio-${{ hashFiles('firmware/platformio.ini') }}
 
       # ── 3. Install PlatformIO ─────────────────────────────
       - name: Install PlatformIO
@@ -295,9 +295,9 @@ jobs:
           # Repo-root relative: `uses:` steps do not inherit
           # defaults.run.working-directory.
           files: |
-            CODE/firmware_code/release-assets/*.bin
-            CODE/firmware_code/release-assets/checksums.txt
-            CODE/firmware_code/release-assets/release-manifest.json
+            firmware/release-assets/*.bin
+            firmware/release-assets/checksums.txt
+            firmware/release-assets/release-manifest.json
           draft: false
           prerelease: false
         env:

@@ -5,7 +5,7 @@ build** (routes, layouts, components, states, data) and stays visual-system-agno
 your design system supplies the tokens, type, and styling; this supplies the skeleton.
 
 - **Stack:** Next.js (App Router) · React · Tailwind · shadcn/ui · lucide-react
-- **App root:** `CODE/OTA_IDE/`
+- **App root:** `apps/web/`
 - **Companion files:** `FRONTEND_DESIGN_PLAN.md` (flows + wireframes), product brief prompt.
 
 ---

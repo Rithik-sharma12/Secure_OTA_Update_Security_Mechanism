@@ -54,7 +54,7 @@ guards all gateway write endpoints — including firmware publishing.
 ## 3. Dashboard admin password — HIGH
 
 - **Value:** `SentinelSecure_2026!#`
-- **Where:** `CODE/OTA_IDE/lib/auth.ts`, as the `OTA_ADMIN_PASSWORD` fallback
+- **Where:** `apps/web/lib/auth.ts`, as the `OTA_ADMIN_PASSWORD` fallback
 
 Any dashboard started without `OTA_ADMIN_PASSWORD` bootstrapped its admin
 account with this password. The fallback is gone and the value is now on the
@@ -66,8 +66,8 @@ old hash, because bootstrap only runs once.
 
 ## 4. Local NeDB stores — MEDIUM
 
-- **Files:** `.data/*.db`, `CODE/OTA_IDE/.data/*.db`,
-  `CODE/OTA_IDE/.local-db-smoke*/`, `CODE/OTA_IDE/.local-db-temp-session/`
+- **Files:** `.data/*.db`, `apps/web/.data/*.db`,
+  `apps/web/.local-db-smoke*/`, `apps/web/.local-db-temp-session/`
 - **Added in:** `367720b`, `c463990`
 
 `users.db` holds scrypt password hashes; `sessions.db` holds live session token
@@ -122,7 +122,7 @@ Then:
 | API key compared with `hmac.compare_digest` | `gateway/auth.py` |
 | CORS origins explicit; credentials off when wildcard | `gateway/config.py`, `gateway/__init__.py` |
 | Compose fails fast without `OTA_GATEWAY_API_KEY` | `docker-compose*.yml` |
-| Admin password has no default and rejects the leaked one | `CODE/OTA_IDE/lib/auth.ts` |
+| Admin password has no default and rejects the leaked one | `apps/web/lib/auth.ts` |
 | Local DB stores ignored | `.gitignore` |
 | Firmware never falls back to unverified flashing | `esp32_ota_main.ino` |
 | Firmware refuses https:// without a pinned root | `esp32_ota_main.ino` |

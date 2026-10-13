@@ -19,7 +19,7 @@ Four capabilities appear to exist from documentation, type declarations, or conf
 | **Rollback / recovery** | `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` in shipped sdkconfig | `esp32-hal-misc.c:222-239` calls `esp_ota_mark_app_valid_cancel_rollback()` inside `initArduino()`, before `setup()`. Sketch overrides neither weak hook (`verifyOta`, `verifyRollbackLater`) — grep returns nothing. **Rollback window closes before app code runs.** |
 | **Authorization / RBAC** | `role: 'admin' \| 'operator' \| 'viewer'` typed in `lib/local-database.ts:16` and `lib/client-auth.ts:7` | Searched every `.ts`/`.tsx` for a role comparison (`===`, `!==`, `includes`, `requireRole`). **Zero matches.** `withSecureApi` exposes only `requireAuth?: boolean`. Any authenticated user can deploy firmware. |
 | **Device registration** | README language; `/api/devices/register` in the architecture brief | No such route in gateway (16 endpoints enumerated) or dashboard (14 route files enumerated). Devices materialise as a side effect of first heartbeat, `routes/heartbeat.py:59-66`. |
-| **GitHub integration in backend** | Listed as a platform capability | `grep -ri 'github\|webhook' src/implementation/gateway/` returns **zero matches**. The dashboard has `webhooks` routes, but they are unrelated to GitHub releases. |
+| **GitHub integration in backend** | Listed as a platform capability | `grep -ri 'github\|webhook' apps/gateway/gateway/` returns **zero matches**. The dashboard has `webhooks` routes, but they are unrelated to GitHub releases. |
 
 ---
 
@@ -29,9 +29,9 @@ Four capabilities appear to exist from documentation, type declarations, or conf
 
 | Feature | Current implementation | Required implementation | Files involved | Gap | Priority |
 |---|---|---|---|---|---|
-| Operator authentication | **Working.** scrypt password hash, sha256 token hash, expiry + revocation, session cookie | Keep as-is | `CODE/OTA_IDE/lib/auth.ts`, `lib/local-database.ts` | None | — |
+| Operator authentication | **Working.** scrypt password hash, sha256 token hash, expiry + revocation, session cookie | Keep as-is | `apps/web/lib/auth.ts`, `lib/local-database.ts` | None | — |
 | Operator authorization (RBAC) | **Absent.** `role` field stored and typed but never read; no comparison anywhere in codebase | Enforce role at route level; deployment and firmware publish restricted to `admin`/`operator` | `lib/api-security.ts` (add `requiredRole`), all `app/api/**/route.ts` | Declared but never enforced | **P1** |
-| Device identity | **Weak.** `DEVICE_ID` is a compile-time `#define`; every device flashed from one build shares one identity | Derive from chip ID / eFuse MAC at runtime; unique per device | `CODE/firmware_code/esp32_ota_main/ota_config.h:33`, `esp32_ota_main.ino:392` | Not unique per device | **P1** |
+| Device identity | **Weak.** `DEVICE_ID` is a compile-time `#define`; every device flashed from one build shares one identity | Derive from chip ID / eFuse MAC at runtime; unique per device | `firmware/esp32_ota_main/ota_config.h:33`, `esp32_ota_main.ino:392` | Not unique per device | **P1** |
 | Device registration | **Absent.** No endpoint; devices appear implicitly on first heartbeat | `POST /api/devices/register` issuing a per-device token; bootstrap credential validated | New `gateway/routes/devices.py`, `gateway/state.py` | Entirely missing | **P1** |
 | Device credentials | **Absent.** One shared fleet key `OTA_GATEWAY_API_KEY` for all devices and the dashboard | Per-device token, hashed at rest, revocable | New `device_credentials` store; `gateway/auth.py` | No per-device secret | **P1** |
 | Telemetry authentication | **Absent.** `POST /api/heartbeat` has no auth dependency — verified by enumerating guards per route file (`heartbeat.py`: 0, `releases.py`: 2, `operations.py`: 2, `deployments.py`: 1) | Require per-device token; flagged transition so fielded devices are not stranded | `gateway/routes/heartbeat.py:36`, `gateway/auth.py` | Anyone reachable can forge any device's telemetry **and falsely confirm deployments** | **P1** |
@@ -57,7 +57,7 @@ Four capabilities appear to exist from documentation, type declarations, or conf
 
 | Feature | Current implementation | Required implementation | Files involved | Gap | Priority |
 |---|---|---|---|---|---|
-| COM port detection | **Working.** Enumerates local ports, validates against connected set before flashing | Keep | `CODE/OTA_IDE/lib/serial-port-detection.ts`, `app/api/serial-ports/route.ts` | None | — |
+| COM port detection | **Working.** Enumerates local ports, validates against connected set before flashing | Keep | `apps/web/lib/serial-port-detection.ts`, `app/api/serial-ports/route.ts` | None | — |
 | Serial flashing | **Working.** Async job `queued→compiling→uploading→success/failed`, progress scraped, logs polled | Keep | `lib/serial-upload-jobs.ts`, `app/api/serial/upload/**` | Non-functional in Docker (no serial HW) — expected | — |
 | WiFi provisioning at flash | **Working, uncommitted.** Credentials injected into a temp copy of `ota_config.h`; workspace deleted in `finally` | Commit it | `lib/serial-upload-jobs.ts`, `components/devices/DeviceConnectionCard.tsx`, `app/api/serial/upload/route.ts` | Not yet committed | **P2** |
 | Backend/COM separation | **Correct.** Gateway contains no serial code; flashing runs in the operator's process | Keep — architectural invariant | — | None | — |
@@ -86,7 +86,7 @@ Four capabilities appear to exist from documentation, type declarations, or conf
 | Events / alerts | **Working but volatile.** FIFO-capped at 500 / 200 | Durable retention | `gateway/state.py:77,84`, `config.py:35-36` | Silently discards history | P2 |
 | Audit logs | **Partial.** Dashboard writes one row per API request; **gateway writes none** | Gateway-side audit with actor identity | `lib/api-security.ts:69`; new gateway audit store | Gateway writes are unaudited | **P1** |
 | Persistence | **JSON.** Single lock-guarded dict, atomic whole-file dump | PostgreSQL once schema stabilises | `gateway/state.py` | Breaks at ~10³ devices / multi-replica | P3 |
-| Dashboard `.data` durability | **Broken.** `lib/db.ts` hardcodes `process.cwd()/.data`, not volume-mounted | Point at the mounted dir | `CODE/OTA_IDE/lib/db.ts` | Webhook/dead-letter data lost on container recreate | P2 |
+| Dashboard `.data` durability | **Broken.** `lib/db.ts` hardcodes `process.cwd()/.data`, not volume-mounted | Point at the mounted dir | `apps/web/lib/db.ts` | Webhook/dead-letter data lost on container recreate | P2 |
 
 ### SecureOTA-IDE repository
 

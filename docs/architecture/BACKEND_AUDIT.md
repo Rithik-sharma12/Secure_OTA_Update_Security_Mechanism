@@ -28,7 +28,7 @@ It is not 🔴 NOT READY — a large amount genuinely works and survived adversa
 | # | Feature | Status | Evidence (executed) | File |
 |---|---|---|---|---|
 | 1 | Authentication (gateway write) | ✅ VERIFIED | 5/5 write endpoints returned **401** without key; **200** with valid key | `gateway/auth.py` |
-| 1b | Authentication (operator/user) | ⚠️ NOT VERIFIED | Code present (scrypt, token hash, expiry); dashboard not started | `CODE/OTA_IDE/lib/auth.ts` |
+| 1b | Authentication (operator/user) | ⚠️ NOT VERIFIED | Code present (scrypt, token hash, expiry); dashboard not started | `apps/web/lib/auth.ts` |
 | 2 | Authorization / RBAC | ❌ NOT IMPLEMENTED | `role` typed in 2 files; grep for any role comparison → **0 matches**. `withSecureApi` exposes only `requireAuth` | `lib/api-security.ts` |
 | 3 | Device registration | ❌ NOT IMPLEMENTED | `POST /api/devices/register` → **404** | — |
 | 4 | Device authentication | ❌ NOT IMPLEMENTED | Unauthenticated heartbeat → **200**, device created | `routes/heartbeat.py:36` |

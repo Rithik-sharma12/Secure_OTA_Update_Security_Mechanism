@@ -6,7 +6,7 @@
   "author": "Rithik Sharma",
   "license": "UNLICENSED",
   "workspaces": [
-    "CODE/OTA_IDE"
+    "apps/web"
   ],
   "scripts": {
     "dev": "npm run dev       --workspace=@sentinel-ota/ide",

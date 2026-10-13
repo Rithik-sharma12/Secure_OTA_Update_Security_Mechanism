@@ -3,7 +3,7 @@ name: secure_ota
 services:
   gateway:
     build:
-      context: ./src/implementation
+      context: ./apps/gateway
       dockerfile: Dockerfile
     pull_policy: build
     image: secure-ota-gateway:latest
@@ -40,7 +40,7 @@ services:
 
   ota_ide:
     build:
-      context: ./CODE/OTA_IDE
+      context: ./apps/web
       dockerfile: Dockerfile
       # Baked into the browser bundle at build time (see the Dockerfile).
       # Compose reads these from --env-file .env.docker or the shell.
