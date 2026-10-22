@@ -17,8 +17,6 @@ import {
   BarChart3,
   HelpCircle,
   Tag,
-  Cpu,
-  Shield,
   Info,
   FlaskConical,
   Rocket,
@@ -71,13 +69,11 @@ const navSections: NavSection[] = [
       { label: 'Pipeline', href: '/pipeline', icon: <GitBranch className="w-4 h-4" /> },
       { label: 'Releases', href: '/releases', icon: <Code className="w-4 h-4" /> },
       { label: 'Manifest', href: '/manifest', icon: <Menu className="w-4 h-4" /> },
-      { label: 'Code', href: '/code', icon: <Code className="w-4 h-4" /> },
     ],
   },
   {
     title: 'Security',
     items: [
-      { label: 'TCV Engine', href: '/tcv-engine', icon: <Cpu className="w-4 h-4" /> },
       { label: 'ASH Monitor', href: '/ash-monitor', icon: <Activity className="w-4 h-4" /> },
       { label: 'Key Vault', href: '/key-vault', icon: <Lock className="w-4 h-4" /> },
       { label: 'Audit Trail', href: '/audit', icon: <ScrollText className="w-4 h-4" /> },
@@ -88,9 +84,7 @@ const navSections: NavSection[] = [
     items: [
       { label: 'Settings', href: '/settings', icon: <Settings className="w-4 h-4" /> },
       { label: 'Diagnostics', href: '/diagnostics', icon: <BarChart3 className="w-4 h-4" /> },
-      { label: 'Dead Letter', href: '/dead-letter', icon: <AlertCircle className="w-4 h-4" /> },
       { label: 'Reports', href: '/reports', icon: <BarChart3 className="w-4 h-4" /> },
-      { label: 'Simulator', href: '/simulator', icon: <Shield className="w-4 h-4" /> },
       { label: 'Examples', href: '/examples', icon: <FlaskConical className="w-4 h-4" /> },
       { label: 'Help', href: '/help', icon: <HelpCircle className="w-4 h-4" /> },
       { label: 'About', href: '/about', icon: <Info className="w-4 h-4" /> },

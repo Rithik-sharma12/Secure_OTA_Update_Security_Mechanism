@@ -11,6 +11,7 @@ import { ErrorFallback } from '@/components/error/ErrorFallback';
 import { logger } from '@/lib/logger';
 import { apiFetch, clearAuthSession, persistAuthSession, type StoredAuthUser } from '@/lib/client-auth';
 import { CurrentUserProvider } from '@/lib/use-current-user';
+import { ViewerNotice } from '@/components/layout/ViewerNotice';
 
 function DashboardShell({
   children,
@@ -102,6 +103,7 @@ function DashboardShell({
           <ConsoleWallpaper />
           {/* Keyed by path so each page plays its entrance once per visit. */}
           <div key={pathname} className="ota-page mx-auto w-full max-w-[1152px] px-4 pb-28 pt-5 sm:px-6 md:pb-7 md:pt-7 2xl:max-w-[1360px]">
+            <ViewerNotice />
             {children}
           </div>
         </main>

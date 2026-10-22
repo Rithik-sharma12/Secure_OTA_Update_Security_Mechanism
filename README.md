@@ -47,7 +47,7 @@ A small local agent ([`apps/agent`](apps/agent)) lets the hosted console reach t
 1. **Flash once over USB.** From the Devices page, the console flashes a release over the board's COM port (Web Serial in Chrome or Edge, or the local agent) and writes its Wi-Fi, gateway address and a per-device token into NVS.
 2. **Publish a release.** Upload a compiled `.bin` on the Releases page, or let the GitHub release workflow publish it. The gateway records its SHA-256 and signs the release with its Ed25519 key.
 3. **Deploy.** Choose a release and a set of boards. The gateway refuses wrong-architecture boards, quarantined boards (health score below 40) and downgrades, and says why per device.
-4. **The board updates itself.** It learns about the job in its next heartbeat (every 30 s by default), downloads the image, checks the digest and signature, writes the spare partition and reboots on probation.
+4. **The board updates itself.** It learns about the job in its next heartbeat (every 15 s), downloads the image, checks the digest and signature, writes the spare partition and reboots on probation.
 5. **Health gate.** The new image must join Wi-Fi and get an accepted heartbeat within 120 s. If it does, it is marked valid. If not, the bootloader boots the previous firmware.
 6. **Confirmation.** A deployment counts as done only when the board itself reports the new version. Deployments not confirmed within 30 minutes are marked failed.
 
@@ -206,6 +206,18 @@ scripts\start-dev.cmd
 
 `scripts\start-dev.cmd` installs dependencies on first run, starts the gateway on port 5000 in a second window (`scripts\start-gateway.cmd`) and the console on **http://localhost:3000**. Run it again to restart or open an instance that is already running.
 
+### First board, end to end
+
+1. **Build the firmware** (Windows): `scripts\build-firmware.cmd`. It builds with PlatformIO, or with arduino-cli (`--arduino-cli`, or automatically when only Arduino IDE 2 is installed) on the pinned Arduino-ESP32 2.0.17 core. The first run creates the release keys in `firmware/secure-keys/` (back this folder up) and writes three files to `firmware/dist/esp32dev/`:
+   - `firmware-full.bin`: bootloader, partition table and app, for the first USB flash at 0x0;
+   - `firmware-ota.bin`: the signed, encrypted package to publish for over-the-air updates;
+   - `build-info.json`: version and the plaintext image SHA-256 the Releases page asks for.
+2. **Flash and provision**: Devices, *Set up a new board*, choose *This computer's build* (the console reads `firmware/dist/` itself and shows the full path), select the board's COM port, enter the Wi-Fi name and password. The console flashes the board, reads its ID, issues its device token, writes Wi-Fi and the gateway address over the cable and waits for the first heartbeat.
+3. **Publish**: Devices, *Flash over USB*, *This computer's build*, *Publish as a release* uploads `firmware-ota.bin` with its version, `imageSha256` and `firmware-full.bin` as the factory image in one step. The Releases page form does the same by hand.
+4. **Update over the air**: raise `FIRMWARE_VERSION` in the sketch, build again, publish, then deploy from the Deployments page.
+
+The board must reach the gateway on your network: the console hands it this computer's LAN address (for example `http://192.168.1.20:5000`) and Windows Firewall must allow inbound TCP 5000. Accounts need the operator or admin role to flash, deploy or publish; new Clerk accounts start as viewers, and e-mails listed in `OTA_ADMIN_EMAILS` become admins.
+
 ### 2. Local development on any OS
 
 ```bash
@@ -232,12 +244,13 @@ Services: `gateway` on 5000 and `ota_ide` on 3000, with named volumes for gatewa
 ### 4. Online (Cloudflare Tunnel)
 
 ```bat
-scripts\go-online.cmd          :: put it online
-scripts\go-online.cmd status   :: check what is public
-scripts\go-online.cmd off      :: take it offline
+scripts\go-online.cmd          :: build with your latest code and put it online
+scripts\go-online.cmd status   :: containers, tunnel and public addresses
+scripts\go-online.cmd logs     :: recent logs of every container
+scripts\go-online.cmd off      :: take it offline (data and keys are kept)
 ```
 
-`./scripts/go-online.sh` does the same on Linux and macOS and also wraps the firmware workflow (`build`, `flash`, `monitor`, `agent`). Setup: [docs/guides/CLOUDFLARE_TUNNEL_SETUP.md](docs/guides/CLOUDFLARE_TUNNEL_SETUP.md).
+The script checks each step in order (configuration, Docker, local health, tunnel registered with Cloudflare, public address) and stops at the first one that fails with the reason. A report without secrets is written to `deploy/last-run.log`. Cloudflare error 1033 means no `cloudflared` connector is running for the tunnel; the tunnel container now starts together with the others and uses HTTP/2 over TCP, so a slow dashboard start or a network that drops UDP no longer takes the site down. Setup: [docs/guides/CLOUDFLARE_TUNNEL_SETUP.md](docs/guides/CLOUDFLARE_TUNNEL_SETUP.md).
 
 ## Configuration
 
@@ -274,7 +287,9 @@ The full list with comments is in [`.env.example`](.env.example).
 
 ## Firmware
 
-Located in [`firmware/`](firmware). Copy `esp32_ota_main/ota_config.h.example` to `ota_config.h` (git-ignored) before building.
+Located in [`firmware/`](firmware). `scripts\build-firmware.cmd` (Windows) or `python firmware/tools/build_firmware.py [env]` builds it, creates `esp32_ota_main/ota_config.h` from the example on first run, adds the release keys and writes the images to `firmware/dist/<env>/`.
+
+A build whose Wi-Fi and gateway settings are left as placeholders is a generic image: the board boots, prints `SOTA:READY` and waits to be provisioned over USB, so one image serves every board. Over a plain `http://` gateway the board accepts only signed, encrypted packages (`firmware-ota.bin`); plain images are accepted only from an `https://` gateway with a pinned root certificate.
 
 | PlatformIO env | Board | Notes |
 |---|---|---|
@@ -284,8 +299,9 @@ Located in [`firmware/`](firmware). Copy `esp32_ota_main/ota_config.h.example` t
 | `esp32dev_ota` | ESP32 DevKit | ArduinoOTA push for bench work only; bypasses signature checks, never ship it |
 
 ```bash
+python firmware/tools/build_firmware.py esp32dev   # build + full image + signed OTA package
 cd firmware
-pio run -e esp32dev                    # build
+pio run -e esp32dev                    # build only
 pio run -e esp32dev -t upload          # flash over USB
 pio device monitor -b 115200           # serial monitor
 ```
@@ -307,6 +323,7 @@ Write endpoints require the API key (`x-api-key`) or a device token. Main routes
 | POST | `/api/devices/{id}/revoke-token` | Revoke a device token |
 | GET, POST | `/api/releases`, `/api/releases/upload` | List or publish releases |
 | GET | `/api/releases/latest`, `/api/releases/factory` | Newest release, merged first-flash image |
+| POST | `/api/releases/{id}/archive`, `/unarchive` | Withdraw a release from deployments and the manifest, or restore it |
 | GET, POST | `/api/deployments` | List or create deployments |
 | POST | `/api/deployments/{id}/retry`, `/cancel` | Retry failed targets or cancel |
 | GET | `/releases/latest/manifest`, `/releases/download/{file}` | Device manifest and firmware download |
@@ -319,12 +336,12 @@ Write endpoints require the API key (`x-api-key`) or a device token. Main routes
 ## Testing and CI
 
 ```bash
-# Console: typecheck, lint, unit tests (84 tests)
+# Console: typecheck, lint, unit tests (93 tests)
 npm run typecheck
 npm run lint
 npm test
 
-# Gateway: pytest (201 tests)
+# Gateway: pytest (206 tests)
 cd apps/gateway && python -m pytest -q
 ```
 

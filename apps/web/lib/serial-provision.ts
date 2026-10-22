@@ -73,7 +73,8 @@ export async function webSerialExchange(
   port: SerialPort,
   request: string,
   accept: string[],
-  timeoutMs: number
+  timeoutMs: number,
+  reset = false
 ): Promise<{ line: string | null; seen: string[] }> {
   await port.open({ baudRate: BAUD });
   const seen: string[] = [];
@@ -85,7 +86,7 @@ export async function webSerialExchange(
     } catch {
       // Not every adapter supports control lines.
     }
-    await sleep(300);
+    if (!reset) await sleep(300);
 
     if (!port.readable || !port.writable) throw new Error('The serial port is not readable.');
     const reader = port.readable.getReader();
@@ -98,8 +99,20 @@ export async function webSerialExchange(
     let inflight: Promise<ReadableStreamReadResult<Uint8Array>> | null = null;
 
     try {
-      const deadline = Date.now() + timeoutMs;
       let nextSend = 0;
+      if (reset) {
+        // Restart the board into its firmware (esptool's hard reset): IO0
+        // released, EN pulsed low through RTS. Its boot output is kept.
+        try {
+          await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+          await sleep(120);
+          await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+        } catch {
+          // No control lines on this adapter.
+        }
+        nextSend = Date.now() + 1200;
+      }
+      const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         if (Date.now() >= nextSend) {
           await writer.write(encoder.encode(`${request}\n`));
@@ -149,16 +162,67 @@ function tagged(line: string, tag: string): Record<string, unknown> {
   }
 }
 
-const NO_ANSWER =
-  'No answer from the board. It needs SecureOTA firmware 2.5.0 or newer, must not be in download mode, ' +
-  'and no serial monitor may hold the port.';
+/** The ROM bootloader printed "waiting for download": GPIO0 was low at reset. */
+export function inDownloadMode(seen: string[]): boolean {
+  return /waiting for download|boot:0x[02-7]\b/.test(seen.join('\n'));
+}
+
+/** Why a board did not answer, judged from what it printed. Mirrors the agent's explain_silence(). */
+export function explainSilence(seen: string[]): string {
+  const text = seen.join('\n');
+  if (inDownloadMode(seen)) {
+    return (
+      'The board is in ROM download mode, not running the firmware (GPIO0/BOOT was low when it started). ' +
+      'Release BOOT, press EN (RST) once, and retry. If it happens again with no button held, the board has no ' +
+      'valid firmware: flash firmware-full.bin first.'
+    );
+  }
+  if (text.includes('Brownout detector was triggered')) {
+    return (
+      'The board keeps resetting because its supply voltage drops (brownout). Use a USB port directly on the ' +
+      'computer, a shorter or thicker cable, or a powered hub.'
+    );
+  }
+  const crash = seen.find((line) => /Guru Meditation|abort\(\)|panic/i.test(line));
+  if (crash) return `The firmware crashes at start-up: ${crash.slice(0, 160)}`;
+  if (/invalid header|flash read err/.test(text)) {
+    return (
+      'The board resets but cannot load the app from flash (invalid header). Flash the full image ' +
+      '(firmware-full.bin at 0x0) with "Erase entire flash" ticked.'
+    );
+  }
+  if ((text.match(/rst:/g) ?? []).length >= 3) return 'The board is boot-looping. Its output is in the log.';
+  if (seen.length === 0) {
+    return (
+      'The board printed nothing, not even the ROM boot message, after being reset over USB. Press EN (RST) once ' +
+      'and retry; if it stays silent, the USB cable or adapter is not passing data from the board.'
+    );
+  }
+  return 'The board runs but did not answer the SecureOTA request. It needs SecureOTA firmware 2.5.0 or newer.';
+}
+
+/** Ask, and if the board stays quiet, restart it into its firmware and ask again. */
+async function exchangeWithReset(port: SerialPort, request: string, accept: string[], timeoutMs: number) {
+  const first = await webSerialExchange(port, request, accept, 4000);
+  if (first.line) return first;
+  const second = await webSerialExchange(port, request, accept, timeoutMs, true);
+  if (second.line) return second;
+  throw new BoardSilentError(explainSilence(second.seen), second.seen);
+}
+
+/** The board did not answer; `output` is what it printed meanwhile. */
+export class BoardSilentError extends Error {
+  constructor(message: string, public output: string[]) {
+    super(message);
+  }
+}
 
 /** Ask the board who it is. */
 export async function readBoardInfo(link: BoardLink): Promise<AgentDeviceInfo> {
   if (link.kind === 'agent') return getAgentDeviceInfo(link.path);
 
-  const { line } = await webSerialExchange(link.port, 'SOTA:INFO', ['SOTA:INFO '], INFO_TIMEOUT_MS);
-  if (!line) throw new Error(NO_ANSWER);
+  const { line } = await exchangeWithReset(link.port, 'SOTA:INFO', ['SOTA:INFO '], INFO_TIMEOUT_MS);
+  if (!line) throw new Error('No answer from the board.');
   const info = tagged(line, 'SOTA:INFO') as AgentDeviceInfo;
   if (!info.device_id) throw new Error('The board answered without a device id.');
   return info;
@@ -169,13 +233,13 @@ export async function provisionBoard(link: BoardLink, config: ProvisionConfig): 
   const clean = cleanProvisionConfig(config);
   if (link.kind === 'agent') return provisionAgentDevice(link.path, config);
 
-  const { line } = await webSerialExchange(
+  const { line } = await exchangeWithReset(
     link.port,
     `SOTA:PROVISION ${JSON.stringify(clean)}`,
     ['SOTA:OK', 'SOTA:ERR'],
     PROVISION_TIMEOUT_MS
   );
-  if (!line) throw new Error(NO_ANSWER);
+  if (!line) throw new Error('No answer from the board.');
   if (line.startsWith('SOTA:ERR')) {
     throw new Error(line.slice('SOTA:ERR'.length).trim() || 'The board rejected the configuration.');
   }

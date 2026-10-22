@@ -10,6 +10,8 @@ if not exist "%PY%" set "PY=python"
 "%PY%" -m pip install -q -r apps\gateway\requirements.txt
 cd apps\gateway
 echo Starting the SecureOTA gateway on http://localhost:5000 ...
+echo Boards on your Wi-Fi reach it at http://^<this PC's LAN IP^>:5000 (ipconfig shows the IPv4 address).
+echo If Windows Firewall asks about Python, allow it on Private networks, or boards cannot connect.
 echo Keep this window open. Press Ctrl+C to stop.
 "%PY%" -m uvicorn edge_gateway:app --host 0.0.0.0 --port 5000
 pause

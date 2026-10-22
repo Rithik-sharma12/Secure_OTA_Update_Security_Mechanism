@@ -102,7 +102,7 @@ def receive_heartbeat(payload: dict[str, Any], caller: DeviceCaller = Depends(de
             'cpuUsage': cpu_usage,
             'memoryUsage': memory_usage,
             'uptime': safe_float(payload.get('uptime', 0.0), 0.0),
-            'location': str(payload.get('location', 'Edge Gateway Network'))[:128],
+            'location': str(payload.get('location', '') or '')[:128],
             'signalStrength': signal_strength,
             'ram': 'N/A',
             'ip': str(payload.get('ip', ''))[:64] or previous.get('ip', ''),

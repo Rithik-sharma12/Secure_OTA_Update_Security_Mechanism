@@ -49,7 +49,11 @@ def _ensure(module: str, package: str) -> None:
         __import__(module)
     except ImportError:
         print(f"Installing {package} (first run only)...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "--quiet", package])
+        # --user is refused inside a virtual environment (such as the
+        # project's .venv), and not needed there.
+        in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+        flags = ["--quiet"] if in_venv else ["--user", "--quiet"]
+        subprocess.check_call([sys.executable, "-m", "pip", "install", *flags, package])
 
 
 _ensure("serial", "pyserial")
@@ -58,14 +62,28 @@ _ensure("esptool", "esptool")
 import serial  # noqa: E402
 from serial.tools import list_ports  # noqa: E402
 
-AGENT_VERSION = "1.1.0"
+AGENT_VERSION = "1.3.1"
 DEFAULT_PORT = 17317
 ALLOWED_ORIGINS = {
     "https://ota.nyx-ctf.tech",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 }
+# A console served from this same computer, on any port. Remote sites can
+# never present these origins: the browser sets the Origin header.
+LOCAL_ORIGIN_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$")
+for _extra in (os.environ.get("SECUREOTA_AGENT_ORIGINS") or "").split(","):
+    if _extra.strip():
+        ALLOWED_ORIGINS.add(_extra.strip().rstrip("/"))
+
+
+def origin_allowed(origin: str | None) -> bool:
+    return bool(origin) and (origin in ALLOWED_ORIGINS or bool(LOCAL_ORIGIN_RE.match(origin or "")))
 MAX_LOG_LINES = 400
+# Manual download mode: esptool tries to sync this many times without resetting
+# (about one attempt per second), so the person has time for BOOT + EN.
+MANUAL_BOOT_SECONDS = 40
+MANUAL_BOOT_ATTEMPTS = 40
 PORT_NAME_RE = re.compile(r"^(COM\d+|/dev/[\w.\-/]+)$")
 ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{1,8}$")
 
@@ -143,9 +161,12 @@ def parse_multipart(content_type: str, body: bytes) -> dict[str, str | bytes]:
 # ------------------------------------------------------------------ flash jobs
 
 class FlashJob:
-    def __init__(self, port: str, address: str, image: Path, baud: int, erase: bool):
+    def __init__(self, port: str, address: str, image: Path, baud: int, erase: bool, manual_boot: bool = False):
         self.id = uuid.uuid4().hex[:12]
         self.port, self.address, self.image, self.baud, self.erase = port, address, image, baud, erase
+        self.manual_boot = manual_boot
+        # While > 0 the board is expected to be put in download mode by hand.
+        self.manual_until: float = 0.0
         self.status = "queued"       # queued | running | success | failed
         self.progress = 0
         self.error: str | None = None
@@ -161,7 +182,67 @@ class FlashJob:
             "error": self.error, "chip": self.chip, "port": self.port, "address": self.address,
             "log": lines[since:], "logLength": len(lines),
             "elapsed": round((self.finished or time.time()) - self.started, 1),
+            "manualBootSeconds": max(0, round(self.manual_until - time.time())) if self.manual_until else 0,
         }
+
+    def _esptool(self, before: str, attempts: int) -> int:
+        """Run one esptool write. Returns its exit code; output goes to the job log."""
+        cmd = ESPTOOL + [
+            "--chip", "auto", "--port", self.port, "--baud", str(self.baud),
+            "--before", before, "--after", "hard_reset", "--connect-attempts", str(attempts),
+            "write_flash", "-z", "--flash_mode", "keep", "--flash_size", "keep",
+        ]
+        if self.erase:
+            cmd.append("--erase-all")
+        cmd += [self.address, str(self.image)]
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        assert proc.stdout
+        buffer = ""
+        while True:
+            ch = proc.stdout.read(1)
+            if not ch:
+                break
+            if ch in "\r\n":
+                line = buffer.strip()
+                buffer = ""
+                # Tool chatter that means nothing to the person at the board.
+                if not line or line.startswith("WARNING: Deprecated") or line.startswith("Serial port "):
+                    continue
+                self.log.append(line)
+                # esptool 4: "Writing at 0x00010000... (25 %)"
+                # esptool 5: "Writing at 0x00010000 [====>    ]  25.3% 49152/209931 bytes..."
+                m = re.search(r"\((\d{1,3})\s*%\)", line) or re.search(r"(\d{1,3})(?:\.\d+)?\s*%", line)
+                if m and line.lower().startswith(("writing", "wrote")):
+                    self.progress = min(100, int(m.group(1)))
+                    self.manual_until = 0.0
+                # esptool 4: "Chip is ESP32-D0WD-V3 (revision v3.1)"; 5: "Chip type: ESP32-D0WD-V3 ..."
+                m = re.search(r"Chip (?:is|type:)\s*(.+)$", line)
+                if m:
+                    self.chip = m.group(1).strip()
+                    self.manual_until = 0.0
+            else:
+                buffer += ch
+        proc.wait()
+        return proc.returncode
+
+    def _connect_failed(self) -> bool:
+        text = "\n".join(self.log)
+        return any(token in text for token in (
+            "Failed to connect", "Wrong boot mode", "No serial data received", "Invalid head of packet",
+        ))
+
+    def _diagnosis(self) -> str:
+        text = "\n".join(self.log)
+        steps = "Press and hold BOOT (IO0), press and release EN (RST), then release BOOT."
+        if "waiting for download" in text:
+            return ("The board is in download mode but does not answer. Close other serial tools, "
+                    "try another USB cable or port, then retry.")
+        m = re.search(r"Wrong boot mode detected \((0x[0-9a-fA-F]+)\)", text)
+        if m:
+            return (f"The board never entered download mode: it reset but started its normal firmware "
+                    f"(boot mode {m.group(1)}), so IO0 was not held low. {steps}")
+        return ("The board never entered download mode and printed nothing. Check the COM port, that the USB "
+                f"cable carries data and that the CP210x / CH340 driver is installed. {steps}")
 
     def run(self):
         self.status = "running"
@@ -169,49 +250,35 @@ class FlashJob:
             self.status, self.error = "failed", "esptool not found - pip install esptool"
             self.finished = time.time()
             return
-        cmd = ESPTOOL + [
-            "--chip", "auto", "--port", self.port, "--baud", str(self.baud),
-            "--before", "default_reset", "--after", "hard_reset", "--connect-attempts", "45",
-            "write_flash", "-z", "--flash_mode", "keep", "--flash_size", "keep",
-        ]
-        if self.erase:
-            cmd.append("--erase-all")
-        cmd += [self.address, str(self.image)]
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            assert proc.stdout
-            buffer = ""
-            while True:
-                ch = proc.stdout.read(1)
-                if not ch:
-                    break
-                if ch in "\r\n":
-                    line = buffer.strip()
-                    buffer = ""
-                    # Tool chatter that means nothing to the person at the board.
-                    if not line or line.startswith("WARNING: Deprecated") or line.startswith("Serial port "):
-                        continue
-                    self.log.append(line)
-                    m = re.search(r"\((\d{1,3})\s*%\)", line)
-                    if m:
-                        self.progress = int(m.group(1))
-                    m = re.search(r"Chip is (.+)$", line)
-                    if m:
-                        self.chip = m.group(1).strip()
-                else:
-                    buffer += ch
-            proc.wait()
-            if proc.returncode == 0:
+            code = 1
+            if not self.manual_boot:
+                self.log.append("[agent] resetting the board into download mode (automatic)")
+                code = self._esptool("default_reset", 8)
+            if code != 0 and (self.manual_boot or (self._connect_failed() and self.progress == 0)):
+                # Boards without the auto-download circuit, or adapters whose
+                # DTR/RTS do not reach EN/IO0: let the person do it by hand.
+                window = MANUAL_BOOT_SECONDS
+                self.log.append(f"[agent] waiting {window} s for manual download mode: hold BOOT, "
+                                "press and release EN (RST), release BOOT")
+                self.manual_until = time.time() + window
+                code = self._esptool("no_reset", MANUAL_BOOT_ATTEMPTS)
+                self.manual_until = 0.0
+                if code == 0:
+                    self.log.append("[agent] done. If the board does not start, press EN (RST) once.")
+            if code == 0:
                 self.status, self.progress = "success", 100
             else:
                 self.status = "failed"
-                tail = [l for l in self.log if "error" in l.lower() or "failed" in l.lower()]
-                self.error = tail[-1] if tail else f"esptool exited with code {proc.returncode}"
-                if "Wrong boot mode" in (self.error or "") or "Failed to connect" in (self.error or ""):
-                    self.error = "The board did not enter download mode. Hold its BOOT button while connecting and retry."
+                if self._connect_failed() and self.progress == 0:
+                    self.error = self._diagnosis()
+                else:
+                    tail = [l for l in self.log if "error" in l.lower() or "failed" in l.lower()]
+                    self.error = tail[-1] if tail else f"esptool exited with code {code}"
         except Exception as exc:  # noqa: BLE001
             self.status, self.error = "failed", str(exc)
         finally:
+            self.manual_until = 0.0
             self.finished = time.time()
             try:
                 self.image.unlink()
@@ -246,11 +313,12 @@ SERIAL_EXCHANGE_SECONDS = 12.0
 
 
 def open_quietly(port: str, baud: int) -> "serial.Serial":
-    """Open without toggling DTR/RTS where the driver allows it.
+    """Open with DTR and RTS released.
 
-    On most ESP32 dev boards DTR/RTS drive EN/IO0, so a plain open resets the
-    chip. Some drivers reset it anyway; the exchange below retries long enough
-    to ride out a reboot.
+    On ESP32 dev boards DTR/RTS drive IO0 and EN through the auto-download
+    circuit. Releasing both lets the chip run; a plain open on some drivers
+    leaves one asserted, which holds the board in reset or boots it into the
+    ROM download mode, where it never answers the firmware protocol.
     """
     ser = serial.Serial()
     ser.port = port
@@ -259,20 +327,65 @@ def open_quietly(port: str, baud: int) -> "serial.Serial":
     ser.dtr = False
     ser.rts = False
     ser.open()
+    # Some drivers apply the line states only after open; set them again.
+    ser.dtr = False
+    ser.rts = False
     return ser
 
 
+def reset_into_firmware(ser: "serial.Serial") -> None:
+    """Restart the board into its flashed firmware (esptool's hard reset):
+    IO0 released (DTR off), EN pulsed low through RTS for 100 ms."""
+    ser.dtr = False
+    ser.rts = True
+    time.sleep(0.12)
+    ser.rts = False
+
+
+def explain_silence(seen: list[str]) -> str:
+    """Why a board did not answer, judged from what it printed."""
+    text = "\n".join(seen)
+    if "waiting for download" in text or re.search(r"boot:0x(0|2|3|4|5|6|7)\b", text):
+        return ("The board is in ROM download mode, not running the firmware. Release BOOT, press EN (RST) once, "
+                "and retry.")
+    if "Brownout detector was triggered" in text:
+        return ("The board keeps resetting because its supply voltage drops (brownout). Use a USB port directly "
+                "on the computer, a shorter or thicker cable, or a powered hub.")
+    crash = next((line for line in seen if "Guru Meditation" in line or "abort()" in line or "panic" in line.lower()), None)
+    if crash:
+        return f"The firmware crashes at start-up: {crash[:160]}"
+    if "invalid header" in text or "flash read err" in text:
+        return ("The board resets but cannot load the app from flash (invalid header). Flash the full image "
+                "(firmware-full.bin at 0x0) with \"Erase entire flash\" ticked.")
+    if text.count("rst:") >= 3:
+        return "The board is boot-looping. Its output is shown below."
+    if not seen:
+        return ("The board printed nothing, not even the ROM boot message, after being reset over USB. Press EN "
+                "(RST) once and retry; if it stays silent, the USB cable or adapter is not passing data from the board.")
+    return ("The board runs but did not answer the SecureOTA request. It needs SecureOTA firmware 2.5.0 or "
+            "newer; its last output is shown below.")
+
+
 def serial_exchange(port: str, baud: int, request: str, accept: tuple[str, ...],
-                    timeout: float = SERIAL_EXCHANGE_SECONDS) -> tuple[str | None, list[str]]:
+                    timeout: float = SERIAL_EXCHANGE_SECONDS, reset: bool = False) -> tuple[str | None, list[str]]:
     """Send `request` (re-sent every ~1.5 s) until a line starting with one of
-    `accept` arrives. Returns (matching line or None, recent output lines)."""
-    seen: deque[str] = deque(maxlen=40)
+    `accept` arrives. Returns (matching line or None, recent output lines).
+
+    With reset=True the board is first restarted into its firmware, and its
+    boot output is kept, so a failure can say what the board did instead."""
+    seen: deque[str] = deque(maxlen=60)
     ser = open_quietly(port, baud)
     try:
-        time.sleep(0.3)
-        ser.reset_input_buffer()
+        if reset:
+            ser.reset_input_buffer()
+            reset_into_firmware(ser)
+            # Give the bootloader and setup() a moment before the first request.
+            next_send = time.time() + 1.2
+        else:
+            time.sleep(0.3)
+            ser.reset_input_buffer()
+            next_send = 0.0
         deadline = time.time() + timeout
-        next_send = 0.0
         pending = b""
         while time.time() < deadline:
             if time.time() >= next_send:
@@ -291,6 +404,8 @@ def serial_exchange(port: str, baud: int, request: str, accept: tuple[str, ...],
                 seen.append(line)
                 if line.startswith(accept):
                     return line, list(seen)
+        if pending.strip():
+            seen.append(pending.decode("utf-8", "replace").strip())
         return None, list(seen)
     finally:
         ser.close()
@@ -312,11 +427,11 @@ class Handler(BaseHTTPRequestHandler):
     def _origin_ok(self) -> bool:
         origin = self.headers.get("Origin")
         # Non-browser callers (curl) send no Origin; they are already local.
-        return origin is None or origin in ALLOWED_ORIGINS
+        return origin is None or origin_allowed(origin)
 
     def _cors(self):
         origin = self.headers.get("Origin")
-        if origin in ALLOWED_ORIGINS:
+        if origin_allowed(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -400,6 +515,7 @@ class Handler(BaseHTTPRequestHandler):
         address = form.get("address", "0x10000").strip() or "0x10000"
         baud = int(form.get("baud") or 460800)
         erase = form.get("erase", "false").lower() == "true"
+        manual_boot = form.get("before", "default_reset") == "no_reset"
         data = form.get("file")
 
         if not PORT_NAME_RE.match(port):
@@ -417,7 +533,7 @@ class Handler(BaseHTTPRequestHandler):
 
         tmp = Path(tempfile.gettempdir()) / f"secureota-{uuid.uuid4().hex}.bin"
         tmp.write_bytes(data)
-        job = FlashJob(port, address, tmp, baud, erase)
+        job = FlashJob(port, address, tmp, baud, erase, manual_boot)
         with JOBS_LOCK:
             JOBS[job.id] = job
         threading.Thread(target=job.run, daemon=True).start()
@@ -450,12 +566,15 @@ class Handler(BaseHTTPRequestHandler):
         if port_busy_with_flash(port):
             return self._json(409, {"ok": False, "error": f"{port} is being flashed"})
         try:
-            line, seen = serial_exchange(port, baud, "SOTA:INFO", ("SOTA:INFO ",), timeout=8.0)
+            # First ask the board as it is; if it stays quiet, restart it into
+            # its firmware (it may be held in reset or in download mode) and ask again.
+            line, seen = serial_exchange(port, baud, "SOTA:INFO", ("SOTA:INFO ",), timeout=4.0)
+            if not line:
+                line, seen = serial_exchange(port, baud, "SOTA:INFO", ("SOTA:INFO ",), timeout=12.0, reset=True)
         except serial.SerialException as exc:
             return self._json(409, {"ok": False, "error": f"cannot open {port} (close any serial monitor first): {exc}"})
         if not line:
-            return self._json(504, {"ok": False, "error": "No answer from the board. It needs SecureOTA firmware 2.5.0 or newer "
-                                    "and must not be in download mode.", "output": seen[-10:]})
+            return self._json(504, {"ok": False, "error": explain_silence(seen), "output": seen[-20:]})
         return self._json(200, {"ok": True, "device": _parse_tagged_json(line, "SOTA:INFO")})
 
     def _provision(self):
@@ -485,12 +604,13 @@ class Handler(BaseHTTPRequestHandler):
 
         request = "SOTA:PROVISION " + json.dumps(clean, separators=(",", ":"))
         try:
-            line, seen = serial_exchange(port, baud, request, ("SOTA:OK", "SOTA:ERR"))
+            line, seen = serial_exchange(port, baud, request, ("SOTA:OK", "SOTA:ERR"), timeout=6.0)
+            if not line:
+                line, seen = serial_exchange(port, baud, request, ("SOTA:OK", "SOTA:ERR"), timeout=12.0, reset=True)
         except serial.SerialException as exc:
             return self._json(409, {"ok": False, "error": f"cannot open {port} (close any serial monitor first): {exc}"})
         if not line:
-            return self._json(504, {"ok": False, "error": "The board did not confirm. It needs SecureOTA firmware 2.5.0 or newer.",
-                                    "output": seen[-10:]})
+            return self._json(504, {"ok": False, "error": explain_silence(seen), "output": seen[-20:]})
         if line.startswith("SOTA:ERR"):
             return self._json(422, {"ok": False, "error": line[len("SOTA:ERR"):].strip() or "rejected by the board"})
         # Never echo the secrets back; report which fields were written.
@@ -503,7 +623,10 @@ class Handler(BaseHTTPRequestHandler):
         if not PORT_NAME_RE.match(port):
             return self._json(400, {"ok": False, "error": f"invalid port '{port}'"})
         try:
-            ser = serial.Serial(port, baud, timeout=0.5)
+            ser = open_quietly(port, baud)
+            ser.timeout = 0.5
+            if (query.get("reset") or ["0"])[0] == "1":
+                reset_into_firmware(ser)
         except serial.SerialException as exc:
             return self._json(409, {"ok": False, "error": f"cannot open {port}: {exc}"})
 

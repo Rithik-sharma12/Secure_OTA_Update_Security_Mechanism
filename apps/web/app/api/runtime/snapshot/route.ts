@@ -1,8 +1,17 @@
 import { NextResponse } from 'next/server';
 import { authenticateRequest } from '@/lib/auth';
+import { gatewayHeaders, gatewayUrl } from '@/lib/gateway-proxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * One read of everything the console shows, taken from the gateway.
+ *
+ * Values are passed through as the gateway reports them. When the gateway has
+ * nothing (no release, no manifest, no last-seen time) the field is empty or
+ * null; nothing here substitutes a plausible default.
+ */
 
 type GatewayDevice = {
   id?: string;
@@ -23,85 +32,52 @@ type GatewayDevice = {
   ota?: { phase?: string; version?: string; progress?: number | null; detail?: string | null; at?: string };
 };
 
-type GatewayEvent = Record<string, unknown>;
-type GatewayRelease = Record<string, unknown>;
-type GatewayPipeline = Record<string, unknown>;
-type GatewayKey = Record<string, unknown>;
-type GatewayCertificate = Record<string, unknown>;
-type GatewayDeployment = Record<string, unknown>;
-
 type GatewayDashboard = {
+  pi_stats?: Record<string, unknown>;
   devices?: GatewayDevice[];
+  ash_devices?: Array<Record<string, unknown>>;
   alerts?: string[];
-  events?: GatewayEvent[];
-  releases?: GatewayRelease[];
-  pipeline?: GatewayPipeline | null;
-  keys?: GatewayKey[];
-  certificates?: GatewayCertificate[];
-  deployments?: GatewayDeployment[];
-};
-
-type ManifestPayload = {
-  version?: string;
-  filename?: string;
-  sha256?: string;
-  size?: number;
-  signature?: string;
-  url?: string;
+  events?: Array<Record<string, unknown>>;
+  releases?: Array<Record<string, unknown>>;
+  pipeline?: Record<string, unknown> | null;
+  keys?: Array<Record<string, unknown>>;
+  certificates?: Array<Record<string, unknown>>;
+  deployments?: Array<Record<string, unknown>>;
 };
 
 const REQUEST_TIMEOUT_MS = 4000;
 
-const ALLOWED_EVENT_TYPES = new Set(['firmware_update', 'deployment', 'error', 'warning', 'info', 'security']);
-const ALLOWED_EVENT_SEVERITIES = new Set(['info', 'warning', 'error', 'success', 'debug']);
-const ALLOWED_RELEASE_STATUSES = new Set(['draft', 'published', 'archived']);
-const ALLOWED_PIPELINE_STAGE_NAMES = new Set(['build', 'test', 'deploy', 'verify']);
-const ALLOWED_PIPELINE_STAGE_STATUSES = new Set(['pending', 'running', 'success', 'failed', 'skipped']);
-const ALLOWED_KEY_TYPES = new Set(['RSA', 'ECDSA', 'AES']);
-const ALLOWED_DEPLOYMENT_STATUSES = new Set(['pending', 'in-progress', 'success', 'failed', 'partial']);
+/**
+ * Devices heartbeat every 15 s or so. One that has been silent for two
+ * minutes is shown offline, whatever status text it sent last.
+ */
+const OFFLINE_AFTER_MS = 2 * 60 * 1000;
+
+/** The gateway's old default for a device that sent no location. Not a place. */
+const LEGACY_PLACEHOLDER_LOCATION = 'Edge Gateway Network';
+
+const EVENT_TYPES = new Set(['firmware_update', 'deployment', 'error', 'warning', 'info', 'security']);
+const EVENT_SEVERITIES = new Set(['info', 'warning', 'error', 'success', 'debug']);
+const RELEASE_STATUSES = new Set(['draft', 'published', 'archived']);
+const STAGE_STATUSES = new Set(['pending', 'running', 'success', 'failed', 'skipped']);
+const DEPLOYMENT_STATUSES = new Set(['pending', 'in_progress', 'success', 'failed', 'partial', 'cancelled']);
+const TARGET_STATES = new Set(['pending', 'confirmed', 'failed', 'cancelled']);
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
-function asDateIso(value: unknown) {
-  const parsed = new Date(typeof value === 'string' || typeof value === 'number' ? value : Date.now());
-  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+/** ISO string for a real timestamp, null for a missing or unparseable one. */
+function isoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function asEventType(value: unknown) {
-  const normalized = String(value || 'info').toLowerCase();
-  return ALLOWED_EVENT_TYPES.has(normalized) ? normalized : 'info';
-}
-
-function asEventSeverity(value: unknown) {
-  const normalized = String(value || 'info').toLowerCase();
-  return ALLOWED_EVENT_SEVERITIES.has(normalized) ? normalized : 'info';
-}
-
-function asReleaseStatus(value: unknown) {
-  const normalized = String(value || 'published').toLowerCase();
-  return ALLOWED_RELEASE_STATUSES.has(normalized) ? normalized : 'published';
-}
-
-function asPipelineStageName(value: unknown) {
-  const normalized = String(value || 'deploy').toLowerCase();
-  return ALLOWED_PIPELINE_STAGE_NAMES.has(normalized) ? normalized : 'deploy';
-}
-
-function asPipelineStageStatus(value: unknown) {
-  const normalized = String(value || 'pending').toLowerCase();
-  return ALLOWED_PIPELINE_STAGE_STATUSES.has(normalized) ? normalized : 'pending';
-}
-
-function asKeyType(value: unknown) {
-  const normalized = String(value || 'RSA').toUpperCase();
-  return ALLOWED_KEY_TYPES.has(normalized) ? normalized : 'RSA';
-}
-
-function asDeploymentStatus(value: unknown) {
-  const normalized = String(value || 'pending').toLowerCase();
-  return ALLOWED_DEPLOYMENT_STATUSES.has(normalized) ? normalized : 'pending';
+function pick(value: unknown, allowed: Set<string>, fallback: string) {
+  const normalized = String(value ?? '').toLowerCase();
+  return allowed.has(normalized) ? normalized : fallback;
 }
 
 function mapDeviceType(value: string | undefined) {
@@ -110,10 +86,11 @@ function mapDeviceType(value: string | undefined) {
   if (normalized.includes('ESP32')) return 'ESP32';
   if (normalized.includes('STM32')) return 'STM32F103';
   if (normalized.includes('ATMEGA') || normalized.includes('AVR')) return 'ATmega328P';
-  return 'ESP32';
+  return 'Unknown';
 }
 
-function mapDeviceStatus(value: string | undefined) {
+function mapDeviceStatus(value: string | undefined, lastSync: string | null, nowMs: number) {
+  if (!lastSync || nowMs - new Date(lastSync).getTime() > OFFLINE_AFTER_MS) return 'offline';
   const normalized = (value || '').toLowerCase();
   if (normalized.includes('updat')) return 'updating';
   if (normalized.includes('quarant') || normalized.includes('error') || normalized.includes('critical')) return 'error';
@@ -130,25 +107,12 @@ function mapHealth(ash: number) {
   return 'critical';
 }
 
-function toIsoFromLastSeen(lastSeen: string | undefined) {
-  if (!lastSeen) {
-    return new Date().toISOString();
-  }
-
-  const timeOnly = /^\d{2}:\d{2}:\d{2}$/.test(lastSeen);
-  if (timeOnly) {
-    const now = new Date();
-    const [hour, minute, second] = lastSeen.split(':').map((value) => Number(value));
-    now.setHours(hour, minute, second, 0);
-    return now.toISOString();
-  }
-
-  const parsed = new Date(lastSeen);
-  if (Number.isNaN(parsed.getTime())) {
-    return new Date().toISOString();
-  }
-
-  return parsed.toISOString();
+function lastSeenIso(lastSeen: string | undefined): string | null {
+  if (!lastSeen) return null;
+  // Very old gateways stored a bare HH:MM:SS. That has no date, so it cannot
+  // say when the device was last seen.
+  if (/^\d{2}:\d{2}:\d{2}$/.test(lastSeen)) return null;
+  return isoOrNull(lastSeen);
 }
 
 function simpleHash(value: string) {
@@ -157,11 +121,10 @@ function simpleHash(value: string) {
     hash = (hash << 5) - hash + value.charCodeAt(i);
     hash |= 0;
   }
-
   return Math.abs(hash).toString(16);
 }
 
-function normalizeGatewayLogSeverity(logLine: string): 'info' | 'warning' | 'error' | 'success' {
+function logSeverity(logLine: string): 'info' | 'warning' | 'error' | 'success' {
   const normalized = logLine.toLowerCase();
   if (/(error|failed|fail|panic|quarant|denied|invalid)/.test(normalized)) return 'error';
   if (/(warn|retry|timeout|degraded|slow)/.test(normalized)) return 'warning';
@@ -169,21 +132,23 @@ function normalizeGatewayLogSeverity(logLine: string): 'info' | 'warning' | 'err
   return 'info';
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
+type Fetched<T> = { data: T | null; status: number | null; error: string | null };
+
+async function fetchGateway<T>(path: string): Promise<Fetched<T>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
   try {
-    const response = await fetch(url, {
+    const response = await fetch(`${gatewayUrl}${path}`, {
+      headers: gatewayHeaders(),
       cache: 'no-store',
       signal: controller.signal,
     });
-
     if (!response.ok) {
-      throw new Error(`${url} returned ${response.status}`);
+      return { data: null, status: response.status, error: `${path} returned ${response.status}` };
     }
-
-    return (await response.json()) as T;
+    return { data: (await response.json()) as T, status: response.status, error: null };
+  } catch (error) {
+    return { data: null, status: null, error: error instanceof Error ? error.message : `Unable to load ${path}` };
   } finally {
     clearTimeout(timeout);
   }
@@ -192,58 +157,45 @@ async function fetchJson<T>(url: string): Promise<T> {
 export async function GET(request: Request) {
   const auth = await authenticateRequest(request);
   if (!auth) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: 'Unauthorized request. Please login again.',
-      },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: 'Unauthorized request. Please login again.' }, { status: 401 });
   }
 
-  const gatewayUrl = process.env.EDGE_GATEWAY_URL || 'http://localhost:5000';
-  const gatewayApiKey = process.env.EDGE_GATEWAY_API_KEY;
+  const [dashboardResult, manifestResult, deploymentsResult, publicKeyResult] = await Promise.all([
+    fetchGateway<GatewayDashboard>('/api/dashboard'),
+    fetchGateway<Record<string, unknown>>('/releases/latest/manifest'),
+    // Read separately: this endpoint expires deployments past their deadline,
+    // so its statuses are current where the dashboard copy may not be.
+    fetchGateway<{ deployments?: Array<Record<string, unknown>> }>('/api/deployments'),
+    fetchGateway<Record<string, unknown>>('/releases/latest/public-key'),
+  ]);
 
-  let dashboard: GatewayDashboard | null = null;
-  let manifestPayload: ManifestPayload | null = null;
-  let dashboardError: string | null = null;
-  let manifestError: string | null = null;
+  const dashboard = dashboardResult.data;
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
 
-  try {
-    const url = `${gatewayUrl}/api/dashboard`;
-    dashboard = await fetchJson<GatewayDashboard>(
-      gatewayApiKey ? `${url}?api_key=${encodeURIComponent(gatewayApiKey)}` : url
-    );
-  } catch (error) {
-    dashboardError = error instanceof Error ? error.message : 'Unable to load gateway dashboard data.';
-  }
+  // ── Devices ──────────────────────────────────────────────────
+  const gatewayDevices = (dashboard?.devices || []).filter((device) => typeof device.id === 'string' && device.id);
+  const manifestRaw = manifestResult.data;
 
-  try {
-    const url = `${gatewayUrl}/releases/latest/manifest`;
-    manifestPayload = await fetchJson<ManifestPayload>(
-      gatewayApiKey ? `${url}?api_key=${encodeURIComponent(gatewayApiKey)}` : url
-    );
-  } catch (error) {
-    manifestError = error instanceof Error ? error.message : 'Unable to load firmware manifest.';
-  }
-
-  const gatewayDevices = dashboard?.devices || [];
-
-  const devices = gatewayDevices.map((device, index) => {
+  const devices = gatewayDevices.map((device) => {
     const ash = typeof device.ash === 'number' ? device.ash : 0;
-    const deviceType = mapDeviceType(device.arch);
     const firmwareVersion = device.fw || 'unknown';
+    const lastSync = lastSeenIso(device.last_seen);
+    const location = (device.location || '').trim();
 
     return {
-      id: device.id || `unknown-device-${index + 1}`,
-      name: device.id || 'Unnamed device',
-      type: deviceType,
-      status: mapDeviceStatus(device.status),
+      id: String(device.id),
+      name: String(device.id),
+      type: mapDeviceType(device.arch),
+      status: mapDeviceStatus(device.status, lastSync, nowMs),
+      reportedStatus: String(device.status || ''),
       firmwareVersion,
-      latestVersion: manifestPayload?.version || firmwareVersion,
-      lastSync: toIsoFromLastSeen(device.last_seen),
-      location: device.location || 'Edge Gateway Network',
+      // Replaced below with the newest release this device's architecture can run.
+      latestVersion: firmwareVersion,
+      lastSync,
+      location: location === LEGACY_PLACEHOLDER_LOCATION ? '' : location,
       health: mapHealth(ash),
+      ash,
       cpuUsage: typeof device.cpuUsage === 'number' ? device.cpuUsage : 0,
       memoryUsage: typeof device.memoryUsage === 'number' ? device.memoryUsage : 0,
       uptime: typeof device.uptime === 'number' ? device.uptime : 0,
@@ -263,203 +215,184 @@ export async function GET(request: Request) {
     };
   });
 
-  const compatibility = Array.from(new Set(devices.map((device) => device.type)));
-  const manifestVersion = manifestPayload?.version || 'unknown';
-  const nowIso = new Date().toISOString();
+  const ashDevices = (dashboard?.ash_devices || []).map((entry) => ({
+    id: String(entry.id || ''),
+    score: Number(entry.score ?? 0),
+    status: String(entry.status || ''),
+  })).filter((entry) => entry.id);
 
-  const releasesFromDashboard = (dashboard?.releases || []).map((release, index) => {
+  const piStatsRaw = dashboard?.pi_stats ? asRecord(dashboard.pi_stats) : null;
+  const piStats = piStatsRaw
+    ? { ip: String(piStatsRaw.ip ?? ''), temp: String(piStatsRaw.temp ?? ''), load: String(piStatsRaw.load ?? '') }
+    : null;
+
+  // ── Releases ─────────────────────────────────────────────────
+  const releases = (dashboard?.releases || []).map((release, index) => {
     const item = asRecord(release);
-    const assetsRaw = Array.isArray(item.assets) ? item.assets : [];
-
+    const assets = Array.isArray(item.assets) ? item.assets : [];
     return {
-      id: String(item.id || `gateway-release-${index + 1}`),
-      version: String(item.version || manifestVersion),
-      releaseDate: asDateIso(item.releaseDate || item.createdAt || nowIso),
-      description: String(item.description || 'Gateway release telemetry'),
-      assets: assetsRaw.map((asset, assetIndex) => {
-        const assetRecord = asRecord(asset);
+      id: String(item.id || `release-${index + 1}`),
+      version: String(item.version || ''),
+      releaseDate: isoOrNull(item.releaseDate || item.createdAt),
+      description: String(item.description || ''),
+      assets: assets.map((asset, assetIndex) => {
+        const record = asRecord(asset);
         return {
-          id: String(assetRecord.id || `gateway-asset-${index + 1}-${assetIndex + 1}`),
-          name: String(assetRecord.name || assetRecord.filename || 'firmware.bin'),
-          size: Number(assetRecord.size || 0),
-          checksum: String(assetRecord.checksum || assetRecord.sha256 || 'n/a'),
-          createdAt: asDateIso(assetRecord.createdAt || nowIso),
+          id: String(record.id || `asset-${index + 1}-${assetIndex + 1}`),
+          name: String(record.name || record.filename || ''),
+          size: Number(record.size || 0),
+          checksum: String(record.checksum || record.sha256 || ''),
+          createdAt: isoOrNull(record.createdAt),
         };
       }),
-      compatible: Array.isArray(item.compatible)
-        ? item.compatible.map((value) => mapDeviceType(String(value))).filter(Boolean)
-        : compatibility.length > 0
-          ? compatibility
-          : ['ESP32'],
+      compatible: Array.isArray(item.compatible) ? item.compatible.map((value) => String(value)) : [],
       changelog: String(item.changelog || ''),
       downloadCount: Number(item.downloadCount || 0),
-      status: asReleaseStatus(item.status),
+      status: pick(item.status, RELEASE_STATUSES, 'published'),
+      archivedAt: isoOrNull(item.archivedAt),
+      securePackage: typeof item.securePackage === 'boolean' ? item.securePackage : undefined,
     };
   });
 
-  const releases = releasesFromDashboard.length > 0
-    ? releasesFromDashboard
-    : manifestPayload
-      ? [
-          {
-            id: `release-${manifestVersion.replace(/[^\w.-]/g, '-')}`,
-            version: manifestVersion,
-            releaseDate: nowIso,
-            description: 'Release inferred from live manifest payload.',
-            assets: manifestPayload.filename
-              ? [
-                  {
-                    id: `asset-${manifestPayload.filename}`,
-                    name: manifestPayload.filename,
-                    size: typeof manifestPayload.size === 'number' ? manifestPayload.size : 0,
-                    checksum: manifestPayload.sha256 || 'n/a',
-                    createdAt: nowIso,
-                  },
-                ]
-              : [],
-            compatible: compatibility.length > 0 ? compatibility : ['ESP32'],
-            changelog: 'Manifest-only release snapshot.',
-            downloadCount: 0,
-            status: 'published',
-          },
-        ]
-      : [];
+  // Newest published release each device could install (releases are newest
+  // first; an empty `compatible` list means every architecture, as on the gateway).
+  devices.forEach((device) => {
+    const offered = releases.find(
+      (release) =>
+        release.status === 'published' &&
+        (release.compatible.length === 0 || release.compatible.includes(device.type))
+    );
+    if (offered?.version) device.latestVersion = offered.version;
+  });
 
-  const manifest = manifestPayload
+  // ── Manifest (as served; 404 means nothing is published) ─────
+  const manifest = manifestRaw
     ? {
-        id: `manifest-${manifestVersion.replace(/[^\w.-]/g, '-')}`,
-        releaseId: releases[0]?.id || 'manifest-release',
-        entries:
-          compatibility.length > 0
-            ? compatibility.map((deviceType) => ({
-                device: deviceType,
-                version: manifestVersion,
-                checksum: manifestPayload?.sha256 || 'n/a',
-                size: typeof manifestPayload?.size === 'number' ? manifestPayload.size : 0,
-                url: manifestPayload?.url || `/releases/download/${manifestPayload?.filename || ''}`,
-              }))
-            : [
-                {
-                  device: 'ESP32',
-                  version: manifestVersion,
-                  checksum: manifestPayload?.sha256 || 'n/a',
-                  size: typeof manifestPayload?.size === 'number' ? manifestPayload.size : 0,
-                  url: manifestPayload?.url || `/releases/download/${manifestPayload?.filename || ''}`,
-                },
-              ],
-        createdAt: nowIso,
-        signature: manifestPayload.signature,
+        version: String(manifestRaw.version || ''),
+        filename: String(manifestRaw.filename || ''),
+        sha256: String(manifestRaw.sha256 || ''),
+        size: Number(manifestRaw.size || 0),
+        signature: String(manifestRaw.signature || ''),
+        signatureAlgorithm: String(manifestRaw.signatureAlgorithm || ''),
+        signatureKeyId: String(manifestRaw.signatureKeyId || ''),
+        generatedAt: isoOrNull(manifestRaw.generated_at),
+        url: String(manifestRaw.downloadUrl || manifestRaw.url || ''),
+        compatible: Array.isArray(manifestRaw.compatible) ? manifestRaw.compatible.map(String) : [],
+        imageSha256: typeof manifestRaw.imageSha256 === 'string' ? manifestRaw.imageSha256 : undefined,
+        securePackage: manifestRaw.securePackage === true ? true : undefined,
+        raw: manifestRaw,
       }
     : null;
 
-  const gatewayEvents = (dashboard?.events || []).map((event, index) => {
+  // ── Events ───────────────────────────────────────────────────
+  const gatewayEvents = (dashboard?.events || []).flatMap((event, index) => {
     const item = asRecord(event);
-    return {
+    const timestamp = isoOrNull(item.timestamp || item.createdAt);
+    if (!timestamp) return [];
+    return [{
       id: String(item.id || `gateway-event-${index + 1}`),
-      timestamp: asDateIso(item.timestamp || item.createdAt || nowIso),
-      type: asEventType(item.type),
-      severity: asEventSeverity(item.severity),
-      title: String(item.title || item.type || 'Gateway Event'),
-      description: String(item.description || item.message || 'Gateway emitted an event.'),
+      timestamp,
+      type: pick(item.type, EVENT_TYPES, 'info'),
+      severity: pick(item.severity, EVENT_SEVERITIES, 'info'),
+      title: String(item.title || item.type || 'Gateway event'),
+      description: String(item.description || item.message || ''),
       deviceId: item.deviceId ? String(item.deviceId) : undefined,
-    };
+    }];
   });
 
-  const alertEvents = (dashboard?.alerts || []).map((message, index) => ({
-    id: `alert-${index}-${simpleHash(message)}`,
-    timestamp: nowIso,
-    type: 'warning',
-    severity: /critical|quarantine|attack|fail/i.test(message) ? 'error' : 'warning',
-    title: 'Gateway Alert',
-    description: message,
-  }));
+  // Alerts are stored as "[<iso time>] message". Without that prefix there is
+  // no time to show, so the alert is listed in `alerts` only.
+  const alerts = (dashboard?.alerts || []).map(String);
+  const alertEvents = alerts.flatMap((line) => {
+    const match = /^\[([^\]]+)\]\s*(.*)$/.exec(line);
+    const timestamp = match ? isoOrNull(match[1]) : null;
+    if (!match || !timestamp) return [];
+    const message = match[2];
+    return [{
+      id: `alert-${simpleHash(line)}`,
+      timestamp,
+      type: 'warning',
+      severity: /critical|quarantine|attack|fail/i.test(message) ? 'error' : 'warning',
+      title: 'Gateway alert',
+      description: message,
+    }];
+  });
 
-  const deviceHeartbeatEvents = gatewayDevices.map((device, index) => {
-    const deviceId = String(device.id || `unknown-device-${index + 1}`);
+  const deviceEvents = gatewayDevices.flatMap((device) => {
+    const deviceId = String(device.id);
+    const timestamp = lastSeenIso(device.last_seen);
+    if (!timestamp) return [];
     const ash = typeof device.ash === 'number' ? device.ash : 0;
-    const cpuUsageValue = Number(device.cpuUsage);
-    const memoryUsageValue = Number(device.memoryUsage);
-    const uptimeValue = Number(device.uptime);
-    const cpuUsage = Number.isFinite(cpuUsageValue) ? cpuUsageValue : 0;
-    const memoryUsage = Number.isFinite(memoryUsageValue) ? memoryUsageValue : 0;
-    const uptimeSeconds = Number.isFinite(uptimeValue) ? Math.max(uptimeValue, 0) : 0;
-    const signalStrength = typeof device.signalStrength === 'number' ? device.signalStrength : null;
-    const lastSeenIso = toIsoFromLastSeen(device.last_seen);
-    const statusText = String(device.status || 'Healthy');
+    const cpu = Number.isFinite(Number(device.cpuUsage)) ? Number(device.cpuUsage) : 0;
+    const memory = Number.isFinite(Number(device.memoryUsage)) ? Number(device.memoryUsage) : 0;
+    const uptime = Number.isFinite(Number(device.uptime)) ? Math.max(Number(device.uptime), 0) : 0;
+    const rssi = typeof device.signalStrength === 'number' ? `${device.signalStrength} dBm` : 'n/a';
 
-    let severity: 'info' | 'warning' | 'error' | 'success' = 'success';
-    if (ash <= 40) severity = 'error';
-    else if (ash <= 60) severity = 'warning';
-
-    const signalSummary = signalStrength === null ? 'n/a' : `${signalStrength} dBm`;
-
-    return {
-      id: `heartbeat-${deviceId}-${simpleHash(`${lastSeenIso}-${ash}-${statusText}-${cpuUsage}-${memoryUsage}-${signalSummary}`)}`,
-      timestamp: lastSeenIso,
+    const heartbeat = {
+      id: `heartbeat-${deviceId}-${simpleHash(`${timestamp}-${ash}-${cpu}-${memory}-${rssi}`)}`,
+      timestamp,
       type: 'info',
-      severity,
-      title: `Device heartbeat - ${deviceId}`,
-      description: `FW ${String(device.fw || 'unknown')} | ASH ${ash}/100 | CPU ${cpuUsage.toFixed(1)}% | MEM ${memoryUsage.toFixed(1)}% | Uptime ${Math.floor(uptimeSeconds)}s | RSSI ${signalSummary}`,
+      severity: ash <= 40 ? 'error' : ash <= 60 ? 'warning' : 'success',
+      title: `Device heartbeat: ${deviceId}`,
+      description: `FW ${String(device.fw || 'unknown')} | ASH ${ash}/100 | CPU ${cpu.toFixed(1)}% | MEM ${memory.toFixed(1)}% | Uptime ${Math.floor(uptime)}s | RSSI ${rssi}`,
       deviceId,
     };
-  });
 
-  const deviceLogEvents = gatewayDevices.flatMap((device, index) => {
-    const deviceId = String(device.id || `unknown-device-${index + 1}`);
-    const logTimestamp = toIsoFromLastSeen(device.last_seen);
-    const logs = Array.isArray(device.logs) ? device.logs : [];
-
-    return logs
+    const logs = (Array.isArray(device.logs) ? device.logs : [])
       .slice(-12)
       .map((entry) => String(entry).trim())
-      .filter((entry) => entry.length > 0)
+      .filter(Boolean)
       .map((entry, logIndex) => ({
-        id: `device-log-${deviceId}-${simpleHash(`${logTimestamp}-${entry}-${logIndex}`)}`,
-        timestamp: logTimestamp,
+        id: `device-log-${deviceId}-${simpleHash(`${timestamp}-${entry}-${logIndex}`)}`,
+        timestamp,
         type: 'info',
-        severity: normalizeGatewayLogSeverity(entry),
-        title: `Device log - ${deviceId}`,
+        severity: logSeverity(entry),
+        title: `Device log: ${deviceId}`,
         description: entry,
         deviceId,
       }));
+
+    return [heartbeat, ...logs];
   });
 
-  const events = [...gatewayEvents, ...alertEvents, ...deviceHeartbeatEvents, ...deviceLogEvents].sort((left, right) => {
-    return new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime();
-  });
+  const events = [...gatewayEvents, ...alertEvents, ...deviceEvents].sort(
+    (left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime()
+  );
 
+  // ── Pipeline ─────────────────────────────────────────────────
   const pipelineRecord = dashboard?.pipeline ? asRecord(dashboard.pipeline) : null;
   const pipeline = pipelineRecord
     ? {
-        id: String(pipelineRecord.id || 'gateway-pipeline'),
-        releaseId: String(pipelineRecord.releaseId || releases[0]?.id || 'gateway-release'),
-        createdAt: asDateIso(pipelineRecord.createdAt || nowIso),
+        id: String(pipelineRecord.id || ''),
+        releaseId: String(pipelineRecord.releaseId || ''),
+        createdAt: isoOrNull(pipelineRecord.createdAt),
         stages: (Array.isArray(pipelineRecord.stages) ? pipelineRecord.stages : []).map((stage, index) => {
           const item = asRecord(stage);
           return {
-            id: String(item.id || `gateway-stage-${index + 1}`),
-            name: asPipelineStageName(item.name),
-            status: asPipelineStageStatus(item.status),
-            startTime: item.startTime ? asDateIso(item.startTime) : undefined,
-            endTime: item.endTime ? asDateIso(item.endTime) : undefined,
+            id: String(item.id || `stage-${index + 1}`),
+            name: String(item.name || `stage ${index + 1}`),
+            status: pick(item.status, STAGE_STATUSES, 'pending'),
+            startTime: isoOrNull(item.startTime) ?? undefined,
+            endTime: isoOrNull(item.endTime) ?? undefined,
             logs: String(item.logs || ''),
             duration: item.duration !== undefined ? Number(item.duration) : undefined,
           };
         }),
-        status: asPipelineStageStatus(pipelineRecord.status),
+        status: pick(pipelineRecord.status, STAGE_STATUSES, 'pending'),
         totalDuration: Number(pipelineRecord.totalDuration || 0),
       }
     : null;
 
+  // ── Signing key ──────────────────────────────────────────────
   const keys = (dashboard?.keys || []).map((key, index) => {
     const item = asRecord(key);
     return {
-      id: String(item.id || `gateway-key-${index + 1}`),
-      name: String(item.name || `Gateway Key ${index + 1}`),
-      type: asKeyType(item.type),
-      keySize: Number(item.keySize || 256),
-      createdAt: asDateIso(item.createdAt || nowIso),
-      expiresAt: item.expiresAt ? asDateIso(item.expiresAt) : undefined,
+      id: String(item.id || `key-${index + 1}`),
+      name: String(item.name || ''),
+      type: String(item.type || ''),
+      keySize: Number(item.keySize || 0),
+      createdAt: isoOrNull(item.createdAt),
+      expiresAt: isoOrNull(item.expiresAt) ?? undefined,
       active: item.active === undefined ? true : Boolean(item.active),
     };
   });
@@ -467,36 +400,70 @@ export async function GET(request: Request) {
   const certificates = (dashboard?.certificates || []).map((certificate, index) => {
     const item = asRecord(certificate);
     return {
-      id: String(item.id || `gateway-cert-${index + 1}`),
-      name: String(item.name || `Gateway Certificate ${index + 1}`),
-      issuer: String(item.issuer || 'Unknown Issuer'),
-      subject: String(item.subject || 'Unknown Subject'),
-      validFrom: asDateIso(item.validFrom || nowIso),
-      validTo: asDateIso(item.validTo || nowIso),
-      fingerprint: String(item.fingerprint || 'n/a'),
+      id: String(item.id || `cert-${index + 1}`),
+      name: String(item.name || ''),
+      issuer: String(item.issuer || ''),
+      subject: String(item.subject || ''),
+      validFrom: isoOrNull(item.validFrom),
+      validTo: isoOrNull(item.validTo),
+      fingerprint: String(item.fingerprint || ''),
     };
   });
 
-  const deployments = (dashboard?.deployments || []).map((deployment, index) => {
+  const publicKeyRaw = publicKeyResult.data;
+  const signingKey = publicKeyRaw && typeof publicKeyRaw.publicKeyPem === 'string'
+    ? {
+        algorithm: String(publicKeyRaw.algorithm || ''),
+        keyId: String(publicKeyRaw.keyId || ''),
+        fingerprint: String(publicKeyRaw.fingerprint || ''),
+        publicKeyPem: publicKeyRaw.publicKeyPem,
+      }
+    : null;
+
+  // ── Deployments, with per-device targets ─────────────────────
+  const rawDeployments = deploymentsResult.data?.deployments ?? dashboard?.deployments ?? [];
+  const deployments = rawDeployments.flatMap((deployment) => {
     const item = asRecord(deployment);
-    return {
-      id: String(item.id || `gateway-deployment-${index + 1}`),
-      releaseId: String(item.releaseId || releases[0]?.id || 'gateway-release'),
-      deviceIds: Array.isArray(item.deviceIds) ? item.deviceIds.map((deviceId) => String(deviceId)) : [],
-      status: asDeploymentStatus(item.status),
-      startedAt: asDateIso(item.startedAt || nowIso),
-      completedAt: item.completedAt ? asDateIso(item.completedAt) : undefined,
+    const startedAt = isoOrNull(item.startedAt);
+    if (!item.id || !startedAt) return [];
+    const targets = Object.fromEntries(
+      Object.entries(asRecord(item.targets)).map(([deviceId, target]) => {
+        const record = asRecord(target);
+        return [
+          deviceId,
+          {
+            state: pick(record.state, TARGET_STATES, 'pending'),
+            reason: record.reason ? String(record.reason) : null,
+            fromVersion: record.fromVersion ? String(record.fromVersion) : null,
+            confirmedAt: isoOrNull(record.confirmedAt),
+          },
+        ];
+      })
+    );
+    return [{
+      id: String(item.id),
+      releaseId: String(item.releaseId || ''),
+      version: String(item.version || ''),
+      deviceIds: Array.isArray(item.deviceIds) ? item.deviceIds.map(String) : Object.keys(targets),
+      targets,
+      status: pick(item.status, DEPLOYMENT_STATUSES, 'pending'),
+      startedAt,
+      completedAt: isoOrNull(item.completedAt) ?? undefined,
+      deadline: isoOrNull(item.deadline) ?? undefined,
       successCount: Number(item.successCount || 0),
       failureCount: Number(item.failureCount || 0),
+      pendingCount: Number(item.pendingCount || 0),
+      cancelledCount: Number(item.cancelledCount || 0),
+      retryOf: item.retryOf ? String(item.retryOf) : undefined,
       logs: String(item.logs || ''),
-    };
+    }];
   });
 
-  const reachable = Boolean(dashboard || manifestPayload);
-  const ok = Boolean(dashboard && manifestPayload);
-  // Node reports an unreachable host as a bare "fetch failed", twice (one per
-  // request). Say what it means, once.
-  const rawErrors = Array.from(new Set([dashboardError, manifestError].filter(Boolean) as string[]));
+  // A 404 manifest only means nothing is published yet; it is not a fault.
+  const manifestError = manifestResult.status === 404 ? null : manifestResult.error;
+  const reachable = Boolean(dashboard) || manifestResult.status !== null;
+  const ok = Boolean(dashboard) && !manifestError;
+  const rawErrors = Array.from(new Set([dashboardResult.error, manifestError].filter(Boolean) as string[]));
   const errorMessage = !reachable
     ? `Can't reach the gateway at ${gatewayUrl}. Start it (scripts/start-gateway.cmd) and this page will update on its own.`
     : rawErrors.join(' | ') || null;
@@ -504,18 +471,18 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok,
     generatedAt: nowIso,
-    connection: {
-      gatewayUrl,
-      reachable,
-      error: errorMessage,
-    },
+    connection: { gatewayUrl, reachable, error: errorMessage },
     devices,
+    ashDevices,
+    piStats,
+    alerts,
     events,
     releases,
     manifest,
     pipeline,
     keys,
     certificates,
+    signingKey,
     deployments,
   });
 }

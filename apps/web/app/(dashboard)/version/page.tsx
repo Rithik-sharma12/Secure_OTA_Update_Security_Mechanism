@@ -1,347 +1,179 @@
 'use client';
 
 import React from 'react';
+import { ChevronDown, ChevronRight, Download, Tag } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tag, GitBranch, Copy, Download, AlertCircle } from 'lucide-react';
+import { EmptyState, SkeletonRows } from '@/components/ui/empty-state';
 import { formatNumber, formatUtcDate } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
-import { downloadRuntimePayload, executeRuntimeAction, fetchRuntimeActionState, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
+import { downloadReleaseFile } from '@/lib/runtime-actions';
 
-type RuntimeTagRecord = {
-  version: string;
-  notes: string;
-  createdAt: string;
-};
-
-const commitHash = 'abc123def456';
+/** Set at build time when the deploy knows its commit; otherwise nothing is shown. */
+const BUILD_SHA = process.env.NEXT_PUBLIC_GIT_SHA?.trim() || '';
 
 export default function VersionPage() {
-  const { snapshot } = useRuntimeSnapshot();
-  const [runtimeTags, setRuntimeTags] = React.useState<RuntimeTagRecord[]>([]);
-  const [versionInput, setVersionInput] = React.useState('v2.5.0');
-  const [releaseNotes, setReleaseNotes] = React.useState('');
-  const [selectedVersion, setSelectedVersion] = React.useState<string | null>(null);
-  const [busyAction, setBusyAction] = React.useState<string | null>(null);
-  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
-  const [actionError, setActionError] = React.useState<string | null>(null);
+  const { snapshot, isLoading } = useRuntimeSnapshot();
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [message, setMessage] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    const loadTags = async () => {
-      try {
-        const response = await fetchRuntimeActionState<{ tags?: RuntimeTagRecord[] }>();
-        setRuntimeTags(response.data?.tags || []);
-      } catch {
-        setRuntimeTags([]);
-      }
-    };
+  const releases = snapshot.releases;
+  const current = releases.find((release) => release.status === 'published') || null;
 
-    void loadTags();
-  }, []);
-
-  const currentRelease = snapshot.releases[0];
-
-  const history = [
-    ...snapshot.releases.map((release) => ({
-      version: release.version,
-      date: formatUtcDate(release.releaseDate),
-      status: release.status === 'published' ? 'stable' : release.status,
-      downloads: formatNumber(release.downloadCount),
-      changes: release.changelog ? release.changelog.split('\n').length : 0,
-      releaseId: release.id,
-      notes: release.changelog,
-      assetName: release.assets[0]?.name,
-    })),
-    ...runtimeTags.map((tag) => ({
-      version: tag.version.replace(/^v/, ''),
-      date: formatUtcDate(new Date(tag.createdAt)),
-      status: 'tagged',
-      downloads: '0',
-      changes: tag.notes ? tag.notes.split('\n').length : 0,
-      releaseId: tag.version,
-      notes: tag.notes,
-      assetName: undefined,
-    })),
-  ];
-
-  const handleCopyCommit = async () => {
-    try {
-      await navigator.clipboard.writeText(commitHash);
-      setActionError(null);
-      setActionMessage('Commit hash copied to clipboard.');
-    } catch {
-      setActionError('Clipboard permission denied.');
-    }
-  };
-
-  const handleDownload = async (assetName?: string) => {
-    setBusyAction('download');
-    setActionError(null);
-    setActionMessage(null);
-
-    try {
-      const response = await executeRuntimeAction<RuntimeDownloadPayload>('releases.download', {
-        fileName: assetName,
+  // Newest published version per architecture, from the releases themselves.
+  const perArch = React.useMemo(() => {
+    const map = new Map<string, string>();
+    releases.forEach((release) => {
+      if (release.status !== 'published') return;
+      const targets = release.compatible.length > 0 ? release.compatible : ['All architectures'];
+      targets.forEach((target) => {
+        if (!map.has(target)) map.set(target, release.version);
       });
-      if (response.data) {
-        downloadRuntimePayload(response.data);
-      }
-      setActionMessage(response.message || 'Release download prepared.');
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to download release asset.');
-    } finally {
-      setBusyAction(null);
-    }
-  };
+    });
+    return [...map.entries()];
+  }, [releases]);
 
-  const handleCreateTag = async () => {
-    setBusyAction('create-tag');
-    setActionError(null);
-    setActionMessage(null);
-
+  const handleDownload = async (releaseId: string, fileName: string | undefined) => {
+    if (!fileName) return;
+    setBusy(releaseId);
+    setError(null);
+    setMessage(null);
     try {
-      const response = await executeRuntimeAction('version.create-tag', {
-        version: versionInput,
-        notes: releaseNotes,
-      });
-
-      const normalized = versionInput.startsWith('v') ? versionInput : `v${versionInput}`;
-      setRuntimeTags((current) => [{
-        version: normalized,
-        notes: releaseNotes,
-        createdAt: new Date().toISOString(),
-      }, ...current]);
-      setActionMessage(response.message || `Release tag ${normalized} created.`);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to create release tag.');
+      await downloadReleaseFile(fileName);
+      setMessage(`Downloaded ${fileName}.`);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Download failed.');
     } finally {
-      setBusyAction(null);
+      setBusy(null);
     }
-  };
-
-  const handleViewNotes = (version: string, notes: string) => {
-    setSelectedVersion(version);
-    setActionError(null);
-    setActionMessage(notes ? `Notes for ${version}: ${notes.slice(0, 140)}` : `No notes available for ${version}.`);
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="p-3 rounded-lg bg-primary/20 text-primary">
-          <Tag className="w-6 h-6" />
+      <div className="flex items-center gap-3">
+        <div className="rounded-lg bg-primary/20 p-3 text-primary">
+          <Tag className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Version Management</h1>
-          <p className="text-foreground/70 mt-1">Release versioning, tagging, and deployment history</p>
+          <h1 className="text-3xl font-bold text-foreground">Version</h1>
+          <p className="mt-1 text-foreground/70">Firmware release history from the gateway.</p>
         </div>
       </div>
-      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
-      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
+      {error && <p className="text-sm text-chart-4">{error}</p>}
+      {message && !error && <p className="text-sm text-chart-1">{message}</p>}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="glass border-border/50 hover:border-primary/50 transition-all md:col-span-2">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+        <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle className="text-2xl">Current Version</CardTitle>
-            <CardDescription>Active OTA IDE version</CardDescription>
+            <CardTitle>Current firmware</CardTitle>
+            <CardDescription>The newest release the gateway offers to devices.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-baseline gap-4">
-              <div className="text-5xl font-bold text-primary">{currentRelease?.version || '2.4.0'}</div>
-              <Badge className="bg-chart-1/20 text-chart-1 text-base px-3 py-1">Latest</Badge>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-3 rounded-lg bg-muted/20 border border-border/20">
-                <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Released</p>
-                <p className="font-semibold text-foreground">{currentRelease ? formatUtcDate(currentRelease.releaseDate) : 'n/a'}</p>
+          <CardContent>
+            {current ? (
+              <div className="space-y-3">
+                <div className="flex items-baseline gap-3">
+                  <span className="text-4xl font-bold text-primary">v{current.version}</span>
+                  <Badge variant="outline">Published</Badge>
+                </div>
+                <p className="text-sm text-foreground/70">
+                  Released {formatUtcDate(current.releaseDate)} for{' '}
+                  {current.compatible.length > 0 ? current.compatible.join(', ') : 'all architectures'}.
+                </p>
+                {current.description && <p className="text-sm text-foreground/80">{current.description}</p>}
               </div>
-              <div className="p-3 rounded-lg bg-muted/20 border border-border/20">
-                <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Build Hash</p>
-                <p className="font-mono text-sm text-foreground">{commitHash.slice(0, 8)}</p>
-              </div>
-            </div>
-            <div className="p-4 rounded-lg bg-chart-1/5 border border-chart-1/20">
-              <p className="text-sm text-foreground/80">
-                <span className="font-semibold">Latest release notes:</span> {currentRelease?.description || 'Improved performance, security patches, and compatibility enhancements.'}
-              </p>
-            </div>
+            ) : isLoading ? (
+              <SkeletonRows rows={2} columns={2} />
+            ) : (
+              <p className="text-sm text-muted-foreground">No release is published.</p>
+            )}
           </CardContent>
         </Card>
 
-        <Card className="glass border-border/50 hover:border-border/80 transition-all">
+        <Card>
           <CardHeader>
-            <CardTitle>Git Information</CardTitle>
-            <CardDescription>Repository details</CardDescription>
+            <CardTitle>By architecture</CardTitle>
+            <CardDescription>Newest published version for each target.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Branch</p>
-                <div className="flex items-center gap-2 p-2 bg-muted/20 rounded border border-border/20">
-                  <GitBranch className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-mono text-foreground">main</span>
+          <CardContent className="space-y-2 text-sm">
+            {perArch.length === 0 ? (
+              <p className="text-muted-foreground">Nothing published yet.</p>
+            ) : (
+              perArch.map(([arch, version]) => (
+                <div key={arch} className="flex items-center justify-between">
+                  <span>{arch}</span>
+                  <span className="font-mono">v{version}</span>
                 </div>
-              </div>
-              <div>
-                <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Commit</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-mono text-foreground/80">{commitHash}</span>
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => void handleCopyCommit()}>
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-foreground/60 uppercase tracking-wider mb-1">Author</p>
-                <p className="text-sm text-foreground">DevOps Team</p>
-              </div>
-            </div>
+              ))
+            )}
+            {BUILD_SHA && (
+              <p className="pt-3 text-xs text-muted-foreground">
+                Console build <span className="font-mono">{BUILD_SHA.slice(0, 12)}</span>
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <Card className="glass border-border/50 hover:border-border/80 transition-all">
+      <Card>
         <CardHeader>
-          <CardTitle>Release History</CardTitle>
-          <CardDescription>Previous versions and releases</CardDescription>
+          <CardTitle>Release history</CardTitle>
+          <CardDescription>Every release the gateway holds, newest first.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {history.map((entry) => (
-              <div
-                key={`${entry.version}-${entry.releaseId}`}
-                className={`p-4 rounded-lg border border-border/50 hover:border-border/80 hover:bg-muted/20 transition-all group ${
-                  selectedVersion === entry.version ? 'ring-1 ring-primary/40' : ''
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <Tag className="w-4 h-4 text-muted-foreground" />
-                        <p className="font-bold text-foreground">v{entry.version.replace(/^v/, '')}</p>
-                        <Badge variant="outline" className={`text-xs ${
-                          entry.status === 'latest'
-                            ? 'bg-chart-1/20 text-chart-1'
-                            : entry.status === 'stable' || entry.status === 'published'
-                              ? 'bg-primary/20 text-primary'
-                              : 'bg-muted text-muted-foreground'
-                        }`}>
-                          {entry.status}
-                        </Badge>
+          {releases.length === 0 ? (
+            isLoading ? (
+              <SkeletonRows rows={3} columns={4} />
+            ) : (
+              <EmptyState icon={<Tag className="h-5 w-5" />} title="No releases have been published yet.">
+                Publish a compiled .bin on the Releases page.
+              </EmptyState>
+            )
+          ) : (
+            <div className="space-y-3">
+              {releases.map((release) => {
+                const open = expanded === release.id;
+                const asset = release.assets[0];
+                return (
+                  <div key={release.id} className="rounded-lg border border-border/50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="mb-1 flex items-center gap-2">
+                          <p className="font-bold text-foreground">v{release.version}</p>
+                          <Badge variant="outline" className="capitalize">{release.status}</Badge>
+                        </div>
+                        <p className="text-xs text-foreground/50">
+                          {formatUtcDate(release.releaseDate)} · {formatNumber(release.downloadCount)} downloads
+                        </p>
                       </div>
-                      <div className="flex items-center gap-4 text-xs text-foreground/50">
-                        <span>{entry.date}</span>
-                        <span className="text-foreground/30">|</span>
-                        <span>{entry.changes} changes</span>
-                        <span className="text-foreground/30">|</span>
-                        <span>{entry.downloads} downloads</span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!asset || busy === release.id}
+                          onClick={() => void handleDownload(release.id, asset?.name)}
+                        >
+                          <Download className="mr-1 h-3 w-3" />
+                          {busy === release.id ? 'Downloading...' : 'Download'}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setExpanded(open ? null : release.id)} aria-expanded={open}>
+                          {open ? <ChevronDown className="mr-1 h-3 w-3" /> : <ChevronRight className="mr-1 h-3 w-3" />}
+                          Notes
+                        </Button>
                       </div>
                     </div>
+                    {open && (
+                      <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-muted/30 p-3 font-mono text-xs text-foreground/80">
+                        {release.changelog || 'No notes were published with this release.'}
+                      </pre>
+                    )}
                   </div>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-border"
-                      onClick={() => void handleDownload(entry.assetName)}
-                      disabled={busyAction === 'download'}
-                    >
-                      <Download className="w-3 h-3 mr-1" />
-                      Download
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-border"
-                      onClick={() => handleViewNotes(entry.version, entry.notes)}
-                    >
-                      View Notes
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="glass border-border/50 hover:border-border/80 transition-all">
-        <CardHeader>
-          <CardTitle>Create New Release Tag</CardTitle>
-          <CardDescription>Tag current commit as a new release version</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Version Number</label>
-              <input
-                value={versionInput}
-                onChange={(event) => setVersionInput(event.target.value)}
-                placeholder="e.g., v2.5.0"
-                className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground placeholder-foreground/40 focus:outline-none focus:border-primary/50"
-              />
+                );
+              })}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-2">Release Date</label>
-              <input
-                type="date"
-                className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground focus:outline-none focus:border-primary/50"
-                defaultValue={new Date().toISOString().slice(0, 10)}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-2">Release Notes</label>
-            <textarea
-              value={releaseNotes}
-              onChange={(event) => setReleaseNotes(event.target.value)}
-              placeholder="Document new features, improvements, and bug fixes..."
-              className="w-full px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm text-foreground placeholder-foreground/40 resize-none focus:outline-none focus:border-primary/50"
-              rows={4}
-            />
-          </div>
-          <Button
-            className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
-            onClick={() => void handleCreateTag()}
-            disabled={busyAction === 'create-tag'}
-          >
-            <Tag className="w-4 h-4 mr-2" />
-            {busyAction === 'create-tag' ? 'Creating...' : 'Create Release Tag'}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card className="glass border-border/50">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-chart-3" />
-            <div>
-              <CardTitle>Version Compatibility</CardTitle>
-              <CardDescription>Device and firmware compatibility information</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {[
-              { device: 'ESP32', compat: 'v2.0+', note: 'Fully supported' },
-              { device: 'ESP8266', compat: 'v2.2+', note: 'Limited features' },
-              { device: 'ATmega328P', compat: 'v1.8+', note: 'Basic support' },
-              { device: 'STM32F103', compat: 'v2.3+', note: 'Full support' },
-            ].map((item) => (
-              <div key={item.device} className="p-3 rounded-lg bg-muted/20 border border-border/20">
-                <div className="flex items-center justify-between mb-1">
-                  <p className="font-medium text-foreground">{item.device}</p>
-                  <Badge variant="outline" className="bg-chart-1/20 text-chart-1 text-xs">
-                    {item.compat}
-                  </Badge>
-                </div>
-                <p className="text-xs text-foreground/60">{item.note}</p>
-              </div>
-            ))}
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

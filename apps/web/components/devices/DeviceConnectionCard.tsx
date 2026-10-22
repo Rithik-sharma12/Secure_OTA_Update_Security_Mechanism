@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AlertCircle, CheckCircle, Download, Loader2, Play, RefreshCw, Square, Trash2, Upload, Usb, Wifi } from 'lucide-react';
+import { AlertCircle, CheckCircle, Download, Loader2, RefreshCw, Rocket, Trash2, Upload, Usb, Wifi } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +25,9 @@ import {
   requestSerialDevice,
 } from '@/lib/web-serial';
 import { detectAgent, listAgentPorts } from '@/lib/local-agent';
+import { deployToDevices } from '@/lib/device-control';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
+import { useCurrentUser } from '@/lib/use-current-user';
 
 type ConnectionMode = 'serial' | 'ota';
 type StatusTone = 'success' | 'info' | 'warning' | 'error' | 'neutral';
@@ -56,7 +59,6 @@ type MonitorEntry = {
 
 const baudRates = ['9600', '57600', '115200', '230400'];
 const boardTypes = ['ATmega328P', 'ESP8266', 'ESP32', 'STM32F103'];
-const otaChannels = ['stable', 'beta', 'custom'];
 
 const statusToneClasses: Record<StatusTone, string> = {
   success: 'bg-chart-1/20 text-chart-1',
@@ -134,8 +136,6 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
   const [wifiPassword, setWifiPassword] = React.useState('');
   const [otaHost, setOtaHost] = React.useState(defaultOtaHost);
   const [otaPort, setOtaPort] = React.useState('3232');
-  const [otaToken, setOtaToken] = React.useState('');
-  const [otaChannel, setOtaChannel] = React.useState('stable');
   const [statusLabel, setStatusLabel] = React.useState('Ready');
   const [statusTone, setStatusTone] = React.useState<StatusTone>('info');
   const [statusMessage, setStatusMessage] = React.useState(
@@ -155,22 +155,22 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
   }, []);
   const [lastPortScan, setLastPortScan] = React.useState<Date | null>(null);
   const [monitorEntries, setMonitorEntries] = React.useState<MonitorEntry[]>([]);
-  const [isMonitorRunning, setIsMonitorRunning] = React.useState(false);
-  const [monitorMode, setMonitorMode] = React.useState<ConnectionMode | null>(null);
   const [autoScrollMonitor, setAutoScrollMonitor] = React.useState(true);
   const [uploadJobId, setUploadJobId] = React.useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = React.useState<UploadJobStatus | 'idle'>('idle');
   const [uploadProgress, setUploadProgress] = React.useState(0);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [isCheckingOta, setIsCheckingOta] = React.useState(false);
+  const [isDeploying, setIsDeploying] = React.useState(false);
+  const { snapshot } = useRuntimeSnapshot();
+  const { can, reasonFor } = useCurrentUser();
+  const mayDeploy = can('firmware.publish');
   const [lastOtaCheckAt, setLastOtaCheckAt] = React.useState<Date | null>(null);
   const scanningRef = React.useRef(false);
-  const monitorIntervalRef = React.useRef<number | null>(null);
   const uploadPollingRef = React.useRef<number | null>(null);
   const uploadLastSequenceRef = React.useRef(0);
   const uploadSourceRef = React.useRef('');
   const monitorLogRef = React.useRef<HTMLDivElement | null>(null);
-  const seenMonitorEventIdsRef = React.useRef<Set<string>>(new Set());
   const previousDetectedPortsRef = React.useRef<string[]>([]);
 
   const getActiveComPort = React.useCallback(
@@ -204,13 +204,6 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
     });
   }, []);
 
-  const stopMonitorStream = React.useCallback(() => {
-    if (monitorIntervalRef.current !== null) {
-      window.clearInterval(monitorIntervalRef.current);
-      monitorIntervalRef.current = null;
-    }
-  }, []);
-
   const stopUploadPolling = React.useCallback(() => {
     if (uploadPollingRef.current !== null) {
       window.clearInterval(uploadPollingRef.current);
@@ -220,10 +213,9 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
 
   React.useEffect(() => {
     return () => {
-      stopMonitorStream();
       stopUploadPolling();
     };
-  }, [stopMonitorStream, stopUploadPolling]);
+  }, [stopUploadPolling]);
 
   React.useEffect(() => {
     if (!autoScrollMonitor || !monitorLogRef.current) {
@@ -233,124 +225,8 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
     monitorLogRef.current.scrollTop = monitorLogRef.current.scrollHeight;
   }, [autoScrollMonitor, monitorEntries]);
 
-  const startMonitor = () => {
-    const activeMode = connectionMode;
-    const activePort = getActiveComPort();
-
-    if (activeMode === 'serial' && !activePort) {
-      updateStatus('Monitor blocked', 'error', 'Select a COM port before starting the device monitor.');
-      return;
-    }
-
-    if (activeMode === 'serial' && availablePorts.length === 0) {
-      updateStatus('Monitor blocked', 'error', 'No connected USB serial COM port detected. Connect the device and rescan before monitoring.');
-      return;
-    }
-
-    if (activeMode === 'serial' && !isSelectedPortConnected) {
-      updateStatus('Monitor blocked', 'error', `Selected port ${activePort} is not currently connected. Choose a detected COM port and retry.`);
-      return;
-    }
-
-    if (activeMode === 'serial' && !isValidPortName(activePort)) {
-      updateStatus('Monitor blocked', 'error', 'The selected COM port is invalid. Use a value like COM3 and retry.');
-      return;
-    }
-
-    if (activeMode === 'ota') {
-      const parsedPort = Number(otaPort);
-      if (!otaHost.trim()) {
-        updateStatus('Monitor blocked', 'error', 'Provide an OTA host or IP before starting OTA monitoring.');
-        return;
-      }
-
-      if (!Number.isInteger(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
-        updateStatus('Monitor blocked', 'error', 'OTA monitor needs a valid OTA port between 1 and 65535.');
-        return;
-      }
-    }
-
-    stopMonitorStream();
-    setIsMonitorRunning(true);
-    setMonitorMode(activeMode);
-
-    appendMonitorEntry({
-      mode: activeMode,
-      source: activeMode === 'serial' ? activePort : `${otaHost}:${otaPort}`,
-      tone: 'success',
-      message:
-        activeMode === 'serial'
-          ? `Serial monitor started on ${activePort} at ${baudRate} baud.`
-          : `OTA monitor started for ${otaHost}:${otaPort}.`,
-    });
-
-    monitorIntervalRef.current = window.setInterval(() => {
-      void (async () => {
-        try {
-          const response = await apiFetch('/api/runtime/snapshot', { cache: 'no-store' });
-          if (!response.ok) {
-            return;
-          }
-
-          const payload = await response.json() as {
-            events?: Array<{
-              id?: string;
-              title?: string;
-              description?: string;
-              severity?: string;
-              deviceId?: string;
-            }>;
-          };
-
-          const liveEvents = Array.isArray(payload.events) ? payload.events : [];
-          const newEvents = liveEvents.filter((event) => event.id && !seenMonitorEventIdsRef.current.has(event.id));
-
-          newEvents.slice(0, 8).forEach((event) => {
-            if (!event.id) {
-              return;
-            }
-
-            seenMonitorEventIdsRef.current.add(event.id);
-            appendMonitorEntry({
-              mode: activeMode,
-              source: activeMode === 'serial' ? activePort : `${otaHost}:${otaPort}`,
-              tone:
-                event.severity === 'error'
-                  ? 'error'
-                  : event.severity === 'warning'
-                    ? 'warning'
-                    : event.severity === 'success'
-                      ? 'success'
-                      : 'info',
-              message: `${event.title || 'Runtime event'}${event.description ? `: ${event.description}` : ''}`,
-            });
-          });
-        } catch {
-          // Ignore intermittent polling failures while monitor is active.
-        }
-      })();
-    }, 3000);
-  };
-
-  const stopMonitor = () => {
-    if (!isMonitorRunning) {
-      return;
-    }
-
-    stopMonitorStream();
-    setIsMonitorRunning(false);
-
-    appendMonitorEntry({
-      mode: monitorMode || connectionMode,
-      source: monitorMode === 'ota' ? `${otaHost}:${otaPort}` : getActiveComPort() || 'COM',
-      tone: 'warning',
-      message: 'Device monitor stopped.',
-    });
-  };
-
   const clearMonitor = () => {
     setMonitorEntries([]);
-    seenMonitorEventIdsRef.current.clear();
   };
 
   const exportMonitor = () => {
@@ -717,80 +593,6 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
     };
   }, [browserSerial, connectionMode, portSource, scanSerialPorts]);
 
-  const handleSerialSession = () => {
-    setConnectionMode('serial');
-
-    const activePort = getActiveComPort();
-
-    if (availablePorts.length === 0) {
-      updateStatus(
-        'COM port missing',
-        'error',
-        'No connected USB serial COM port detected. Connect the device and run Scan COM Ports.'
-      );
-      return;
-    }
-
-    if (!activePort) {
-      updateStatus(
-        'COM port missing',
-        'error',
-        'No COM port is selected. Select one of the detected ports before opening a serial session.'
-      );
-      return;
-    }
-
-    if (!isSelectedPortConnected) {
-      updateStatus(
-        'COM port disconnected',
-        'error',
-        `Selected port ${activePort} is not connected. Choose a detected COM port and retry.`
-      );
-      return;
-    }
-
-    if (!isValidPortName(activePort)) {
-      updateStatus(
-        'Invalid COM port',
-        'error',
-        'Use a Windows COM port like COM3 or a valid serial device path for your environment.'
-      );
-      return;
-    }
-
-    if (!baudRate || Number.isNaN(Number(baudRate))) {
-      updateStatus(
-        'Invalid baud rate',
-        'error',
-        'Baud rate must be a numeric value. Pick one of the predefined rates or enter a valid custom rate.'
-      );
-      return;
-    }
-
-    if (isBrowserPortPath(activePort) || portSource === 'agent') {
-      updateStatus(
-        'Use the browser serial monitor',
-        'info',
-        `${activePort} is attached to this computer, not the server. Open it with "Serial monitor" in the Flash over USB panel.`
-      );
-      onBrowserPortAction?.();
-      return;
-    }
-
-    updateStatus(
-      'Serial session ready',
-      'success',
-      `Prepared ${activePort} at ${baudRate} baud for ${boardType}. Auto-detection will keep the port list in sync while this panel remains open.`
-    );
-
-    appendMonitorEntry({
-      mode: 'serial',
-      source: activePort,
-      tone: 'success',
-      message: `Serial session prepared for ${boardType} at ${baudRate} baud.`,
-    });
-  };
-
   const handleSerialFlash = async () => {
     setConnectionMode('serial');
 
@@ -1053,32 +855,66 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
     await performOtaCheck();
   };
 
+  /**
+   * Assign the newest compatible published release to the registered device
+   * that last reported this address. The gateway cannot push firmware; the
+   * device fetches it on its next heartbeat, and the deployment confirms only
+   * when the device reports the new version.
+   */
   const handleOtaDeploy = async () => {
     setConnectionMode('ota');
-
-    const check = await performOtaCheck();
-    if (!check?.reachable) {
-      updateStatus('OTA deployment blocked', 'error', 'Target is unreachable. Run Check OTA Target and confirm connectivity before deploying.');
+    const host = otaHost.trim();
+    if (!host) {
+      updateStatus('OTA deployment blocked', 'error', 'Enter the address of a device that has checked in with the gateway.');
       return;
     }
 
-    if (otaChannel === 'custom' && !otaToken.trim()) {
-      updateStatus('Custom OTA token required', 'error', 'A secure token is required for custom OTA channels. Enter the token and try again.');
+    const device = snapshot.devices.find((entry) => entry.ip === host || entry.id === host);
+    if (!device) {
+      updateStatus(
+        'No registered device at this address',
+        'error',
+        `No device that has checked in reports ${host}. Deployments go to registered devices; flash the board and let it send a heartbeat first.`
+      );
       return;
     }
 
-    updateStatus(
-      'OTA deployment queued',
-      'warning',
-      `Pushing the ${otaChannel} release to ${check.host}:${check.port}. Reachability validated${check.latestVersion ? ` with latest release ${check.latestVersion}` : ''}.`
+    const release = snapshot.releases.find(
+      (entry) =>
+        entry.status === 'published' &&
+        (entry.compatible.length === 0 || entry.compatible.includes(device.type))
     );
+    if (!release) {
+      updateStatus('OTA deployment blocked', 'error', `No published release targets ${device.type}. Publish one on the Releases page.`);
+      return;
+    }
 
-    appendMonitorEntry({
-      mode: 'ota',
-      source: `${check.host}:${check.port}`,
-      tone: 'warning',
-      message: `OTA deployment queued on ${otaChannel} channel.`,
-    });
+    setIsDeploying(true);
+    try {
+      const deployment = await deployToDevices([device.id], release.id);
+      const target = deployment.targets[device.id];
+      const source = `${device.id} (${host})`;
+      if (!target || target.state === 'failed') {
+        const reason = target?.reason || 'refused by the gateway';
+        updateStatus('OTA deployment refused', 'error', `Not deployed to ${device.id}: ${reason}.`);
+        appendMonitorEntry({ mode: 'ota', source, tone: 'error', message: `Deployment refused: ${reason}.` });
+      } else if (target.state === 'confirmed') {
+        updateStatus('Already current', 'success', `${device.id} already runs v${deployment.version}.`);
+        appendMonitorEntry({ mode: 'ota', source, tone: 'success', message: `Already on v${deployment.version}.` });
+      } else {
+        updateStatus(
+          'OTA deployment created',
+          'info',
+          `v${deployment.version} assigned to ${device.id} (deployment ${deployment.id}). It starts on the device's next heartbeat and confirms when the device reports the new version.`
+        );
+        appendMonitorEntry({ mode: 'ota', source, tone: 'info', message: `Deployment ${deployment.id} created for v${deployment.version}; waiting for the device.` });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Deployment failed.';
+      updateStatus('OTA deployment failed', 'error', message);
+    } finally {
+      setIsDeploying(false);
+    }
   };
 
   return (
@@ -1287,14 +1123,9 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {portSource === 'server' ? (
-                  <>
-                    <Button type="button" variant="outline" className="border-border/60" onClick={handleSerialSession}>
-                      Open COM Session
-                    </Button>
-                    <Button type="button" className="bg-primary hover:bg-primary/90" onClick={handleSerialFlash}>
-                      Flash via COM
-                    </Button>
-                  </>
+                  <Button type="button" className="bg-primary hover:bg-primary/90" onClick={handleSerialFlash}>
+                    Flash via COM
+                  </Button>
                 ) : (
                   <Button type="button" className="bg-primary hover:bg-primary/90" onClick={() => onBrowserPortAction?.()} disabled={availablePorts.length === 0}>
                     <Upload className="mr-2 h-4 w-4" />
@@ -1333,7 +1164,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
                     value={otaHost}
                     onChange={(event) => setOtaHost(event.target.value)}
                     className="border-border/60 bg-background/60"
-                    placeholder="Enter ESP32 OTA host/IP"
+                    placeholder="Device IP address"
                   />
                 </div>
 
@@ -1350,37 +1181,6 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="ota-token">
-                    Access Token
-                  </label>
-                  <Input
-                    id="ota-token"
-                    type="password"
-                    value={otaToken}
-                    onChange={(event) => setOtaToken(event.target.value)}
-                    className="border-border/60 bg-background/60"
-                    placeholder="Optional secure token"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="ota-channel">
-                    Release Channel
-                  </label>
-                  <Select value={otaChannel} onValueChange={setOtaChannel}>
-                    <SelectTrigger id="ota-channel" className="w-full border-border/60 bg-background/60">
-                      <SelectValue placeholder="Select channel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {otaChannels.map((channel) => (
-                        <SelectItem key={channel} value={channel}>
-                          {channel}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
@@ -1388,8 +1188,15 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
                   {isCheckingOta ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   {isCheckingOta ? 'Checking OTA' : 'Check OTA Target'}
                 </Button>
-                <Button type="button" className="bg-primary hover:bg-primary/90" onClick={() => void handleOtaDeploy()} disabled={isCheckingOta}>
-                  Push OTA Update
+                <Button
+                  type="button"
+                  className="bg-primary hover:bg-primary/90"
+                  onClick={() => void handleOtaDeploy()}
+                  disabled={isCheckingOta || isDeploying || !mayDeploy}
+                  title={mayDeploy ? 'Create a deployment of the newest compatible release for the device at this address' : reasonFor('firmware.publish')}
+                >
+                  {isDeploying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
+                  {isDeploying ? 'Deploying' : 'Deploy latest release'}
                 </Button>
               </div>
             </div>
@@ -1422,25 +1229,13 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
         <div className="rounded-lg border border-border/60 bg-background/60 p-4">
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">Serial Monitor</p>
-              <p className="text-xs text-foreground/60">Live console output for both Serial and OTA device sessions.</p>
+              <p className="text-sm font-semibold text-foreground">Activity log</p>
+              <p className="text-xs text-foreground/60">
+                Output from COM flash jobs, OTA target checks and deployments started here. For a live serial console, use Serial monitor in the Flash over USB panel.
+              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
-                {isMonitorRunning
-                  ? `Running (${(monitorMode || connectionMode).toUpperCase()})`
-                  : 'Stopped'}
-              </Badge>
-              <Button
-                type="button"
-                variant={isMonitorRunning ? 'outline' : 'default'}
-                className={isMonitorRunning ? 'border-border/60' : 'bg-primary hover:bg-primary/90'}
-                onClick={isMonitorRunning ? stopMonitor : startMonitor}
-              >
-                {isMonitorRunning ? <Square className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
-                {isMonitorRunning ? 'Stop Monitor' : 'Start Monitor'}
-              </Button>
               <Button type="button" variant="outline" className="border-border/60" onClick={clearMonitor} disabled={monitorEntries.length === 0}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Clear
@@ -1465,7 +1260,7 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
             className="max-h-56 overflow-y-auto rounded-md border border-border/60 bg-background/40 p-3 font-mono text-xs"
           >
             {monitorEntries.length === 0 ? (
-              <p className="text-foreground/50">No console output yet. Start monitor to stream device logs for the current mode.</p>
+              <p className="text-foreground/50">Nothing has run from this panel yet.</p>
             ) : (
               <div className="space-y-1">
                 {monitorEntries.map((entry) => (
@@ -1509,9 +1304,6 @@ export function DeviceConnectionCard({ workflowHint, onWorkflowHandled, otaHostH
                 </Badge>
                 <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
                   Port {otaPort || 'unset'}
-                </Badge>
-                <Badge variant="outline" className="border-border/60 bg-muted/40 text-foreground/70">
-                  Channel {otaChannel}
                 </Badge>
               </>
             )}

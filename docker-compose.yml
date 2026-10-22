@@ -27,11 +27,11 @@ services:
     ports:
       - "5000:5000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:5000/healthz"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - gateway_cache:/app/gateway_firmware_cache
       - gateway_keys:/app/gateway_keys
@@ -79,16 +79,24 @@ services:
       OTA_FQBN_ESP8266: esp8266:esp8266:generic
       OTA_FQBN_ATMEGA328P: arduino:avr:uno
       OTA_FQBN_STM32F103: STMicroelectronics:stm32:GenF1
+      # Firmware built on this computer by scripts\build-firmware.cmd, so the
+      # Devices page can flash and publish it. HOST_DIR is only for display.
+      SECUREOTA_FIRMWARE_DIST: /app/firmware-dist
+      SECUREOTA_FIRMWARE_HOST_DIR: ${SECUREOTA_REPO_DIR:-.}/firmware/dist
     ports:
       - "3000:3000"
+    # /api/health/live answers without auth, Clerk, the gateway or the
+    # database. Probing "/" rendered the whole landing page (and called Clerk)
+    # every 15 s, and a slow render marked the container unhealthy.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:3000/api/health/live"]
       interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     volumes:
       - ota_ide_db:/app/.local-db
+      - ./firmware/dist:/app/firmware-dist:ro
     networks:
       - sentinel_network
 

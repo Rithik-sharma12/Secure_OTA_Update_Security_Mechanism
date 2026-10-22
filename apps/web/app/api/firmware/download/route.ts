@@ -10,6 +10,8 @@ const gatewayApiKey = process.env.EDGE_GATEWAY_API_KEY?.trim();
 
 const FETCH_TIMEOUT_MS = 60_000;
 const DEVICE_TYPE_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+/** A bare cached file name, the same shape the gateway's safe_cache_path accepts. */
+const FIRMWARE_FILE_PATTERN = /^[A-Za-z0-9_.-]{1,128}\.bin$/;
 
 type GatewayManifest = {
   version?: string;
@@ -44,6 +46,52 @@ async function readGatewayDetail(response: Response): Promise<GatewayErrorDetail
 }
 
 /**
+ * One release's binary by its cached file name (the Releases page download).
+ * Fetched with the fleet key from this server, so the key never appears in a
+ * URL the browser sees.
+ */
+async function downloadNamedFile(filename: string) {
+  if (!FIRMWARE_FILE_PATTERN.test(filename) || filename.includes('..')) {
+    return NextResponse.json({ ok: false, error: 'Invalid firmware file name.' }, { status: 400 });
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${gatewayUrl}/releases/download/${encodeURIComponent(filename)}`, {
+      headers: gatewayApiKey ? { 'x-api-key': gatewayApiKey } : {},
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const detail = await readGatewayDetail(response);
+      return NextResponse.json(
+        { ok: false, error: detail.message || `Gateway could not serve ${filename} (${response.status}).` },
+        { status: response.status === 404 ? 404 : 502 }
+      );
+    }
+    const bytes = await response.arrayBuffer();
+    logger.info('FirmwareDownload', `Served ${filename} (${bytes.byteLength} bytes) by name`);
+    return new NextResponse(bytes, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(bytes.byteLength),
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store',
+        'X-Firmware-Filename': filename,
+      },
+    });
+  } catch (error) {
+    const aborted = error instanceof Error && error.name === 'AbortError';
+    const message = aborted ? 'Gateway download timed out.' : `Could not reach the gateway at ${gatewayUrl}.`;
+    logger.error('FirmwareDownload', message, error);
+    return NextResponse.json({ ok: false, error: message }, { status: 502 });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
  * Fetch the newest published firmware binary for a device architecture.
  *
  * Used by the in-browser Web Serial flasher: the browser cannot read the
@@ -57,6 +105,11 @@ export async function GET(request: Request) {
     request,
     '/api/firmware/download',
     async () => {
+      const requestedFile = new URL(request.url).searchParams.get('file');
+      if (requestedFile !== null) {
+        return downloadNamedFile(requestedFile.trim());
+      }
+
       const deviceType = (new URL(request.url).searchParams.get('device_type') || 'ESP32').trim();
       if (!DEVICE_TYPE_PATTERN.test(deviceType)) {
         return NextResponse.json({ ok: false, error: 'Invalid device_type.' }, { status: 400 });

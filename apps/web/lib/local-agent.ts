@@ -42,6 +42,8 @@ export type AgentJob = {
   log: string[];
   logLength: number;
   elapsed: number;
+  /** Seconds the agent waits for manual download mode; absent or 0 when not waiting. */
+  manualBootSeconds?: number;
 };
 
 export function getAgentToken() {
@@ -126,6 +128,8 @@ export async function startAgentFlash(options: {
   filename: string;
   baud?: number;
   erase?: boolean;
+  /** Skip the automatic reset and wait for BOOT + EN by hand. */
+  manualBoot?: boolean;
 }): Promise<string> {
   const form = new FormData();
   form.set('file', options.file, options.filename);
@@ -133,6 +137,7 @@ export async function startAgentFlash(options: {
   form.set('address', `0x${options.address.toString(16)}`);
   form.set('baud', String(options.baud ?? 460800));
   form.set('erase', options.erase ? 'true' : 'false');
+  form.set('before', options.manualBoot ? 'no_reset' : 'default_reset');
   const response = await agentFetch('/flash', { method: 'POST', body: form });
   const payload = (await response.json().catch(() => null)) as { ok?: boolean; jobId?: string; error?: string } | null;
   if (!response.ok || !payload?.ok || !payload.jobId) {
@@ -241,17 +246,24 @@ export type ProvisionConfig = {
   reset_health?: boolean;
 };
 
+/** An agent failure, with what the board printed (when the agent captured it). */
+export class AgentBoardError extends Error {
+  constructor(message: string, public output: string[] = []) {
+    super(message);
+  }
+}
+
 async function agentJsonError(response: Response, fallback: string) {
-  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+  const payload = (await response.json().catch(() => null)) as { error?: string; output?: string[] } | null;
   if (response.status === 404) {
     return new Error('This SecureOTA Agent is too old for USB provisioning. Download the current agent and restart it.');
   }
-  return new Error(payload?.error || `${fallback} (${response.status})`);
+  return new AgentBoardError(payload?.error || `${fallback} (${response.status})`, payload?.output ?? []);
 }
 
 /** Ask the board on `port` who it is. Takes a few seconds; the board may reset. */
 export async function getAgentDeviceInfo(port: string, baud = 115200): Promise<AgentDeviceInfo> {
-  const response = await agentFetch(`/device-info?port=${encodeURIComponent(port)}&baud=${baud}`, {}, 15000);
+  const response = await agentFetch(`/device-info?port=${encodeURIComponent(port)}&baud=${baud}`, {}, 25000);
   if (!response.ok) throw await agentJsonError(response, 'Could not read the board');
   const payload = (await response.json()) as { device?: AgentDeviceInfo };
   if (!payload.device?.device_id) throw new Error('The board answered without a device id.');
@@ -270,7 +282,7 @@ export async function provisionAgentDevice(port: string, config: ProvisionConfig
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ port, baud, config }),
     },
-    20000
+    25000
   );
   if (!response.ok) throw await agentJsonError(response, 'Provisioning failed');
   const payload = (await response.json()) as { written?: string[] };

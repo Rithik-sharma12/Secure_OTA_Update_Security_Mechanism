@@ -33,8 +33,8 @@ from pathlib import Path
 # rather than importing the `gateway` package: importing the package runs the
 # gateway's configuration, which refuses to start without OTA_GATEWAY_API_KEY
 # and creates cache directories in the working directory.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_PACKAGE_MODULE = _REPO_ROOT / 'src' / 'implementation' / 'gateway' / 'package.py'
+_REPO_ROOT = Path(__file__).resolve().parents[2]  # firmware/tools -> repository root
+_PACKAGE_MODULE = _REPO_ROOT / 'apps' / 'gateway' / 'gateway' / 'package.py'
 
 
 def _load_package_module():

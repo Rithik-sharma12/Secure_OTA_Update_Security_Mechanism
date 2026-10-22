@@ -4,7 +4,20 @@ import { logger } from '@/lib/logger';
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5000;
 
+/** Where outbound webhooks go. Unset means webhook delivery is off. */
+export function webhookTargetUrl(): string | null {
+  const url = process.env.WEBHOOK_URL?.trim();
+  return url ? url : null;
+}
+
 export async function processPendingWebhooks() {
+  const targetUrl = webhookTargetUrl();
+  if (!targetUrl) {
+    // No destination configured: nothing to deliver to, so do nothing rather
+    // than post fleet data to a test service.
+    return 0;
+  }
+
   await initializeWorkflowDatabases();
 
   const now = new Date();
@@ -26,10 +39,7 @@ export async function processPendingWebhooks() {
   for (const webhook of pendingWebhooks) {
     try {
       logger.debug('BackgroundWorker', `Delivering webhook ${webhook.eventId} (Attempt ${webhook.attempts + 1})`);
-      
-      // Target URL ideally comes from user config, defaulting to an echo test URL for now
-      const targetUrl = process.env.WEBHOOK_URL || 'https://httpbin.org/post';
-      
+
       const response = await fetch(targetUrl, {
         method: 'POST',
         headers: { 
@@ -84,4 +94,4 @@ export async function processPendingWebhooks() {
   }
 
   return processedCount;
-}
+}

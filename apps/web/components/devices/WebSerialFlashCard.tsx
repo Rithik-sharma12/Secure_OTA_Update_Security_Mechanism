@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AlertCircle, CheckCircle2, Cpu, Loader2, Plug, PlugZap, Square, Terminal, Usb, Zap } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Cpu, Loader2, Plug, PlugZap, RefreshCw, Square, Terminal, Usb, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,10 @@ import {
 } from '@/lib/web-serial';
 import { openAgentMonitor } from '@/lib/local-agent';
 import { explainFlashError, flashImage, type FlashTarget } from '@/lib/serial-flash';
+import { inspectEspImage, type EspImageInfo } from '@/lib/esp-image';
 import { useLocalAgent } from '@/lib/use-local-agent';
+import { ManualBootPanel } from '@/components/devices/ManualBootPanel';
+import { fetchLocalBuildFile, publishLocalBuild, useLocalBuilds } from '@/lib/local-build';
 import type { Release } from '@/lib/types';
 import { useCurrentUser } from '@/lib/use-current-user';
 import { PermissionNotice } from '@/components/auth/PermissionNotice';
@@ -52,7 +55,14 @@ const MONITOR_BAUD = 115200;
 const MAX_LOG_LINES = 400;
 
 type Phase = 'idle' | 'connecting' | 'loading' | 'flashing' | 'done' | 'error';
-type Source = 'file' | 'release';
+type Source = 'build' | 'file' | 'release';
+type BuildFile = 'firmware-full.bin' | 'firmware.bin';
+
+/** COM port name validation — accepts COM1..COM256 on Windows and /dev/ paths on Linux/macOS. */
+function isValidComPort(port: string): boolean {
+  const trimmed = port.trim();
+  return /^COM\d{1,3}$/i.test(trimmed) || /^\/dev\/.+/.test(trimmed);
+}
 
 type FlashImage = {
   label: string;
@@ -105,10 +115,17 @@ export function WebSerialFlashCard({
   const [supported, setSupported] = React.useState<boolean | null>(null);
   const [phase, setPhase] = React.useState<Phase>('idle');
   const [source, setSource] = React.useState<Source>('file');
+  const [sourceTouched, setSourceTouched] = React.useState(false);
+  const [buildFile, setBuildFile] = React.useState<BuildFile>('firmware-full.bin');
+  const [publishing, setPublishing] = React.useState(false);
+  const [publishNote, setPublishNote] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [layout, setLayout] = React.useState<LayoutId>('app');
   const [deviceType, setDeviceType] = React.useState<DeviceTypeId>('ESP32');
   const [file, setFile] = React.useState<File | null>(null);
+  const [fileInfo, setFileInfo] = React.useState<EspImageInfo | null>(null);
   const [eraseAll, setEraseAll] = React.useState(false);
+  const [manualBoot, setManualBoot] = React.useState(false);
+  const [manualWait, setManualWait] = React.useState<number | null>(null);
   const [progress, setProgress] = React.useState(0);
   const [chipName, setChipName] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -118,14 +135,42 @@ export function WebSerialFlashCard({
   const [devices, setDevices] = React.useState<BrowserSerialDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = React.useState<string | null>(null);
   const [authorizing, setAuthorizing] = React.useState(false);
+  const [manualPort, setManualPort] = React.useState('');
+  const [isRefreshingPorts, setIsRefreshingPorts] = React.useState(false);
 
   // Local agent: real COM names, no picker, esptool on the user's machine.
-  const { agent, ports: agentPorts, checked: agentChecked } = useLocalAgent();
+  const { agent, ports: agentPorts, checked: agentChecked, refresh } = useLocalAgent();
 
   // Writing firmware to a board is an operator action; a viewer gets the
   // monitor and the device list, but not the flash button.
   const { can } = useCurrentUser();
   const mayFlash = can('devices.flash');
+
+  // Firmware built on this computer (firmware/dist), served by the console.
+  const localBuilds = useLocalBuilds();
+  const localBuild = localBuilds.builds[0] ?? null;
+  const localFile = localBuild?.files.find((entry) => entry.name === buildFile) ?? null;
+  React.useEffect(() => {
+    // Default to this computer's build once it is known, unless the user chose.
+    if (localBuild && !sourceTouched) setSource('build');
+  }, [localBuild, sourceTouched]);
+  const chooseSource = (next: Source) => {
+    setSourceTouched(true);
+    setSource(next);
+  };
+
+  const publishBuild = async () => {
+    if (!localBuild) return;
+    setPublishing(true);
+    setPublishNote(null);
+    try {
+      setPublishNote({ ok: true, text: await publishLocalBuild(localBuild.env) });
+    } catch (err) {
+      setPublishNote({ ok: false, text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const logEndRef = React.useRef<HTMLDivElement>(null);
@@ -175,6 +220,16 @@ export function WebSerialFlashCard({
     setDevices(found);
   }, []);
 
+  /** Force-refresh all port sources: agent poll + browser devices. */
+  const refreshAllPorts = React.useCallback(async () => {
+    setIsRefreshingPorts(true);
+    try {
+      await Promise.all([refresh(), refreshDevices()]);
+    } finally {
+      setIsRefreshingPorts(false);
+    }
+  }, [refreshDevices]);
+
   // Enumerate authorized devices on mount and whenever one is plugged or unplugged.
   React.useEffect(() => {
     if (supported !== true) return;
@@ -183,22 +238,42 @@ export function WebSerialFlashCard({
   }, [refreshDevices, supported]);
 
   // One list for the UI: agent ports first (they carry the COM name), then
-  // browser-granted devices. Ids are prefixed so the two can't collide.
+  // browser-granted devices, then a manual COM port if entered.
+  // Ids are prefixed so the two can't collide.
   type Target =
     | { kind: 'agent'; id: string; label: string; path: string; description: string }
-    | { kind: 'browser'; id: string; label: string; device: BrowserSerialDevice };
+    | { kind: 'browser'; id: string; label: string; device: BrowserSerialDevice }
+    | { kind: 'manual'; id: string; label: string; path: string };
   const targets = React.useMemo<Target[]>(
-    () => [
-      ...agentPorts.map((port) => ({
-        kind: 'agent' as const,
-        id: `agent:${port.path}`,
-        label: `${port.path} · ${port.description}`,
-        path: port.path,
-        description: port.description,
-      })),
-      ...devices.map((device) => ({ kind: 'browser' as const, id: `browser:${device.id}`, label: device.label, device })),
-    ],
-    [agentPorts, devices]
+    () => {
+      const list: Target[] = [
+        ...agentPorts.map((port) => ({
+          kind: 'agent' as const,
+          id: `agent:${port.path}`,
+          label: `${port.path} · ${port.description}`,
+          path: port.path,
+          description: port.description,
+        })),
+        ...devices.map((device) => ({ kind: 'browser' as const, id: `browser:${device.id}`, label: device.label, device })),
+      ];
+      // Add manual COM port if entered and not already detected
+      const trimmedManual = manualPort.trim().toUpperCase();
+      if (
+        isValidComPort(trimmedManual) &&
+        !list.some((t) =>
+          (t.kind === 'agent' && t.path.toUpperCase() === trimmedManual)
+        )
+      ) {
+        list.push({
+          kind: 'manual' as const,
+          id: `manual:${trimmedManual}`,
+          label: `${trimmedManual} · Manual entry`,
+          path: trimmedManual,
+        });
+      }
+      return list;
+    },
+    [agentPorts, devices, manualPort]
   );
 
   // Keep the selection valid as devices come and go; prefer the first target.
@@ -253,34 +328,72 @@ export function WebSerialFlashCard({
   const busy = phase === 'connecting' || phase === 'loading' || phase === 'flashing';
   const layoutInfo = IMAGE_LAYOUTS.find((entry) => entry.id === layout) ?? IMAGE_LAYOUTS[0];
   const publishedVersion = publishedByType.get(deviceType);
-  const canFlash =
-    mayFlash &&
-    canUsePort &&
-    !busy &&
-    !monitoring &&
-    (source === 'release' ? Boolean(publishedVersion) : Boolean(file));
+  // Every reason the Flash button is unavailable, shown under it so a
+  // disabled button never looks like a dummy.
+  const blockers: string[] = [];
+  if (!mayFlash) blockers.push('Your account is a viewer. Ask an admin to make you an operator (Profile, User management).');
+  if (!canUsePort) blockers.push('No serial port available. Run the SecureOTA Agent, connect via Chrome/Edge, or enter a COM port manually below.');
+  if (source === 'build' && !localFile)
+    blockers.push(
+      localBuilds.loaded
+        ? `No firmware has been built on this computer yet. Run ${localBuilds.buildCommand ?? 'scripts\\build-firmware.cmd'}, then click Refresh.`
+        : 'Looking for firmware built on this computer…'
+    );
+  if (source === 'file' && !file) blockers.push('Choose a firmware .bin file (firmware-full.bin for a new board).');
+  if (source === 'file' && fileInfo?.kind === 'invalid') blockers.push(fileInfo.description);
+  if (source === 'release' && !publishedVersion) blockers.push(`Nothing is published for ${deviceType}. Use a local .bin file.`);
+  // A manual COM port needs the agent to be running to actually flash
+  if (selectedTarget?.kind === 'manual' && !agent) blockers.push('The SecureOTA Agent must be running to flash via a manually entered COM port. Start the agent and try again.');
+  const canFlash = !busy && blockers.length === 0;
 
-  const handleFile = (selected: File | null) => {
+  const handleFile = async (selected: File | null) => {
     setError(null);
     setSummary(null);
+    setFileInfo(null);
     if (selected && !selected.name.toLowerCase().endsWith('.bin')) {
       setFile(null);
       setError(`"${selected.name}" is not a .bin file.`);
       return;
     }
     setFile(selected);
-    // A merged image from `./scripts/go-online.sh build` is the only thing that belongs at 0x0.
-    if (selected?.name.toLowerCase().includes('full')) {
-      setLayout('full');
-    }
+    if (!selected) return;
+    // Look inside the file: a merged image belongs at 0x0, an app image at
+    // 0x10000, and anything else must not be written at all.
+    const info = inspectEspImage(new Uint8Array(await selected.arrayBuffer()));
+    setFileInfo(info);
+    if (info.kind === 'merged') setLayout('full');
+    if (info.kind === 'app') setLayout('app');
   };
 
   const loadImage = async (): Promise<FlashImage> => {
+    if (source === 'build') {
+      if (!localBuild || !localFile) throw new Error('No local build to flash.');
+      const fetched = await fetchLocalBuildFile(localBuild.env, localFile.name);
+      if (localFile.sha256 && fetched.sha256 !== localFile.sha256) {
+        throw new Error(`${localFile.name} changed since it was built (SHA-256 mismatch). Rebuild, then try again.`);
+      }
+      return { label: localFile.name, bytes: fetched.bytes, version: localBuild.version, sha256: fetched.sha256 };
+    }
     if (source === 'file') {
       if (!file) throw new Error('Choose a .bin file first.');
       return { label: file.name, bytes: new Uint8Array(await file.arrayBuffer()) };
     }
 
+    // A secure release's OTA artifact is an encrypted package that only the
+    // firmware can open; over USB the board needs a plain image. The factory
+    // image (bootloader + partitions + app) is plain, so prefer it.
+    const factory = await apiFetch(
+      `/api/firmware/download?image=factory&device_type=${encodeURIComponent(deviceType)}`,
+      { cache: 'no-store' }
+    );
+    if (factory.ok) {
+      return {
+        label: factory.headers.get('X-Firmware-Filename') || `factory image v${factory.headers.get('X-Firmware-Version') || ''}`,
+        version: factory.headers.get('X-Firmware-Version') || undefined,
+        sha256: factory.headers.get('X-Firmware-Sha256') || undefined,
+        bytes: new Uint8Array(await factory.arrayBuffer()),
+      };
+    }
     const response = await apiFetch(`/api/firmware/download?device_type=${encodeURIComponent(deviceType)}`, {
       cache: 'no-store',
     });
@@ -311,22 +424,52 @@ export function WebSerialFlashCard({
     setLog([]);
 
     try {
+      // The port can only have one user: stop our own monitor first.
+      if (monitorStopRef.current) {
+        appendLog('[web-flash] stopping the serial monitor to free the port');
+        await monitorStopRef.current();
+      }
+
       setPhase('loading');
       const image = await loadImage();
-      if (image.bytes.byteLength === 0) throw new Error('The firmware image is empty.');
+      const info = inspectEspImage(image.bytes);
+      if (info.kind === 'invalid') {
+        throw new Error(
+          `Not flashing ${image.label}: ${info.description}` +
+            (source === 'release'
+              ? ' This release has no flashable image. Archive it on the Releases page, then publish a real build (Flash over USB, "This computer\'s build", Publish as release).'
+              : '')
+        );
+      }
+      appendLog(`[web-flash] ${info.description}`);
 
-      // A published release is flashed at the offset its architecture expects
-      // (see RELEASE_FLASH_ADDRESS); writing an ESP32 app image at 0x0 would
-      // wipe the bootloader and leave the board unable to boot.
-      const address = source === 'release' ? RELEASE_FLASH_ADDRESS[deviceType] : layoutInfo.address;
+      // A merged image always goes to 0x0. An ESP32 app image goes to the app
+      // partition; writing it at 0x0 would wipe the bootloader. An ESP8266
+      // sketch carries its own bootloader and starts at 0x0.
+      const address =
+        info.kind === 'merged'
+          ? 0x0
+          : source === 'release'
+            ? RELEASE_FLASH_ADDRESS[deviceType]
+            : source === 'build'
+              ? 0x10000
+            : layoutInfo.address;
+      if (source === 'file' && info.kind === 'app' && address === 0x0) {
+        appendLog('[web-flash] warning: writing an app image at 0x0 replaces the bootloader. Only correct for ESP8266 sketches.');
+      }
       appendLog(`[web-flash] ${image.label} (${formatBytes(image.bytes.byteLength)}) -> 0x${address.toString(16)}`);
       if (image.version) appendLog(`[web-flash] release version ${image.version}`);
 
       setPhase('connecting');
-      const target: FlashTarget =
-        selectedTarget?.kind === 'agent'
-          ? { kind: 'agent', path: selectedTarget.path }
-          : { kind: 'browser', port: await pickPort() };
+      let target: FlashTarget;
+      if (selectedTarget?.kind === 'agent') {
+        target = { kind: 'agent', path: selectedTarget.path };
+      } else if (selectedTarget?.kind === 'manual' && agent) {
+        // Manual COM port + agent running: flash via the agent's esptool
+        target = { kind: 'agent', path: selectedTarget.path };
+      } else {
+        target = { kind: 'browser', port: await pickPort() };
+      }
       const { chip } = await flashImage(
         target,
         { bytes: image.bytes, address, filename: image.label, eraseAll },
@@ -335,13 +478,16 @@ export function WebSerialFlashCard({
           onProgress: setProgress,
           onChip: setChipName,
           onWriting: () => setPhase('flashing'),
-        }
+          onManualBoot: setManualWait,
+        },
+        { manualBoot }
       );
       setPhase('done');
       setSummary(
         `${image.label}${image.version ? ` (v${image.version})` : ''} written to ${chip}` +
           `${target.kind === 'agent' ? ` on ${target.path}` : ''} at 0x${address.toString(16)}. ` +
-          'The board was reset; it should join Wi-Fi and heartbeat within ~15 s.'
+          'The board was reset. Open the serial monitor to watch it boot. A new board running a generic build waits ' +
+          'for Wi-Fi and gateway settings: give them in "Set up a new board" or "Provision over USB".'
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -356,8 +502,9 @@ export function WebSerialFlashCard({
     setError(null);
 
     // Agent path: the agent opens the COM port and streams lines to us.
-    if (selectedTarget?.kind === 'agent') {
-      const path = selectedTarget.path;
+    // Also handles manual COM port entries when the agent is running.
+    if (selectedTarget?.kind === 'agent' || (selectedTarget?.kind === 'manual' && agent)) {
+      const path = selectedTarget.kind === 'agent' ? selectedTarget.path : (selectedTarget as Target & { kind: 'manual' }).path;
       setMonitoring(true);
       const stop = openAgentMonitor(
         path,
@@ -432,7 +579,7 @@ export function WebSerialFlashCard({
         </CardTitle>
         <CardDescription>
           Flashes the ESP32 plugged into <em>this</em> computer, directly from the page. Works from the
-          public dashboard in Chrome or Edge - no tools installed, nothing goes through the server.
+          public dashboard in Chrome or Edge. Nothing to install, and the firmware never passes through the server.
         </CardDescription>
       </CardHeader>
 
@@ -450,35 +597,48 @@ export function WebSerialFlashCard({
         )}
 
         {/* Connected devices: local agent (COM names) + browser-granted devices */}
-        <div className="rounded-lg border border-border/60 bg-muted/15 p-3 space-y-2">
+        <div className="rounded-lg border border-border/60 bg-muted/15 p-3 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-foreground/60">USB devices on this computer</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-foreground/60">COM Port / USB Devices</p>
               <p className="text-sm text-foreground/70">
                 {!agentChecked
                   ? 'Looking for the SecureOTA Agent…'
-                  : targets.length === 0
+                  : targets.filter((t) => t.kind !== 'manual').length === 0
                     ? agent
-                      ? 'Agent connected, no serial device plugged in. Connect the board - it appears automatically.'
+                      ? 'Agent connected, no serial device plugged in. Connect the board and it appears automatically, or enter a COM port below.'
                       : supported
-                        ? 'None found. Run the SecureOTA Agent for automatic detection, or authorize a device in the browser.'
-                        : 'None found. Run the SecureOTA Agent for automatic detection.'
-                    : `${targets.length} connected. Updates automatically on plug / unplug.`}
+                        ? 'None detected. Run the SecureOTA Agent for automatic detection, authorize a device in the browser, or enter a COM port manually below.'
+                        : 'None detected. Run the SecureOTA Agent for automatic detection, or enter a COM port manually below.'
+                    : `${targets.filter((t) => t.kind !== 'manual').length} detected. Updates automatically on plug / unplug.`}
               </p>
               <p className="text-xs text-muted-foreground">
                 {agent
-                  ? `SecureOTA Agent v${agent.version} connected${agent.esptool ? '' : ' (flash tool missing - restart the agent to install it)'}.`
+                  ? `SecureOTA Agent v${agent.version} connected${agent.esptool ? '' : ' (flash tool missing: restart the agent to install it)'}.`
                   : agentChecked
                     ? 'SecureOTA Agent is not running on this computer.'
                     : ''}
               </p>
             </div>
-            {supported && (
-              <Button type="button" variant="outline" size="sm" onClick={authorizeDevice} disabled={authorizing || busy || monitoring}>
-                {authorizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Usb className="mr-2 h-4 w-4" />}
-                {authorizing ? 'Waiting for picker' : 'Authorize in browser'}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={refreshAllPorts}
+                disabled={isRefreshingPorts || busy || monitoring}
+                title="Refresh detected COM ports"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshingPorts ? 'animate-spin' : ''}`} />
+                Refresh
               </Button>
-            )}
+              {supported && (
+                <Button type="button" variant="outline" size="sm" onClick={authorizeDevice} disabled={authorizing || busy || monitoring}>
+                  {authorizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Usb className="mr-2 h-4 w-4" />}
+                  {authorizing ? 'Waiting for picker' : 'Authorize in browser'}
+                </Button>
+              )}
+            </div>
           </div>
           {targets.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -489,21 +649,71 @@ export function WebSerialFlashCard({
                   onClick={() => setSelectedDeviceId(target.id)}
                   aria-pressed={target.id === selectedDeviceId}
                   disabled={busy || monitoring}
-                  title={target.kind === 'agent' ? 'Detected by the SecureOTA Agent' : 'Granted to this browser'}
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
+                  title={
+                    target.kind === 'agent'
+                      ? `Detected by the SecureOTA Agent on ${(target as Target & { kind: 'agent' }).path}`
+                      : target.kind === 'manual'
+                        ? 'Manually entered COM port'
+                        : 'Granted to this browser'
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
                     target.id === selectedDeviceId ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
                   }`}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full ${target.id === selectedDeviceId ? 'bg-chart-1' : 'bg-muted-foreground/60'}`} />
+                  <span className={`h-1.5 w-1.5 rounded-full ${
+                    target.id === selectedDeviceId
+                      ? 'bg-chart-1'
+                      : target.kind === 'manual'
+                        ? 'bg-chart-3'
+                        : 'bg-muted-foreground/60'
+                  }`} />
+                  {target.kind === 'agent' && <Usb className="h-3 w-3" />}
                   {target.label}
                 </button>
               ))}
             </div>
           )}
+
+          {/* Manual COM port entry */}
+          <div className="flex items-end gap-2 pt-1">
+            <div className="flex-1 max-w-[200px]">
+              <Label htmlFor="manual-com-port" className="text-xs text-muted-foreground">Manual COM port</Label>
+              <Input
+                id="manual-com-port"
+                type="text"
+                placeholder="COM3"
+                value={manualPort}
+                onChange={(e) => setManualPort(e.target.value)}
+                disabled={busy || monitoring}
+                className="h-8 text-xs"
+              />
+            </div>
+            {manualPort.trim() && isValidComPort(manualPort.trim()) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8"
+                disabled={busy || monitoring}
+                onClick={() => {
+                  const trimmed = manualPort.trim().toUpperCase();
+                  setSelectedDeviceId(`manual:${trimmed}`);
+                }}
+              >
+                Use {manualPort.trim().toUpperCase()}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground pb-1">
+              {!agent
+                ? 'Requires the SecureOTA Agent'
+                : 'Type a port name if not auto-detected'}
+            </p>
+          </div>
+
           {agentChecked && !agent && (
             <p className="text-xs text-muted-foreground">
-              For automatic COM port detection, <a className="underline" href="/agent/secureota_agent.py" download>download the SecureOTA Agent</a> and
-              open it with Python. Keep its window open while using this page; if the browser asks to allow access to your local network, choose Allow.
+              For automatic COM port detection and manual port flashing, <a className="underline" href="/agent/secureota_agent.py" download>download the SecureOTA Agent</a> and
+              run it with Python: <code className="bg-muted px-1 rounded text-[10px]">python secureota_agent.py</code>. Keep its window open while using this page.
             </p>
           )}
         </div>
@@ -512,34 +722,116 @@ export function WebSerialFlashCard({
         <div className="space-y-2">
           <Label>Firmware source</Label>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setSource('file')}
-              aria-pressed={source === 'file'}
-              disabled={busy}
-              className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
-                source === 'file' ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
-              }`}
-            >
-              Local .bin file
-            </button>
-            <button
-              type="button"
-              onClick={() => setSource('release')}
-              aria-pressed={source === 'release'}
-              disabled={busy}
-              className={`rounded-md border px-3 py-1 text-xs font-medium transition-colors ${
-                source === 'release' ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
-              }`}
-            >
-              Latest published release
-            </button>
+            {([
+              ['build', "This computer's build"],
+              ['file', 'Choose a .bin file'],
+              ['release', 'Latest published release'],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => chooseSource(id)}
+                aria-pressed={source === id}
+                disabled={busy}
+                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  source === id ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground hover:border-primary/40'
+                }`}
+              >
+                {label}
+                {id === 'build' && localBuild ? ` · v${localBuild.version}` : ''}
+              </button>
+            ))}
           </div>
         </div>
 
-        {source === 'file' ? (
+        {source === 'build' ? (
+          <div className="space-y-3 rounded-lg border border-border/60 bg-muted/15 p-3">
+            {localBuild ? (
+              <>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">
+                    SecureOTA firmware v{localBuild.version}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {localBuild.env} · {localBuild.secure ? 'signed + encrypted OTA package' : 'no release keys'} · built{' '}
+                      {new Date(localBuild.builtAt).toLocaleString()}
+                    </span>
+                  </p>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void localBuilds.reload()} disabled={busy}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Refresh
+                  </Button>
+                </div>
+                <div className="space-y-1.5">
+                  {(['firmware-full.bin', 'firmware.bin'] as const).map((name) => {
+                    const entry = localBuild.files.find((item) => item.name === name);
+                    if (!entry) return null;
+                    return (
+                      <label
+                        key={name}
+                        className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 text-xs transition-colors ${
+                          buildFile === name ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="build-file"
+                          className="mt-0.5 accent-primary"
+                          checked={buildFile === name}
+                          onChange={() => setBuildFile(name)}
+                          disabled={busy}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium text-foreground">
+                            {name === 'firmware-full.bin' ? 'Full image at 0x0 (new or unknown board)' : 'App only at 0x10000 (board already has a bootloader)'}
+                            <span className="ml-2 font-normal text-muted-foreground">{formatBytes(entry.bytes)}</span>
+                          </span>
+                          <code className="mt-0.5 block break-all text-[11px] text-muted-foreground">{entry.path}</code>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 border-t border-border/50 pt-3">
+                  <Button type="button" size="sm" variant="outline" onClick={() => void publishBuild()} disabled={busy || publishing || !mayFlash}>
+                    {publishing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                    Publish v{localBuild.version} as a release
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Uploads the OTA package and the full image, so boards update over the air and "Set up a new board" can use the gateway image.
+                  </span>
+                </div>
+                {publishNote && (
+                  <p className={`text-xs ${publishNote.ok ? 'text-chart-1' : 'text-destructive'}`}>{publishNote.text}</p>
+                )}
+              </>
+            ) : (
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <p className="text-sm text-foreground">No firmware has been built on this computer yet.</p>
+                <p>
+                  Run{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">{localBuilds.buildCommand ?? 'scripts\\build-firmware.cmd'}</code>.
+                  It writes the images to{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-foreground">
+                    {localBuilds.distDir ? `${localBuilds.distDir}${localBuilds.distDir.includes('\\') ? '\\' : '/'}esp32dev` : 'firmware\\dist\\esp32dev'}
+                  </code>
+                  , and they appear here.
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void localBuilds.reload()} disabled={busy}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Look again
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : source === 'file' ? (
           <div className="space-y-2">
             <Label htmlFor="web-flash-file">Firmware binary</Label>
+            {localBuild && (
+              <p className="text-xs text-muted-foreground">
+                Your build is in{' '}
+                <code className="break-all rounded bg-muted px-1.5 py-0.5 text-foreground">{localBuild.directory}</code>
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-3">
               <Input
                 id="web-flash-file"
@@ -547,7 +839,7 @@ export function WebSerialFlashCard({
                 type="file"
                 accept=".bin"
                 disabled={busy}
-                onChange={(event) => handleFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => void handleFile(event.target.files?.[0] ?? null)}
                 className="max-w-sm"
               />
               {file && (
@@ -573,7 +865,16 @@ export function WebSerialFlashCard({
                 </button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">{layoutInfo.hint}.</p>
+            {fileInfo ? (
+              <p className={`text-xs ${fileInfo.kind === 'invalid' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {fileInfo.kind === 'invalid' ? 'Cannot flash this file. ' : 'Detected: '}
+                {fileInfo.description}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {layoutInfo.hint}. The address is chosen from the file automatically once you pick it.
+              </p>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
@@ -610,7 +911,7 @@ export function WebSerialFlashCard({
                 Pulls release v{publishedVersion} for {deviceType} and writes it at 0x
                 {RELEASE_FLASH_ADDRESS[deviceType].toString(16)}
                 {deviceType === 'ESP32'
-                  ? '. The board must already have a bootloader - flash a blank board from a full image first.'
+                  ? '. The board must already have a bootloader. Flash a blank board from a full image first.'
                   : '. An ESP8266 sketch binary carries its own bootloader, so it starts at 0x0.'}
               </p>
             ) : releasesStatus === 'loading' ? (
@@ -625,7 +926,7 @@ export function WebSerialFlashCard({
                 No firmware has been published for {deviceType}
                 {publishedTargets.length > 0
                   ? `. Published releases target ${publishedTargets.join(', ')}.`
-                  : ' - nothing has been published yet.'}{' '}
+                  : '. Nothing has been published yet.'}{' '}
                 Publish a build on the <a className="underline" href="/releases">Releases page</a>, or switch back to a
                 local .bin file.
               </p>
@@ -643,6 +944,22 @@ export function WebSerialFlashCard({
           />
           Erase entire flash first (also clears saved Wi-Fi / OTA preferences)
         </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={manualBoot}
+            disabled={busy}
+            onChange={(event) => setManualBoot(event.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-primary"
+          />
+          <span>
+            Manual download mode
+            <span className="block text-xs text-muted-foreground">
+              Skip the automatic reset and wait for you to press BOOT and EN. The flasher also switches to this on its
+              own when the automatic reset fails.
+            </span>
+          </span>
+        </label>
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2">
@@ -659,6 +976,11 @@ export function WebSerialFlashCard({
               <Terminal className="mr-2 h-4 w-4" /> Serial monitor
             </Button>
           )}
+          {phase === 'done' && !monitoring && (
+            <Button variant="outline" onClick={startMonitor} disabled={!canUsePort}>
+              <Terminal className="mr-2 h-4 w-4" /> Watch it boot
+            </Button>
+          )}
           {chipName && (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <Cpu className="h-3.5 w-3.5" /> {chipName}
@@ -666,22 +988,21 @@ export function WebSerialFlashCard({
           )}
         </div>
 
+        {!busy && blockers.length > 0 && (
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {blockers.map((reason) => (
+              <li key={reason} className="flex items-start gap-1.5">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{reason}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {busy && <Progress value={phase === 'flashing' ? progress : 0} className="h-2" />}
 
-        {/* Many dev boards have no auto-program circuit: the flasher can reset
-            the chip, but GPIO0 must be held low by the person at the board. */}
-        {phase === 'connecting' && (
-          <div className="flex items-start gap-3 rounded-md border border-chart-3/50 bg-chart-3/10 p-3 text-sm">
-            <Cpu className="mt-0.5 h-5 w-5 shrink-0 text-chart-3" />
-            <div className="space-y-1">
-              <p className="font-semibold text-foreground">Press and hold the BOOT button on the board now</p>
-              <p className="text-foreground/80">
-                Keep it held until the progress bar starts moving, then let go. The board is reset automatically
-                while you hold it. No need to press RESET.
-              </p>
-            </div>
-          </div>
-        )}
+        {/* Shown only while the flasher waits for BOOT + EN by hand. */}
+        <ManualBootPanel seconds={manualWait} />
 
         {error && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
@@ -710,8 +1031,12 @@ export function WebSerialFlashCard({
         <p className="flex items-start gap-2 text-xs text-muted-foreground">
           {monitoring ? <PlugZap className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <Plug className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
           <span>
-            When you click Connect &amp; Flash, hold the board&apos;s BOOT button until flashing starts. A brand-new board
-            needs a full image; a board that already runs this firmware takes an app image.
+            Connect &amp; Flash resets the board into download mode by itself. If that does not work on your board, the
+            page asks you to press BOOT and EN. A brand-new board needs a full image; a board that already runs this
+            firmware takes an app image.
+            {selectedTarget?.kind === 'agent' && ' The SecureOTA Agent handles the COM port connection.'}
+            {selectedTarget?.kind === 'manual' && agent && ` The SecureOTA Agent will flash via ${(selectedTarget as Target & { kind: 'manual' }).path}.`}
+            {selectedTarget?.kind === 'manual' && !agent && ' Start the SecureOTA Agent to enable flashing on a manually entered COM port.'}
           </span>
         </p>
       </CardContent>

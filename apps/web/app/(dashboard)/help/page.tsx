@@ -1,188 +1,123 @@
-'use client';
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { ChevronDown, HelpCircle, Book, Mail, MessageSquare, Github, ExternalLink } from 'lucide-react';
+import { Book, ChevronDown, ExternalLink, Github, HelpCircle, Mail } from 'lucide-react';
+import { CONTACT_EMAIL, SOURCE_REPOSITORY } from '@/lib/site';
+
+const DOCS = `${SOURCE_REPOSITORY}/blob/main/docs`;
 
 const faqs = [
   {
     question: 'How do I update device firmware?',
-    answer: 'Navigate to Devices, select the device, and click "Update Firmware". Choose the target version and confirm. You can schedule the update for a specific time or deploy immediately.',
+    answer:
+      'Publish the compiled .bin on the Releases page, then create a deployment for the devices on the Deployments page. Each device picks up the assignment on its next heartbeat, and the deployment marks it confirmed only when the device reports the new version.',
   },
   {
     question: 'What devices are supported?',
-    answer: 'OTA IDE supports ATmega328P, ESP8266, ESP32, and STM32F103 microcontrollers. Check device compatibility in the Devices section.',
+    answer:
+      'Releases can target ESP32, ESP8266, STM32F103 and ATmega328P, and the gateway only offers a release to the architectures it lists. The firmware in this repository is written for the ESP32.',
   },
   {
-    question: 'How can I schedule deployments?',
-    answer: 'Use the Pipeline section to create deployment schedules with specific timing and device targeting. You can set up automatic deployments based on version releases.',
+    question: 'Can I roll a device back to an older version?',
+    answer:
+      'No. The gateway refuses to deploy a version older than the one a device already runs (anti-rollback). A device that boots a new image and fails its health check returns to its previous image on its own.',
   },
   {
-    question: 'How do I manage encryption keys?',
-    answer: 'Access the Key Vault section to generate, store, and manage cryptographic keys and certificates. All keys are encrypted at rest.',
-  },
-  {
-    question: 'Can I rollback a failed deployment?',
-    answer: 'Yes, navigate to Releases and select a previous version. Click "Rollback" to revert devices to that firmware version.',
+    question: 'Where are the signing keys?',
+    answer:
+      'The gateway creates its Ed25519 signing key the first time it starts and signs every manifest with it. The Key Vault page shows the key and its public half; the console cannot create or replace keys.',
   },
   {
     question: 'How do I view device logs?',
-    answer: 'Go to Event Logs to see all device events. Filter by device, severity, or time range. Logs are retained for 90 days.',
+    answer:
+      'Event Logs lists gateway events together with the last log lines each device sent with its heartbeat. Open a device on the Devices page for its own history and commands.',
   },
 ];
 
 const resources = [
-  { 
-    title: 'API Documentation', 
-    description: 'Complete API reference and integration guides',
-    icon: <Book className="w-5 h-5" />
-  },
-  { 
-    title: 'Getting Started Guide', 
-    description: 'Step-by-step setup and first deployment',
-    icon: <HelpCircle className="w-5 h-5" />
-  },
-  { 
-    title: 'Best Practices', 
-    description: 'Firmware deployment strategies and optimization',
-    icon: <MessageSquare className="w-5 h-5" />
-  },
-  { 
-    title: 'Troubleshooting', 
-    description: 'Common issues and solutions',
-    icon: <MessageSquare className="w-5 h-5" />
-  },
-  { 
-    title: 'GitHub Repository', 
-    description: 'Source code and examples',
-    icon: <Github className="w-5 h-5" />
-  },
-  { 
-    title: 'Contact Support', 
-    description: 'Email support@ota-ide.example.com',
-    icon: <Mail className="w-5 h-5" />
-  },
+  { title: 'How to run', description: 'Running locally and online, step by step.', href: `${DOCS}/how-to-run.md` },
+  { title: 'End-to-end demo', description: 'From firmware build to a confirmed OTA update.', href: `${DOCS}/guides/END_TO_END_DEMO.md` },
+  { title: 'Updating from the web console', description: 'Publishing, deploying and flashing from this console.', href: `${DOCS}/guides/WEB_OTA_UPDATE_GUIDE.md` },
+  { title: 'Remote commands and USB provisioning', description: 'Device commands and first-time USB setup.', href: `${DOCS}/guides/REMOTE_OTA_AND_USB_PROVISIONING.md` },
+  { title: 'Architecture', description: 'System and protocol design.', href: `${DOCS}/architecture/OTA_ARCHITECTURE.md` },
+  { title: 'Docker deployment', description: 'Running the stack with Docker Compose.', href: `${DOCS}/guides/DOCKER_DEPLOYMENT.md` },
 ];
 
 export default function HelpPage() {
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="p-3 rounded-lg bg-accent/20 text-accent">
-          <HelpCircle className="w-6 h-6" />
+      <div className="flex items-center gap-3">
+        <div className="rounded-lg bg-accent/20 p-3 text-accent">
+          <HelpCircle className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Help & Documentation</h1>
-          <p className="text-foreground/70 mt-1">Guides, FAQs, and support resources</p>
+          <h1 className="text-3xl font-bold text-foreground">Help</h1>
+          <p className="mt-1 text-foreground/70">Answers to common questions and the project documentation.</p>
         </div>
       </div>
 
-      {/* Quick Support */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { label: 'Documentation', time: 'Visit now', icon: <Book className="w-5 h-5" /> },
-          { label: 'Live Chat', time: '5 min response', icon: <MessageSquare className="w-5 h-5" /> },
-          { label: 'Email Support', time: '24h response', icon: <Mail className="w-5 h-5" /> },
-        ].map((support) => (
-          <Card key={support.label} className="glass border-border/50 hover:border-accent/50 transition-all cursor-pointer group">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-3 mb-3">
-                <div className="text-accent group-hover:text-accent/80 transition-colors">{support.icon}</div>
-              </div>
-              <p className="font-semibold text-foreground group-hover:text-accent transition-colors">{support.label}</p>
-              <p className="text-xs text-foreground/60 mt-1">{support.time}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* FAQ Section */}
-      <Card className="glass border-border/50 hover:border-border/80 transition-all">
+      <Card>
         <CardHeader>
-          <CardTitle>Frequently Asked Questions</CardTitle>
-          <CardDescription>Find quick answers to common questions</CardDescription>
+          <CardTitle>Frequently asked questions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {faqs.map((faq, i) => (
-            <details key={i} className="group border border-border/20 rounded-lg p-4 cursor-pointer hover:bg-muted/10 transition-colors">
-              <summary className="flex items-center justify-between font-semibold text-foreground">
+          {faqs.map((faq) => (
+            <details key={faq.question} className="group rounded-lg border border-border/20 p-4 hover:bg-muted/10">
+              <summary className="flex cursor-pointer items-center justify-between font-semibold text-foreground">
                 <span>{faq.question}</span>
-                <ChevronDown className="w-5 h-5 group-open:rotate-180 transition-transform text-primary flex-shrink-0" />
+                <ChevronDown className="h-5 w-5 flex-shrink-0 text-primary transition-transform group-open:rotate-180" />
               </summary>
-              <p className="mt-3 text-sm text-foreground/70 leading-relaxed">{faq.answer}</p>
+              <p className="mt-3 text-sm leading-relaxed text-foreground/70">{faq.answer}</p>
             </details>
           ))}
         </CardContent>
       </Card>
 
-      {/* Resources Grid */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground mb-4">Learning Resources</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <h2 className="mb-4 text-lg font-semibold text-foreground">Documentation</h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {resources.map((resource) => (
-            <Card key={resource.title} className="glass border-border/50 hover:border-primary/50 transition-all group cursor-pointer">
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="text-primary group-hover:text-accent transition-colors">{resource.icon}</div>
-                  <ExternalLink className="w-4 h-4 text-primary/40 group-hover:text-accent transition-colors" />
-                </div>
-                <p className="font-semibold text-foreground group-hover:text-primary transition-colors">{resource.title}</p>
-                <p className="text-xs text-foreground/60 mt-2">{resource.description}</p>
-              </CardContent>
-            </Card>
+            <a key={resource.title} href={resource.href} target="_blank" rel="noopener noreferrer" className="group block">
+              <Card className="h-full transition-all group-hover:border-primary/50">
+                <CardContent className="pt-6">
+                  <div className="mb-3 flex items-start justify-between">
+                    <Book className="h-5 w-5 text-primary" />
+                    <ExternalLink className="h-4 w-4 text-primary/40" />
+                  </div>
+                  <p className="font-semibold text-foreground">{resource.title}</p>
+                  <p className="mt-2 text-xs text-foreground/60">{resource.description}</p>
+                </CardContent>
+              </Card>
+            </a>
           ))}
         </div>
       </div>
 
-      {/* Knowledge Base */}
-      <Card className="glass border-border/50 hover:border-border/80 transition-all">
+      <Card>
         <CardHeader>
-          <CardTitle>Knowledge Base Topics</CardTitle>
-          <CardDescription>Explore detailed guides on specific topics</CardDescription>
+          <CardTitle>Still stuck?</CardTitle>
+          <CardDescription>Report a problem or ask a question on the project&apos;s issue tracker.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              { title: 'Getting Started', topics: ['Installation', 'Configuration', 'First Deployment'] },
-              { title: 'Device Management', topics: ['Adding Devices', 'Monitoring Health', 'Troubleshooting'] },
-              { title: 'Deployments', topics: ['Creating Releases', 'Scheduling Updates', 'Rollback'] },
-              { title: 'Security', topics: ['Key Management', 'Certificate Setup', 'Authentication'] },
-              { title: 'API Integration', topics: ['REST API', 'Webhooks', 'Rate Limiting'] },
-              { title: 'Advanced Topics', topics: ['Custom Pipelines', 'Analytics', 'Automation'] },
-            ].map((category) => (
-              <div key={category.title} className="p-4 rounded-lg bg-muted/20 border border-border/20 hover:border-border/40 transition-colors">
-                <p className="font-semibold text-foreground mb-2">{category.title}</p>
-                <ul className="space-y-1">
-                  {category.topics.map((topic) => (
-                    <li key={topic} className="text-sm text-foreground/70 hover:text-primary transition-colors cursor-pointer ml-2">
-                      • {topic}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Support Contact */}
-      <Card className="glass border-accent/20 hover:border-accent/50 transition-all bg-gradient-to-br from-accent/5 to-transparent">
-        <CardContent className="pt-8 pb-8">
-          <div className="text-center max-w-2xl mx-auto">
-            <h3 className="text-2xl font-bold text-foreground mb-2">Can&apos;t find what you&apos;re looking for?</h3>
-            <p className="text-foreground/70 mb-6">Our support team is here to help. Reach out via any of these channels.</p>
-            <div className="flex gap-2 justify-center flex-wrap">
-              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                <Mail className="w-4 h-4 mr-2" />
-                Email Support
-              </Button>
-              <Button variant="outline" className="border-border">
-                <MessageSquare className="w-4 h-4 mr-2" />
-                Live Chat
-              </Button>
-            </div>
-          </div>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button asChild>
+            <a href={`${SOURCE_REPOSITORY}/issues`} target="_blank" rel="noopener noreferrer">
+              <Github className="mr-2 h-4 w-4" />
+              Open an issue
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href={`${DOCS}/README.md`} target="_blank" rel="noopener noreferrer">
+              <Book className="mr-2 h-4 w-4" />
+              All documentation
+            </a>
+          </Button>
+          {CONTACT_EMAIL && (
+            <Button asChild variant="outline">
+              <a href={`mailto:${CONTACT_EMAIL}`}>
+                <Mail className="mr-2 h-4 w-4" />
+                {CONTACT_EMAIL}
+              </a>
+            </Button>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -50,3 +50,22 @@ export function formatUtcTime(value: Date | string | number) {
 export function formatNumber(value: number) {
   return numberFormatter.format(value);
 }
+export function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+/** Uptime the firmware reports, in seconds, as "3d 4h", "2h 15m" or "45s". */
+export function formatUptime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0s';
+  const s = Math.floor(seconds);
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${s % 60}s`;
+  return `${s}s`;
+}

@@ -10,7 +10,6 @@ import {
   Bell,
   BarChart3,
   Code,
-  Cpu,
   FlaskConical,
   GitBranch,
   HelpCircle,
@@ -54,14 +53,12 @@ const groups: NavGroup[] = [
       { label: 'Pipeline', href: '/pipeline', icon: <GitBranch className="h-3.5 w-3.5" /> },
       { label: 'Releases', href: '/releases', icon: <Code className="h-3.5 w-3.5" /> },
       { label: 'Manifest', href: '/manifest', icon: <LayoutList className="h-3.5 w-3.5" /> },
-      { label: 'Code', href: '/code', icon: <Code className="h-3.5 w-3.5" /> },
     ],
   },
   {
     title: 'Security',
     icon: <Shield className="h-4 w-4" />,
     items: [
-      { label: 'TCV Engine', href: '/tcv-engine', icon: <Cpu className="h-3.5 w-3.5" /> },
       { label: 'ASH Monitor', href: '/ash-monitor', icon: <Activity className="h-3.5 w-3.5" /> },
       { label: 'Key Vault', href: '/key-vault', icon: <Lock className="h-3.5 w-3.5" /> },
       { label: 'Audit trail', href: '/audit', icon: <ScrollText className="h-3.5 w-3.5" /> },
@@ -74,9 +71,7 @@ const groups: NavGroup[] = [
       { label: 'Profile', href: '/profile', icon: <UserRound className="h-3.5 w-3.5" /> },
       { label: 'Settings', href: '/settings', icon: <Settings className="h-3.5 w-3.5" /> },
       { label: 'Diagnostics', href: '/diagnostics', icon: <BarChart3 className="h-3.5 w-3.5" /> },
-      { label: 'Dead Letter', href: '/dead-letter', icon: <AlertCircle className="h-3.5 w-3.5" /> },
       { label: 'Reports', href: '/reports', icon: <BarChart3 className="h-3.5 w-3.5" /> },
-      { label: 'Simulator', href: '/simulator', icon: <Shield className="h-3.5 w-3.5" /> },
       { label: 'Examples', href: '/examples', icon: <FlaskConical className="h-3.5 w-3.5" /> },
       { label: 'Help', href: '/help', icon: <HelpCircle className="h-3.5 w-3.5" /> },
       { label: 'About', href: '/about', icon: <Info className="h-3.5 w-3.5" /> },
@@ -108,11 +103,9 @@ export default function TopNav() {
   const offline = snapshot.devices.filter(
     (d) => d.status === 'offline' || d.status === 'error'
   ).length;
-  // Devices ASH-quarantined. The snapshot exposes the mapped health band
-  // rather than the raw score; poor/critical are the bands below 45.
-  const held = snapshot.devices.filter(
-    (d) => d.health === 'poor' || d.health === 'critical'
-  ).length;
+  // Devices ASH-quarantined: the gateway refuses deployments at ASH 40 or
+  // below (QUARANTINE_ASH_THRESHOLD in apps/gateway/gateway/deployment.py).
+  const held = snapshot.devices.filter((d) => d.ash <= 40).length;
 
   const alerts = offline + held;
 

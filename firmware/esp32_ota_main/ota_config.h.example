@@ -7,15 +7,17 @@
  * below is referenced by esp32_ota_main.ino, so none may be removed.
  *
  * The firmware is built for ONE deployment mode and cannot switch at runtime:
- *   local  – BACKEND_URL is the http://<LAN-IP>:5000 value of OTA_LOCAL_URL,
- *            OTA_ROOT_CA stays empty. Set FIRMWARE_ENC_KEY/FIRMWARE_PUB_KEY:
- *            over http:// the board refuses plain (unsigned) images.
- *   cloud  – BACKEND_URL is the https:// value of OTA_PUBLIC_URL and
- *            OTA_ROOT_CA must hold the root that the tunnel's certificate
- *            chains to. Generate it with:
+ *   local  – BACKEND_URL is the http://<LAN-IP>:5000 value of OTA_LOCAL_URL.
+ *            Set FIRMWARE_ENC_KEY/FIRMWARE_PUB_KEY: over http:// the board
+ *            refuses plain (unsigned) images.
+ *   cloud  – BACKEND_URL is the https:// value of OTA_PUBLIC_URL. The
+ *            certificate is verified against the bundled Cloudflare roots
+ *            (ca_bundle.h: Let's Encrypt, Google Trust Services, SSL.com,
+ *            DigiCert), so OTA_ROOT_CA can stay empty. To pin one root
+ *            instead, generate it with
  *              python tools/fetch_root_ca.py gw.nyx-ctf.tech --out esp32_ota_main/root_ca.h
- *            then replace the OTA_ROOT_CA line below with:  #include "root_ca.h"
- * Changing mode needs a USB reflash.
+ *            and replace the OTA_ROOT_CA line below with:  #include "root_ca.h"
+ * Both modes work from the same build; the gateway URL is set over USB.
  */
 #pragma once
 
@@ -44,7 +46,8 @@
 // values provisioned over USB (SOTA:PROVISION) take precedence, so a single
 // released binary can be flashed to every board and configured afterwards.
 
-// ── TLS root for https:// BACKEND_URL. Empty = server NOT verified (local mode only)
+// ── TLS root for https:// BACKEND_URL. Empty = verify against the bundled
+// Cloudflare roots in ca_bundle.h (the certificate is always checked).
 static const char OTA_ROOT_CA[] PROGMEM = "";
 
 #define OTA_NTP_SERVER_PRIMARY    "pool.ntp.org"

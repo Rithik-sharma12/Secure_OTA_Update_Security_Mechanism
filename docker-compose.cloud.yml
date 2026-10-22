@@ -36,23 +36,26 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: secure_ota_cloudflared
     restart: unless-stopped
+    # Start with the other containers, not after them. Waiting for
+    # "service_healthy" meant one slow or failed health check kept the tunnel
+    # down entirely, and Cloudflare then answers every visitor with error 1033
+    # ("no connector for this tunnel"). Up early, the tunnel shows a short 502
+    # while the dashboard boots instead, and recovers on its own.
     depends_on:
       gateway:
-        condition: service_healthy
+        condition: service_started
       ota_ide:
-        condition: service_healthy
+        condition: service_started
     # Locally-managed mode: ingress rules live in deploy/cloudflared/config.yml in this
     # repo. Token mode ignores local ingress entirely and answers 503 to every
     # request, which is a confusing failure — keep this as --config.
-    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    # --protocol http2: QUIC (the default) runs over UDP 7844, which Docker
+    # Desktop's NAT, many routers and campus networks drop or throttle; that
+    # shows up as stalls and connections flapping (1033 between reconnects).
+    # HTTP/2 over TCP 7844 is steady.
+    command: tunnel --no-autoupdate --protocol http2 --loglevel info --config /etc/cloudflared/config.yml run
     volumes:
       # config.yml is committed; credentials.json is git-ignored.
       - ./deploy/cloudflared:/etc/cloudflared:ro
-    healthcheck:
-      test: ["CMD", "cloudflared", "--version"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     networks:
       - sentinel_network

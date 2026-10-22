@@ -9,6 +9,7 @@ firmware download) also accept a current device token.
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
@@ -121,7 +122,12 @@ def test_source_file_path_is_confined_to_artifact_dirs(client, fleet, tmp_path, 
     outside.mkdir()
     (outside / 'fw.bin').write_bytes(b'\xe9' * 64)
     (allowed / 'fw.bin').write_bytes(b'\xe9' * 64)
-    (allowed / 'link.bin').symlink_to(outside / 'fw.bin')
+    try:
+        (allowed / 'link.bin').symlink_to(outside / 'fw.bin')
+    except OSError:
+        if os.name == 'nt':
+            pytest.skip('symlink tests require Windows developer mode or elevated privileges')
+        raise
     monkeypatch.setattr(release_module, 'ARTIFACT_DIRS', [allowed.resolve()])
 
     for escape in (outside / 'fw.bin', allowed / '..' / 'outside' / 'fw.bin', allowed / 'link.bin'):

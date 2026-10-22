@@ -39,6 +39,9 @@
 #include "mbedtls/pk.h"
 
 #include "ota_config.h"
+// Public roots for https:// gateways behind Cloudflare (Let's Encrypt, Google
+// Trust Services, SSL.com, DigiCert). Used when OTA_ROOT_CA is left empty.
+#include "ca_bundle.h"
 
 // Older ota_config.h files predate these; keep them compiling.
 #ifndef DEVICE_ID
@@ -54,11 +57,11 @@
 #define BACKEND_API_KEY ""
 #endif
 
-#define FIRMWARE_VERSION    "2.5.0"
+#define FIRMWARE_VERSION    "2.5.1"
 // major*1000000 + minor*1000 + patch (each part 0-999); see parseVersion().
 // The gateway (gateway/utils.py version_score) and dashboard use the same
 // packing. Release CI checks that the git tag matches FIRMWARE_VERSION.
-#define FIRMWARE_VERSION_N  2005000
+#define FIRMWARE_VERSION_N  2005001
 
 #define HEALTH_QUARANTINE 40
 #define HEALTH_MAX       100
@@ -189,6 +192,13 @@ static const char SECURE_VERSION_PREFIX[] = "SOTA-FW";  // + its NUL terminator
 #endif
 
 Preferences prefs;
+
+// Read a string from NVS. Preferences::getString() logs an [E] line for every
+// missing key, which made a fresh board's serial output look like a failure;
+// a missing key is normal before provisioning, so check first.
+static String nvsString(const char *key, const String &fallback) {
+  return prefs.isKey(key) ? prefs.getString(key, fallback) : fallback;
+}
 
 // Reused across requests. Requests are strictly sequential, so a single client
 // of each kind is enough; a WiFiClientSecure costs ~40 KB of heap while a TLS
@@ -479,6 +489,20 @@ bool syncTimeForTls() {
  * whoever answers. Set OTA_ALLOW_INSECURE_TLS to 1 in ota_config.h to get the
  * old behaviour back on a bench.
  */
+/*
+ * The roots an https:// gateway is verified against: OTA_ROOT_CA when the
+ * build pins one, otherwise the bundled Cloudflare roots. Either way the
+ * certificate chain and hostname are checked; nothing falls back to
+ * setInsecure() unless OTA_ALLOW_INSECURE_TLS is set for a bench build.
+ */
+static const char *trustedRoots() {
+  return strlen(OTA_ROOT_CA) > 0 ? OTA_ROOT_CA : OTA_DEFAULT_CA_BUNDLE;
+}
+
+static bool haveTrustedRoots() {
+  return strlen(trustedRoots()) > 0;
+}
+
 bool beginRequest(HTTPClient &http, const String &url) {
   if (!url.startsWith("https://")) {
     return http.begin(plainClient, url);
@@ -488,11 +512,11 @@ bool beginRequest(HTTPClient &http, const String &url) {
     return false;
   }
 
-  if (strlen(OTA_ROOT_CA) > 0) {
-    secureClient.setCACert(OTA_ROOT_CA);
+  if (haveTrustedRoots()) {
+    secureClient.setCACert(trustedRoots());
   } else {
 #if OTA_ALLOW_INSECURE_TLS
-    Serial.println("[TLS] WARNING: OTA_ROOT_CA is empty and OTA_ALLOW_INSECURE_TLS=1 —");
+    Serial.println("[TLS] WARNING: no trusted roots and OTA_ALLOW_INSECURE_TLS=1 —");
     Serial.println("[TLS] WARNING: the server certificate is NOT verified. Bench builds only.");
     secureClient.setInsecure();
 #else
@@ -591,7 +615,7 @@ UpdateOutcome checkBackendOTA() {
   // it again: install, roll back, lose 25 health, repeat until quarantined.
   // Wait for a newer release instead.
   prefs.begin("ota-health", true);
-  const String failedVersion = prefs.getString("badver", "");
+  const String failedVersion = nvsString("badver", "");
   prefs.end();
   if (failedVersion.length() && parseVersion(failedVersion) == remoteVerN) {
     Serial.printf("[Backend] v%s already failed its health check here; waiting for a newer release.\n",
@@ -1633,13 +1657,13 @@ static String macDeviceId() {
 
 void loadRuntimeConfig() {
   prefs.begin("sota-cfg", false);
-  cfg.wifiSsid = prefs.getString("ssid", WIFI_SSID);
-  cfg.wifiPassword = prefs.getString("pass", WIFI_PASSWORD);
-  cfg.backendUrl = prefs.getString("url", BACKEND_URL);
-  cfg.apiKey = prefs.getString("apikey", BACKEND_API_KEY);
-  cfg.deviceToken = prefs.getString("token", DEVICE_TOKEN);
-  cfg.deviceId = prefs.getString("devid", DEVICE_ID);
-  cfg.hostname = prefs.getString("host", DEVICE_HOSTNAME);
+  cfg.wifiSsid = nvsString("ssid", WIFI_SSID);
+  cfg.wifiPassword = nvsString("pass", WIFI_PASSWORD);
+  cfg.backendUrl = nvsString("url", BACKEND_URL);
+  cfg.apiKey = nvsString("apikey", BACKEND_API_KEY);
+  cfg.deviceToken = nvsString("token", DEVICE_TOKEN);
+  cfg.deviceId = nvsString("devid", DEVICE_ID);
+  cfg.hostname = nvsString("host", DEVICE_HOSTNAME);
   prefs.end();
 
   while (cfg.backendUrl.endsWith("/")) {
@@ -1831,8 +1855,8 @@ void detectPendingVerification() {
 
   // Left behind by a newer image that failed its gate and rolled back to us.
   prefs.begin("ota-health", false);
-  rolledBackVersion = prefs.getString("rbver", "");
-  rolledBackCommand = prefs.getString("rbcmd", "");
+  rolledBackVersion = nvsString("rbver", "");
+  rolledBackCommand = nvsString("rbcmd", "");
   prefs.end();
   if (rolledBackVersion.length()) {
     Serial.printf("[Gate] v%s failed its health check; running v%s again.\n", rolledBackVersion.c_str(), FIRMWARE_VERSION);
@@ -1857,8 +1881,8 @@ void confirmHealthyBoot() {
   bootReportsDone = true;
 
   prefs.begin("ota-health", false);
-  const String expected = prefs.getString("expectver", "");
-  const String ackCommand = prefs.getString("ackcmd", "");
+  const String expected = nvsString("expectver", "");
+  const String ackCommand = nvsString("ackcmd", "");
   prefs.remove("expectver");
   prefs.remove("ackcmd");
   prefs.remove("rbver");
@@ -1891,7 +1915,7 @@ void enforceHealthGate() {
   Serial.println("[Gate] Health check FAILED: no accepted heartbeat in time. Rolling back.");
   prefs.begin("ota-health", false);
   prefs.putString("rbver", FIRMWARE_VERSION);
-  prefs.putString("rbcmd", prefs.getString("ackcmd", ""));
+  prefs.putString("rbcmd", nvsString("ackcmd", ""));
   prefs.remove("expectver");
   prefs.remove("ackcmd");
   prefs.end();
@@ -2018,7 +2042,7 @@ void handleSerialLine(const String &rawLine) {
       Serial.println("SOTA:ERR backend_url must start with http:// or https://");
       return;
     }
-    if (url.startsWith("https://") && strlen(OTA_ROOT_CA) == 0 && !OTA_ALLOW_INSECURE_TLS) {
+    if (url.startsWith("https://") && !haveTrustedRoots() && !OTA_ALLOW_INSECURE_TLS) {
       Serial.println("SOTA:ERR this build has no OTA_ROOT_CA, so it cannot verify an https:// gateway");
       return;
     }
@@ -2094,8 +2118,8 @@ void reportDownloadProgress(size_t done, size_t total) {
   WiFiClientSecure progressSecure;
   bool opened = false;
   if (url.startsWith("https://")) {
-    if (strlen(OTA_ROOT_CA) > 0) {
-      progressSecure.setCACert(OTA_ROOT_CA);
+    if (haveTrustedRoots()) {
+      progressSecure.setCACert(trustedRoots());
       opened = http.begin(progressSecure, url);
     } else {
 #if OTA_ALLOW_INSECURE_TLS

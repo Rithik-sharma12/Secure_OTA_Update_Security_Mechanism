@@ -21,7 +21,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff, Cpu } from 'lucide-react';
+import { Search, MoreVertical, Upload, AlertCircle, CheckCircle, WifiOff, Cpu, Wifi, ArrowUpCircle } from 'lucide-react';
+import { StatGrid, StatTile } from '@/components/ui/stat-tile';
 import { EmptyState, SkeletonRows } from '@/components/ui/empty-state';
 import { DeviceConnectionCard } from '@/components/devices/DeviceConnectionCard';
 import { HostAccessCard } from '@/components/devices/HostAccessCard';
@@ -37,7 +38,7 @@ import {
   waitForCommand,
 } from '@/lib/device-control';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
-import { formatUtcTime } from '@/lib/formatters';
+import { formatUptime, formatUtcTime } from '@/lib/formatters';
 import { useCurrentUser } from '@/lib/use-current-user';
 
 function getStatusIcon(status: string) {
@@ -81,14 +82,31 @@ export default function DevicesPage() {
   const mayControlDevices = can('devices.control');
   const mayFlash = can('devices.flash');
 
+  // Server-side COM sessions and host access are the advanced path; the
+  // primary flow is "Flash over USB" (local agent or Web Serial) below.
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+
+  const scrollToFlashCard = () => {
+    document.getElementById('web-serial-flash')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const scrollToConnectionPanel = () => {
-    document.getElementById('device-connection-panel')?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
+    setAdvancedOpen(true);
+    // Wait one frame so the opened section has a layout box to scroll to.
+    window.requestAnimationFrame(() => {
+      document.getElementById('device-connection-panel')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
     });
   };
 
   const handleConnectionAction = (deviceName: string, mode: 'serial' | 'ota') => {
+    if (mode === 'serial') {
+      // USB work happens in Flash over USB, on the computer the board is plugged into.
+      scrollToFlashCard();
+      return;
+    }
     setWorkflowHint({ deviceName, mode });
     scrollToConnectionPanel();
   };
@@ -203,6 +221,25 @@ export default function DevicesPage() {
     }
   };
   
+  // Fleet summary. "Update available" compares each board with the newest
+  // published release it is compatible with, so it is 0 until one exists.
+  const versionScore = (version: string) => {
+    const [major = 0, minor = 0, patch = 0] = version.replace(/^v/i, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+    return major * 1_000_000 + minor * 1_000 + patch;
+  };
+  const newestFor = (type: string) =>
+    snapshot.releases
+      .filter((release) => release.status === 'published' && (release.compatible.length === 0 || release.compatible.includes(type)))
+      .map((release) => release.version)
+      .sort((a, b) => versionScore(b) - versionScore(a))[0];
+  const onlineCount = snapshot.devices.filter((device) => device.status === 'online' || device.status === 'updating').length;
+  const offlineCount = snapshot.devices.filter((device) => device.status === 'offline' || device.status === 'error').length;
+  const outdatedCount = snapshot.devices.filter((device) => {
+    const newest = newestFor(device.type);
+    return Boolean(newest) && versionScore(device.firmwareVersion) < versionScore(newest!);
+  }).length;
+  const anyRelease = snapshot.releases.some((release) => release.status === 'published');
+
   const filteredDevices = snapshot.devices.filter(device =>
     device.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     device.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -220,36 +257,76 @@ export default function DevicesPage() {
             <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
           )}
         </div>
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={scrollToConnectionPanel}>
+        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={scrollToFlashCard}>
           Connect Device
         </Button>
       </div>
+      <StatGrid columns={4}>
+        <StatTile label="Devices" value={snapshot.devices.length} icon={Cpu} hint="Registered with the gateway" />
+        <StatTile
+          label="Online"
+          value={onlineCount}
+          suffix={snapshot.devices.length ? `of ${snapshot.devices.length}` : undefined}
+          icon={Wifi}
+          tone={onlineCount > 0 ? 'good' : 'neutral'}
+          hint="Heartbeat in the last 2 minutes"
+        />
+        <StatTile
+          label="Offline"
+          value={offlineCount}
+          icon={WifiOff}
+          tone={offlineCount > 0 ? 'bad' : 'neutral'}
+          hint={offlineCount > 0 ? 'Remove boards you no longer use' : 'All boards checking in'}
+        />
+        <StatTile
+          label="Update available"
+          value={anyRelease ? outdatedCount : 'None'}
+          icon={ArrowUpCircle}
+          tone={outdatedCount > 0 ? 'warn' : 'neutral'}
+          hint={anyRelease ? 'Behind the newest compatible release' : 'No release published yet'}
+        />
+      </StatGrid>
+
       {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
       {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
-
-      <NewBoardSetupCard />
-
-      <HostAccessCard
-        onDeployToHost={(ip) => {
-          setOtaHostHint(ip);
-          scrollToConnectionPanel();
-        }}
-      />
 
       <WebSerialFlashCard
         releases={snapshot.releases}
         releasesStatus={isLoading ? 'loading' : snapshot.connection.reachable ? 'ready' : 'unavailable'}
       />
 
+      <NewBoardSetupCard />
+
       <UsbProvisionCard />
 
-      <DeviceConnectionCard
-        workflowHint={workflowHint}
-        onWorkflowHandled={() => setWorkflowHint(null)}
-        otaHostHint={otaHostHint}
-        onOtaHostHandled={() => setOtaHostHint(null)}
-        onBrowserPortAction={() => document.getElementById('web-serial-flash')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-      />
+      <details
+        className="rounded-lg border border-border/50 glass"
+        open={advancedOpen}
+        onToggle={(event) => setAdvancedOpen((event.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary className="cursor-pointer select-none px-6 py-4 text-sm font-medium text-foreground">
+          Advanced: flash from the server&apos;s own COM ports, and host access
+          <span className="block text-xs font-normal text-muted-foreground mt-1">
+            Only needed when the board is plugged into the machine running the gateway and you are not at that machine.
+            Everyone else uses Flash over USB above.
+          </span>
+        </summary>
+        <div className="space-y-6 p-4 pt-0">
+          <HostAccessCard
+            onDeployToHost={(ip) => {
+              setOtaHostHint(ip);
+              scrollToConnectionPanel();
+            }}
+          />
+          <DeviceConnectionCard
+            workflowHint={workflowHint}
+            onWorkflowHandled={() => setWorkflowHint(null)}
+            otaHostHint={otaHostHint}
+            onOtaHostHandled={() => setOtaHostHint(null)}
+            onBrowserPortAction={scrollToFlashCard}
+          />
+        </div>
+      </details>
 
       {/* Search and Filters */}
       <Card className="glass border-border/50">
@@ -335,10 +412,10 @@ export default function DevicesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-foreground/80 text-sm">
-                        {formatUtcTime(device.lastSync)}
+                        {device.lastSync ? `${formatUtcTime(device.lastSync)} UTC` : 'Never'}
                       </TableCell>
-                      <TableCell className="text-foreground/80 text-sm">
-                        {device.uptime}h
+                      <TableCell className="text-foreground/80 text-sm tabular-nums">
+                        {device.status === 'offline' ? 'Offline' : formatUptime(device.uptime)}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -429,23 +506,6 @@ export default function DevicesPage() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Devices', value: snapshot.devices.length, color: 'bg-chart-2/20 text-chart-2' },
-          { label: 'Online', value: snapshot.devices.filter(d => d.status === 'online').length, color: 'bg-chart-1/20 text-chart-1' },
-          { label: 'Offline', value: snapshot.devices.filter(d => d.status === 'offline' || d.status === 'error').length, color: 'bg-chart-4/20 text-chart-4' },
-          { label: 'Updates Needed', value: snapshot.devices.filter(d => d.firmwareVersion !== d.latestVersion).length, color: 'bg-chart-3/20 text-chart-3' },
-        ].map((stat) => (
-          <Card key={stat.label} className="glass border-border/50">
-            <CardContent className="pt-6">
-              <p className="text-sm text-foreground/70 mb-1">{stat.label}</p>
-              <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }

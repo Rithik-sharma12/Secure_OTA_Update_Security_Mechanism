@@ -1,200 +1,138 @@
 'use client';
 
 import React from 'react';
+import { Copy, FileJson } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Save, Copy, RefreshCw } from 'lucide-react';
-import { formatUtcDate } from '@/lib/formatters';
+import { EmptyState, SkeletonRows } from '@/components/ui/empty-state';
+import { formatBytes, formatUtcDateTime } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
-import { executeRuntimeAction } from '@/lib/runtime-actions';
 
+/**
+ * The gateway's signed manifest, read-only. This is exactly what a device
+ * that polls without identifying itself receives from
+ * GET /releases/latest/manifest. It is signed by the gateway, so it cannot be
+ * edited here: publish or archive a release to change it.
+ */
 export default function ManifestPage() {
   const { snapshot, isLoading } = useRuntimeSnapshot();
-  const [manifestDraft, setManifestDraft] = React.useState('');
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [isResetting, setIsResetting] = React.useState(false);
-  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
-  const [actionError, setActionError] = React.useState<string | null>(null);
-
-  const serializableManifest = snapshot.manifest
-    ? {
-        ...snapshot.manifest,
-        createdAt:
-          snapshot.manifest.createdAt instanceof Date
-            ? snapshot.manifest.createdAt.toISOString()
-            : snapshot.manifest.createdAt,
-      }
-    : null;
-
-  const manifestJson = serializableManifest
-    ? JSON.stringify(serializableManifest, null, 2)
-    : '{\n  "message": "No live manifest available."\n}';
-
-  React.useEffect(() => {
-    setManifestDraft(manifestJson);
-  }, [manifestJson]);
-
-  const handleSaveManifest = async () => {
-    setIsSaving(true);
-    setActionError(null);
-    setActionMessage(null);
-
-    try {
-      const response = await executeRuntimeAction('manifest.save', {
-        manifestJson: manifestDraft,
-      });
-      setActionMessage(response.message || 'Manifest saved successfully.');
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Failed to save manifest.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleResetManifest = async () => {
-    setIsResetting(true);
-    setActionError(null);
-    setActionMessage(null);
-
-    try {
-      const response = await executeRuntimeAction('manifest.reset');
-      setManifestDraft(manifestJson);
-      setActionMessage(response.message || 'Manifest reset to gateway default.');
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Failed to reset manifest.');
-    } finally {
-      setIsResetting(false);
-    }
-  };
+  const [copied, setCopied] = React.useState<string | null>(null);
+  const manifest = snapshot.manifest;
+  const manifestJson = manifest ? JSON.stringify(manifest.raw, null, 2) : '';
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(manifestDraft);
-      setActionError(null);
-      setActionMessage('Manifest copied to clipboard.');
+      await navigator.clipboard.writeText(manifestJson);
+      setCopied('Manifest copied to clipboard.');
     } catch {
-      setActionError('Clipboard permission denied.');
+      setCopied('The browser did not allow clipboard access.');
     }
   };
 
+  const fields: Array<[string, string]> = manifest
+    ? [
+        ['Version', manifest.version ? `v${manifest.version}` : 'Not set'],
+        ['File', manifest.filename || 'Not set'],
+        ['Size', formatBytes(manifest.size)],
+        ['Generated', manifest.generatedAt ? `${formatUtcDateTime(manifest.generatedAt)} UTC` : 'Not recorded'],
+        ['Targets', manifest.compatible.length > 0 ? manifest.compatible.join(', ') : 'All architectures'],
+        ['Package', manifest.securePackage ? 'Encrypted package' : 'Plain image'],
+      ]
+    : [];
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Manifest Editor</h1>
-          <p className="text-foreground/70 mt-1">Manage firmware manifest configurations</p>
-          {!snapshot.connection.reachable && snapshot.connection.error && (
-            <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            className="border-border"
-            onClick={handleResetManifest}
-            disabled={isResetting}
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            {isResetting ? 'Resetting...' : 'Reset'}
-          </Button>
-          <Button
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
-            onClick={handleSaveManifest}
-            disabled={isSaving}
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {isSaving ? 'Saving...' : 'Save'}
-          </Button>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold text-foreground">Manifest</h1>
+        <p className="mt-1 text-foreground/70">
+          The signed manifest the gateway serves for its newest published release. Publish or archive a release to change it.
+        </p>
+        {!snapshot.connection.reachable && snapshot.connection.error && (
+          <p className="mt-2 text-sm text-chart-4">{snapshot.connection.error}</p>
+        )}
       </div>
-      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
-      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
 
-      <Card className="glass border-border/50">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Release Manifest</CardTitle>
-              <CardDescription>
-                {isLoading
-                  ? 'Loading live manifest...'
-                  : snapshot.manifest
-                    ? `JSON configuration for v${snapshot.manifest.entries[0]?.version || 'unknown'}`
-                    : 'No live manifest published'}
-              </CardDescription>
-            </div>
-            <Button size="sm" variant="outline" className="border-border" onClick={handleCopy}>
-              <Copy className="w-4 h-4 mr-2" />
-              Copy
-            </Button>
+      {isLoading && !manifest ? (
+        <Card>
+          <CardContent>
+            <SkeletonRows rows={6} columns={2} />
+          </CardContent>
+        </Card>
+      ) : !manifest ? (
+        <Card>
+          <CardContent>
+            <EmptyState icon={<FileJson className="h-5 w-5" />} title="No manifest is being served.">
+              The gateway has no published release. Publish one on the Releases page and its signed manifest appears here.
+            </EmptyState>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-base">Release</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {fields.map(([label, value]) => (
+                  <div key={label}>
+                    <p className="mb-1 text-xs text-foreground/50">{label}</p>
+                    <p className="break-all text-sm text-foreground">{value}</p>
+                  </div>
+                ))}
+                <div className="sm:col-span-2">
+                  <p className="mb-1 text-xs text-foreground/50">SHA-256 of the served file</p>
+                  <p className="break-all font-mono text-xs text-foreground/80">{manifest.sha256 || 'Not set'}</p>
+                </div>
+                {manifest.imageSha256 && manifest.imageSha256 !== manifest.sha256 && (
+                  <div className="sm:col-span-2">
+                    <p className="mb-1 text-xs text-foreground/50">SHA-256 of the decrypted image</p>
+                    <p className="break-all font-mono text-xs text-foreground/80">{manifest.imageSha256}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Signature</CardTitle>
+                <CardDescription>
+                  {manifest.signatureAlgorithm || 'Unknown algorithm'}
+                  {manifest.signatureKeyId ? `, key ${manifest.signatureKeyId}` : ''}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Badge variant={manifest.signature ? 'default' : 'destructive'}>
+                  {manifest.signature ? 'Signed' : 'No signature'}
+                </Badge>
+                <p className="break-all font-mono text-xs text-foreground/60">{manifest.signature || 'The manifest carries no signature.'}</p>
+              </CardContent>
+            </Card>
           </div>
-        </CardHeader>
-        <CardContent>
-          <textarea
-            value={manifestDraft}
-            onChange={(event) => setManifestDraft(event.target.value)}
-            className="w-full bg-muted/30 rounded-lg p-4 text-sm text-foreground/80 font-mono max-h-96 min-h-72 overflow-y-auto border border-border/40 focus:outline-none focus:border-primary/60"
-          />
-        </CardContent>
-      </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="glass border-border/50">
-          <CardHeader>
-            <CardTitle className="text-base">Manifest Info</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <p className="text-xs text-foreground/50 mb-1">ID</p>
-              <p className="text-sm font-mono text-foreground">{snapshot.manifest?.id || 'n/a'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-foreground/50 mb-1">Entries</p>
-              <p className="text-sm font-semibold text-foreground">{snapshot.manifest?.entries.length || 0}</p>
-            </div>
-            <div>
-              <p className="text-xs text-foreground/50 mb-1">Created</p>
-              <p className="text-sm text-foreground">
-                {snapshot.manifest?.createdAt ? formatUtcDate(snapshot.manifest.createdAt) : 'n/a'}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="glass border-border/50">
-          <CardHeader>
-            <CardTitle className="text-base">Signature</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-foreground/50 mb-2">RSA-2048</p>
-            <p className="text-xs font-mono text-foreground/60 break-all">{snapshot.manifest?.signature || 'n/a'}</p>
-          </CardContent>
-        </Card>
-
-        <Card className="glass border-border/50">
-          <CardHeader>
-            <CardTitle className="text-base">Validation</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {snapshot.manifest ? (
-              <>
-                <Badge className="bg-chart-1/20 text-chart-1 w-full text-center justify-center">
-                  Live
-                </Badge>
-                <p className="text-xs text-foreground/50 mt-2 text-center">Manifest received from gateway runtime</p>
-              </>
-            ) : (
-              <>
-                <Badge className="bg-chart-3/20 text-chart-3 w-full text-center justify-center">
-                  Waiting
-                </Badge>
-                <p className="text-xs text-foreground/50 mt-2 text-center">No manifest has been published yet</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Manifest JSON</CardTitle>
+                  <CardDescription>As served by the gateway.</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" onClick={handleCopy}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {copied && <p className="mb-2 text-sm text-muted-foreground">{copied}</p>}
+              <pre className="max-h-96 overflow-auto rounded-lg border border-border/40 bg-muted/30 p-4 font-mono text-xs text-foreground/80">
+                {manifestJson}
+              </pre>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

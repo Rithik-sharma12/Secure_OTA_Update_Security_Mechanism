@@ -224,7 +224,8 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
             onChange={(event) => handleFactoryFile(event.target.files?.[0] || null)}
           />
           <p className="text-xs text-muted-foreground">
-            The merged bootloader + partitions + app image (<code>./scripts/go-online.sh build</code> writes it). It lets
+            The merged bootloader + partitions + app image, <code>firmware-full.bin</code> from{' '}
+            <code>scripts\build-firmware.cmd</code>. It lets
             Devices → Set up a new board bring up a blank board over USB. The gateway refuses it unless it contains
             exactly this release&apos;s app.
           </p>
@@ -234,7 +235,7 @@ export function PublishFirmwareCard({ onPublished }: { onPublished?: () => void 
           <Label htmlFor="image-sha256">Plaintext image SHA-256 (encrypted packages only)</Label>
           <Input
             id="image-sha256"
-            placeholder="Printed by tools/create_secure_test_package.py"
+            placeholder="imageSha256 in firmware\dist\esp32dev\build-info.json"
             value={imageSha256}
             onChange={(event) => setImageSha256(event.target.value)}
             aria-invalid={!digestIsValid}

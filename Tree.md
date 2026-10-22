@@ -34,7 +34,6 @@ Legend: **[ignored]** = git-ignored, never committed. **[generated]** = created 
 |---|---|---|
 | `gateway_keys/` | [ignored] Older local copy of the gateway's Ed25519 keys | The gateway reads keys from `apps/gateway/gateway_keys/` when run locally and from a Docker volume in containers |
 | `.venv/` | [ignored] Python virtual environment used by `scripts/start-gateway.cmd` | Created by you; the script falls back to system Python |
-| `claude-gen/` | [ignored] Patches and bundles from Claude sessions | Safe to delete |
 
 ## apps/web: the console
 
@@ -95,10 +94,11 @@ apps/web/
 | `/pipeline` | `pipeline/` | Deployment pipeline stages and actions |
 | `/releases` | `releases/` | Publish firmware, release history |
 | `/manifest` | `manifest/` | Manifest editor for release manifests |
-| `/code`, `/terminal` | `code/`, `terminal/` | In-browser code editor and terminal |
-| `/tcv-engine`, `/ash-monitor`, `/key-vault`, `/audit` | same names | Security: trusted computation verification, device health monitor, cryptographic keys, audit trail |
+| `/terminal` | `terminal/` | Allow-listed command runner on the console server |
+| `/ash-monitor`, `/key-vault`, `/audit` | same names | Security: per-device health scores from heartbeats, the gateway's signing key, audit trail |
 | `/profile`, `/settings` | same names | Account, appearance, users (admin) |
-| `/diagnostics`, `/dead-letter`, `/reports`, `/simulator` | same names | Operations: system diagnostics, failed-webhook queue, reports, device simulator |
+| `/diagnostics`, `/reports` | same names | Live checks of the gateway, keys, Supabase, Clerk and webhooks; CSV/JSON export of devices, deployments and audit |
+| `/code`, `/simulator`, `/tcv-engine`, `/dead-letter` | same names | Not in the navigation: no real backend yet. They show "not available yet" (dead-letter only when webhooks are configured) |
 | `/examples`, `/help`, `/about`, `/version` | same names | Project examples, help, team, version management |
 | `layout.tsx` | | Server wrapper: mounts Clerk and the console shell |
 
@@ -147,6 +147,7 @@ apps/web/
 | `host-access.ts`, `network-discovery.ts` | Explicit grants for COM ports and subnets |
 | `cron.ts`, `cron-webhooks.ts`, `background-worker.ts` | Scheduled webhook delivery |
 | `site.ts` | Site URL, title, legal entity and contact settings |
+| `esp-image.ts` | Recognises app, merged and invalid ESP images before flashing and picks the address |
 | `accent-config.ts`, `accent.ts`, `chart-theme.ts` | Colour themes |
 | `post-login.ts`, `client-auth.ts`, `use-current-user.tsx` | Client-side auth helpers |
 | `logger.ts`, `error-handler.ts`, `api-response.ts`, `validation.ts`, `formatters.ts`, `utils.ts`, `types.ts` | Shared utilities |
@@ -204,7 +205,10 @@ apps/gateway/
 | `platformio.ini` | Build environments `esp32dev`, `esp32s3`, `esp32c3`, `esp32dev_ota`; toolchain pinned to espressif32 6.9.0 |
 | `esp32_ota_main/esp32_ota_main.ino` | Firmware: manifest pull, secure package verification, anti-rollback, health gate, remote commands, USB provisioning |
 | `esp32_ota_main/ota_config.h.example` | Template for device configuration; copy to `ota_config.h` [ignored] |
-| `tools/create_secure_test_package.py` | Builds a signed, encrypted test package |
+| `tools/build_firmware.py` | Builds the firmware, creates the release keys on first run, writes `dist/<env>/firmware-full.bin`, `firmware-ota.bin`, `SHA256SUMS.txt`, `build-info.json` |
+| `tools/create_secure_test_package.py` | Builds a signed, encrypted package from any firmware.bin |
+| `secure-keys/` | [ignored] Release signing key pair and AES key; back it up, boards trust only these keys |
+| `dist/` | [ignored] Build output of `tools/build_firmware.py` |
 | `tools/fetch_root_ca.py` | Fetches the gateway's root CA into `root_ca.h` [ignored] |
 | `SETUP_GUIDE.md` | Toolchain and flashing guide |
 | `.gitignore` | Keeps build output, keys and device config out of git |
@@ -213,11 +217,11 @@ apps/gateway/
 
 | File | Purpose |
 |---|---|
+| `build-firmware.cmd` | Windows: builds the ESP32 firmware and the images the console needs (`firmware/dist/`) |
 | `start-dev.cmd` | Windows: starts the gateway (if not running) and the console on port 3000 |
 | `start-gateway.cmd` | Windows: starts the gateway on port 5000 with the API key from `apps/web/.env.local` |
-| `go-online.cmd` | Windows: publishes the Docker stack through Cloudflare (`on`, `off`, `status`) |
-| `go-online.sh` | Linux and macOS: same, plus firmware `build`, `flash`, `monitor`, `agent` |
-| `complete-setup.ps1` | One-time setup: signing keys, GitHub secrets, device config |
+| `start-agent.cmd` | Windows: starts the SecureOTA USB agent on 127.0.0.1:17317 (start-dev.cmd opens it too) |
+| `go-online.cmd` | Windows: publishes the Docker stack through Cloudflare (`on`, `status`, `logs`, `off`); writes `deploy/last-run.log` |
 | `acceptance-test.ps1` | Runs the acceptance checklist against a disposable stack |
 
 Every script changes to the repository root first, so they work from any folder.
@@ -271,7 +275,7 @@ The repository was reorganised on 13 October 2026. Old paths map to new ones as 
 | `CODE/agent/` | `apps/agent/` |
 | `CODE/firmware_code/` | `firmware/` |
 | `CODE/docs/ota-ide/`, `CODE/README.md` | `docs/web/` |
-| `start-dev.cmd`, `start-gateway.cmd`, `go-online.*`, `complete-setup.ps1` | `scripts/` |
+| `start-dev.cmd`, `start-gateway.cmd`, `go-online.cmd` | `scripts/` |
 | `docs/architecture/acceptance-test.ps1` | `scripts/acceptance-test.ps1` |
 | `cloudflared/` | `deploy/cloudflared/` |
 | `DEPLOYMENT.md`, `FINAL_RUN.md` | `docs/guides/DEPLOYMENT.md`, `docs/guides/END_TO_END_DEMO.md` |

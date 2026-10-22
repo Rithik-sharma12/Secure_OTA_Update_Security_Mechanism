@@ -20,6 +20,7 @@ const PUBLIC_ROUTES: Record<string, string> = {
   'auth/login/route.ts': 'issues the session',
   'auth/logout/route.ts': 'clears the caller’s own session cookie',
   'health/supabase/route.ts': 'health probe, reports no data',
+  'health/live/route.ts': 'container liveness probe, reports no data',
   'cron/webhooks/route.ts': 'CRON_SECRET bearer, checked in lib/cron-webhooks.ts',
 };
 

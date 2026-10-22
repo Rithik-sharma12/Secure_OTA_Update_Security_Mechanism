@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 
 from ..config import FIRMWARE_CACHE_DIR
 from ..models import PipelineRunPayload
-from ..release import build_pipeline
+from ..release import is_release_published, rerun_pipeline_locked
 from ..state import (
     STATE,
     STATE_LOCK,
@@ -38,25 +38,33 @@ def run_pipeline(payload: PipelineRunPayload, request: Request, _auth: None = De
         if not releases:
             raise HTTPException(status_code=404, detail='No releases available.')
 
-        selected_release = releases[0]
         if payload.releaseId:
             match = next((release for release in releases if release.get('id') == payload.releaseId), None)
             if not match:
                 raise HTTPException(status_code=404, detail=f'Release {payload.releaseId} not found.')
             selected_release = match
+        else:
+            selected_release = next((release for release in releases if is_release_published(release)), None)
+            if not selected_release:
+                raise HTTPException(status_code=404, detail='No published release to verify.')
 
-        pipeline = build_pipeline(str(selected_release.get('id')))
+        # Re-verifies the cached artifact; nothing is rebuilt.
+        pipeline = rerun_pipeline_locked(selected_release)
         STATE['pipeline'] = pipeline
         STATE['updatedAt'] = utc_now_iso()
+        passed = pipeline['status'] == 'success'
         push_event_locked(
             event_type='info',
-            severity='success',
-            title='Pipeline Executed',
-            description=f"Pipeline rerun completed for release {selected_release.get('version', 'unknown')}.",
+            severity='success' if passed else 'error',
+            title='Pipeline Re-run' if passed else 'Pipeline Re-run Failed',
+            description=(
+                f"Re-verification of release {selected_release.get('version', 'unknown')} "
+                + ('passed.' if passed else 'failed.')
+            ),
         )
         persist_state_locked()
 
-    audit_note(request, 'pipeline.run', f"release {selected_release.get('version', 'unknown')}")
+    audit_note(request, 'pipeline.run', f"release {selected_release.get('version', 'unknown')}: {pipeline['status']}")
     return {'ok': True, 'pipeline': pipeline}
 
 

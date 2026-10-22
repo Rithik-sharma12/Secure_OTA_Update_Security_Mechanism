@@ -20,7 +20,8 @@ ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
     NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
-RUN pnpm build && pnpm prune --prod
+# Webpack build: the same bundler the repository's checks build with.
+RUN pnpm exec next build --webpack && pnpm prune --prod
 
 FROM node:24-bookworm-slim AS runner
 WORKDIR /app
@@ -41,7 +42,7 @@ COPY --from=builder /app/public ./public
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:3000/ || exit 1
+HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 \
+  CMD curl -fsS -o /dev/null http://localhost:3000/api/health/live || exit 1
 
 CMD ["node", "--max-old-space-size=1024", "./node_modules/next/dist/bin/next", "start", "-H", "0.0.0.0", "-p", "3000"]

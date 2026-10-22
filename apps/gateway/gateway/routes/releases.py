@@ -19,8 +19,10 @@ from ..release import (
     latest_factory_release_locked,
     latest_release_for_device_locked,
     manifest_for_release_locked as _manifest_for_release_locked,
+    newest_published_release_locked,
     published_device_types_locked,
     release_for_device_locked,
+    set_release_status_locked,
 )
 from ..state import STATE, STATE_LOCK, gateway_snapshot, persist_state_locked
 from ..utils import normalize_compatibility, normalize_device_type, utc_now_iso
@@ -147,12 +149,47 @@ async def upload_release(
 
 @router.get('/api/releases/latest')
 def latest_release(_read: None = Depends(require_read_auth)) -> dict[str, Any]:
-    snapshot = gateway_snapshot()
-    releases = snapshot.get('releases', [])
-    if not releases:
+    with STATE_LOCK:
+        release = newest_published_release_locked()
+        release = dict(release) if release else None
+        manifest = STATE.get('manifest')
+    if not release:
         raise HTTPException(status_code=404, detail='No release available.')
 
-    return {'ok': True, 'release': releases[0], 'manifest': snapshot.get('manifest')}
+    return {'ok': True, 'release': release, 'manifest': manifest}
+
+
+def _set_release_status(release_id: str, status: str, request: Request) -> dict[str, Any]:
+    with STATE_LOCK:
+        existing = next((r for r in STATE.get('releases', []) if str(r.get('id')) == release_id), None)
+        if existing is None:
+            raise HTTPException(status_code=404, detail=f'Release {release_id} not found.')
+        if str(existing.get('status', 'published')) == status:
+            word = 'archived' if status == 'archived' else 'published'
+            raise HTTPException(status_code=409, detail=f'Release {release_id} is already {word}.')
+        release = dict(set_release_status_locked(release_id, status))
+        manifest = STATE.get('manifest')
+        STATE['updatedAt'] = utc_now_iso()
+        persist_state_locked()
+
+    audit_note(
+        request,
+        'release.archived' if status == 'archived' else 'release.unarchived',
+        f"v{release.get('version', 'unknown')} ({release_id})",
+    )
+    return {'ok': True, 'release': release, 'manifest': manifest}
+
+
+@router.post('/api/releases/{release_id}/archive')
+def archive_release(release_id: str, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+    """Stop offering a release. The record and binary are kept so it can be restored."""
+    return _set_release_status(release_id, 'archived', request)
+
+
+@router.post('/api/releases/{release_id}/unarchive')
+def unarchive_release(release_id: str, request: Request, _auth: None = Depends(_require_write_auth)) -> dict[str, Any]:
+    """Offer an archived release to devices again."""
+    return _set_release_status(release_id, 'published', request)
 
 
 @router.get('/api/releases/factory')

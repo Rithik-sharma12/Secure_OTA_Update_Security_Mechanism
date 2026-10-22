@@ -6,8 +6,6 @@ import { useRouter } from 'next/navigation';
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -33,7 +31,7 @@ import {
   VersionTile,
 } from '@/components/dashboard/ConsoleTiles';
 
-const weekLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_MS = 24 * 3600 * 1000;
 
 /** major*1000000 + minor*1000 + patch, mirroring the firmware's comparison. */
 function versionRank(v: string): number {
@@ -51,15 +49,25 @@ export default function DashboardPage() {
   const fleetCount = devices.length;
   const onlineCount = devices.filter((d) => d.status === 'online').length;
   const offlineCount = devices.filter((d) => d.status === 'offline' || d.status === 'error').length;
+  const offlineOnlyCount = devices.filter((d) => d.status === 'offline').length;
+  const errorCount = devices.filter((d) => d.status === 'error').length;
+  const standbyCount = devices.filter((d) => d.status === 'standby').length;
   const updatingCount = devices.filter((d) => d.status === 'updating').length;
-  // ASH-quarantined. The snapshot exposes the mapped health band rather than
-  // the raw score; poor/critical are the bands under 45.
-  const heldCount = devices.filter((d) => d.health === 'poor' || d.health === 'critical').length;
-  const needsUpdateCount = devices.filter((d) => d.firmwareVersion !== d.latestVersion).length;
+  // ASH-quarantined: the gateway refuses deployments at ASH 40 or below.
+  const heldCount = devices.filter((d) => d.ash <= 40).length;
 
   const recentEvents = snapshot.events.slice(0, 5);
-  const latestRelease = snapshot.releases[0];
-  const latestVersion = latestRelease?.version ?? devices[0]?.latestVersion ?? 'n/a';
+  const publishedReleases = React.useMemo(
+    () => snapshot.releases.filter((release) => release.status === 'published'),
+    [snapshot.releases]
+  );
+  const publishedCount = publishedReleases.length;
+  const latestRelease = publishedReleases[0];
+  const latestVersion = latestRelease?.version ?? '';
+  const needsUpdateCount = latestRelease
+    ? devices.filter((d) => d.firmwareVersion !== latestRelease.version).length
+    : 0;
+
   const onLatestCount = devices.filter((d) => d.firmwareVersion === latestVersion).length;
 
   const pct = (n: number) => (fleetCount > 0 ? Math.round((n / fleetCount) * 100) : 0);
@@ -98,10 +106,11 @@ export default function DashboardPage() {
     const buckets = new Array(24).fill(0);
     let seen = 0;
 
+    // Only the gateway's "Device Updated" events: a device confirmed on a new version.
     snapshot.events.forEach((e) => {
       const t = e.timestamp?.getTime?.();
       if (typeof t !== 'number' || t < dayAgo || t > now) return;
-      if (e.severity !== 'success') return;
+      if (e.type !== 'firmware_update' || e.severity !== 'success') return;
       const hour = Math.min(23, Math.floor((t - dayAgo) / 3600000));
       buckets[hour] += 1;
       seen += 1;
@@ -130,15 +139,9 @@ export default function DashboardPage() {
     };
   }, [snapshot.events]);
 
-  // ── Rollout stage, from real deployments ─────────────────────────────────
+  // ── Rollout stage, from real deployments and their per-device targets ──
   const rollout = React.useMemo(() => {
-    type DeploymentLike = {
-      status?: string;
-      createdAt?: Date | string;
-      targets?: { status?: string }[];
-    };
-    const list = (snapshot.deployments ?? []) as unknown as DeploymentLike[];
-    const active = list.find((d) => d.status === 'pending' || d.status === 'in_progress');
+    const active = snapshot.deployments.find((d) => d.status === 'in_progress' || d.status === 'pending');
 
     if (!active) {
       return {
@@ -146,49 +149,57 @@ export default function DashboardPage() {
         label: 'No rollout',
         pct: '',
         timer: '--:--',
-        note: 'Publish a release to start one',
+        note: publishedCount > 0 ? 'Create a deployment to start one' : 'Publish a release to start one',
       };
     }
 
-    const targets = active.targets ?? [];
-    const confirmed = targets.filter((t) => t.status === 'confirmed').length;
-    const share = targets.length > 0 ? Math.round((confirmed / targets.length) * 100) : 0;
+    const targets = Object.values(active.targets);
+    const total = targets.length || active.deviceIds.length;
+    const confirmed = targets.filter((t) => t.state === 'confirmed').length;
+    const failed = targets.filter((t) => t.state === 'failed').length;
+    const share = total > 0 ? Math.round((confirmed / total) * 100) : 0;
 
-    const started = active.createdAt ? new Date(active.createdAt).getTime() : null;
+    const started = active.startedAt.getTime();
     let timer = '--:--';
-    if (started && !Number.isNaN(started)) {
+    if (started > 0) {
       const secs = Math.max(0, Math.floor((Date.now() - started) / 1000));
       timer = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
     }
 
     return {
       active: true,
-      label: 'In progress',
+      label: active.version ? `v${active.version}` : 'In progress',
       pct: `${share}%`,
       timer,
-      note: `${confirmed} of ${targets.length} confirmed`,
+      note: `${confirmed} of ${total} confirmed${failed > 0 ? `, ${failed} failed` : ''}`,
     };
-  }, [snapshot.deployments]);
+  }, [snapshot.deployments, publishedCount]);
 
   const capsules = React.useMemo(() => {
     const slots = 10;
-    const published = snapshot.releases.length;
+    const published = publishedCount;
     return Array.from({ length: slots }, (_, i) => ({
       key: `cap-${i}`,
       filled: i < Math.min(slots, published),
     }));
-  }, [snapshot.releases]);
+  }, [publishedCount]);
+
+  const signatureNote = snapshot.manifest
+    ? snapshot.manifest.signature
+      ? `v${snapshot.manifest.version} manifest signed${snapshot.manifest.signatureAlgorithm ? ` (${snapshot.manifest.signatureAlgorithm})` : ''}`
+      : `v${snapshot.manifest.version} manifest is unsigned`
+    : 'No manifest served';
 
   // Onboarding steps. States are shown only where the snapshot can actually
   // determine them; the rest read as a plain action rather than a fake status.
   const steps = [
     { n: '1', label: 'Grant host access', href: '/devices', state: 'Open' },
-    { n: '2', label: 'Flash a board over USB', href: '/code', state: 'Open' },
+    { n: '2', label: 'Flash a board over USB', href: '/devices', state: 'Open' },
     {
       n: '3',
       label: 'Publish a signed release',
       href: '/releases',
-      state: snapshot.releases.length > 0 ? 'Done' : 'Not run',
+      state: publishedReleases.length > 0 ? 'Done' : 'Not run',
     },
     {
       n: '4',
@@ -198,24 +209,45 @@ export default function DashboardPage() {
     },
   ];
 
-  const metricsData = React.useMemo(() => {
-    const counts = weekLabels.map((label) => ({ name: label, successful: 0, failed: 0 }));
-    snapshot.events.forEach((event) => {
-      const row = counts.find((item) => item.name === weekLabels[event.timestamp.getDay()]);
-      if (!row) return;
-      if (event.severity === 'success') row.successful += 1;
-      else if (event.severity === 'error' || event.severity === 'warning') row.failed += 1;
+  // Deployment outcomes per UTC day for the last 7 days: targets confirmed
+  // and failed, bucketed by the day their deployment started.
+  const outcomeData = React.useMemo(() => {
+    const today = Math.floor(Date.now() / DAY_MS);
+    const rows = Array.from({ length: 7 }, (_, i) => {
+      const day = today - 6 + i;
+      return { day, name: formatUtcDate(new Date(day * DAY_MS)), confirmed: 0, failed: 0 };
     });
-    return counts;
-  }, [snapshot.events]);
+    snapshot.deployments.forEach((deployment) => {
+      const day = Math.floor(deployment.startedAt.getTime() / DAY_MS);
+      const row = rows.find((entry) => entry.day === day);
+      if (!row) return;
+      row.confirmed += deployment.successCount;
+      row.failed += deployment.failureCount;
+    });
+    return rows;
+  }, [snapshot.deployments]);
+  const hasOutcomes = outcomeData.some((row) => row.confirmed > 0 || row.failed > 0);
 
   const deviceStatusData = React.useMemo(
     () => [
       { name: 'Online', value: onlineCount, color: chartColors.success },
-      { name: 'Offline', value: offlineCount, color: chartColors.error },
       { name: 'Updating', value: updatingCount, color: chartColors.warning },
+      { name: 'Standby', value: standbyCount, color: chartColors.info },
+      { name: 'Offline', value: offlineOnlyCount, color: chartAxis.stroke },
+      { name: 'Error', value: errorCount, color: chartColors.error },
     ],
-    [offlineCount, onlineCount, updatingCount, chartColors.success, chartColors.error, chartColors.warning]
+    [
+      onlineCount,
+      updatingCount,
+      standbyCount,
+      offlineOnlyCount,
+      errorCount,
+      chartColors.success,
+      chartColors.warning,
+      chartColors.info,
+      chartColors.error,
+      chartAxis.stroke,
+    ]
   );
 
   return (
@@ -347,14 +379,15 @@ export default function DashboardPage() {
           dot={adoption.dot}
           hasHistory={adoption.hasHistory}
           behindNote={
-            needsUpdateCount > 0 ? `${needsUpdateCount} still need ${latestVersion}` : 'Whole fleet is current'
+            !latestVersion ? 'Nothing published yet' : needsUpdateCount > 0 ? `${needsUpdateCount} still need ${latestVersion}` : 'Whole fleet is current'
           }
         />
 
         <ReleasesTile
-          signed={snapshot.releases.length}
+          published={publishedReleases.length}
           capsules={capsules}
-          rotationNote={`${snapshot.keys.length} active key${snapshot.keys.length === 1 ? '' : 's'}`}
+          signatureNote={signatureNote}
+          rotationNote={`${snapshot.keys.filter((key) => key.active).length} signing key${snapshot.keys.filter((key) => key.active).length === 1 ? '' : 's'}`}
         />
       </div>
 
@@ -362,20 +395,28 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="glass border-border/50 lg:col-span-2">
           <CardHeader>
-            <CardTitle>Deployment Success Rate</CardTitle>
-            <CardDescription>Weekly firmware deployment performance</CardDescription>
+            <CardTitle>Deployment outcomes</CardTitle>
+            <CardDescription>
+              Devices confirmed and failed, by the day their deployment started (last 7 days, UTC)
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={metricsData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartAxis.grid} />
-                <XAxis dataKey="name" stroke={chartAxis.stroke} />
-                <YAxis stroke={chartAxis.stroke} />
-                <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
-                <Bar dataKey="successful" fill={chartColors.success} radius={[8, 8, 0, 0]} />
-                <Bar dataKey="failed" fill={chartColors.error} radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {hasOutcomes ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={outcomeData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartAxis.grid} />
+                  <XAxis dataKey="name" stroke={chartAxis.stroke} />
+                  <YAxis stroke={chartAxis.stroke} allowDecimals={false} />
+                  <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+                  <Bar dataKey="confirmed" name="Confirmed" fill={chartColors.success} radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="failed" name="Failed" fill={chartColors.error} radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="type-caption py-10 text-center" style={{ color: 'var(--app-ink2)' }}>
+                No deployments in the last 7 days.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -487,7 +528,7 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle>Latest Release</CardTitle>
             <CardDescription>
-              {latestRelease ? `Firmware v${latestRelease.version}` : 'No releases published yet'}
+              {latestRelease ? `Firmware v${latestRelease.version}` : 'No release is published'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -512,6 +553,9 @@ export default function DashboardPage() {
                 <div>
                   <p className="mb-2 text-xs text-foreground/50">Compatible Devices</p>
                   <div className="flex flex-wrap gap-2">
+                    {latestRelease.compatible.length === 0 && (
+                      <span className="text-sm text-foreground/70">All architectures</span>
+                    )}
                     {latestRelease.compatible.map((device) => (
                       <Badge key={device} variant="secondary" className="bg-primary/20 text-primary">
                         {device}

@@ -239,7 +239,7 @@ def latest_release_for_device_locked(device_type: str) -> dict[str, Any] | None:
     Must be called under STATE_LOCK.
     """
     for release in STATE.get('releases', []):
-        if str(release.get('status', 'published')) != 'published':
+        if not is_release_published(release):
             continue
 
         compatible = [str(entry) for entry in release.get('compatible', [])]
@@ -561,3 +561,140 @@ def create_release_locked(
     )
 
     return release, manifest, pipeline
+
+
+def is_release_published(release: dict[str, Any] | None) -> bool:
+    return bool(release) and str(release.get('status', 'published')) == 'published'
+
+
+def newest_published_release_locked() -> dict[str, Any] | None:
+    """Newest release that is still offered to devices. Must hold STATE_LOCK."""
+    for release in STATE.get('releases', []):
+        if is_release_published(release):
+            return release
+    return None
+
+
+def refresh_global_manifest_locked() -> dict[str, Any] | None:
+    """Point the global manifest at the newest published release.
+
+    The unidentified `/releases/latest/manifest` answer is served from
+    STATE['manifest'] and MANIFEST_FILE. After a release is archived (or
+    restored) both must follow, or a device that polls without identifying
+    itself would still be offered the archived image. With nothing published,
+    both are cleared and that endpoint returns 404.
+
+    Must be called under STATE_LOCK.
+    """
+    release = newest_published_release_locked()
+    current = STATE.get('manifest')
+    # The fast path in manifest_for_release_locked would hand back the current
+    # manifest when versions match; that is only right if it is still published.
+    if release is None:
+        manifest = None
+    elif isinstance(current, dict) and str(current.get('version', '')) == str(release.get('version', '')):
+        manifest = current
+    else:
+        STATE['manifest'] = None
+        manifest = manifest_for_release_locked(release)
+
+    STATE['manifest'] = manifest
+    if manifest:
+        with open(MANIFEST_FILE, 'w', encoding='utf-8') as manifest_file:
+            json.dump(manifest, manifest_file, indent=2)
+    else:
+        try:
+            MANIFEST_FILE.unlink()
+        except FileNotFoundError:
+            pass
+    return manifest
+
+
+def set_release_status_locked(release_id: str, status: str) -> dict[str, Any]:
+    """Archive or restore a release. Raises KeyError when it does not exist.
+
+    An archived release is kept (record and cached binary) so it can be
+    restored, but it is never offered: manifest selection, the deployment
+    endpoints and pending deployment targets all skip non-published releases.
+
+    Must be called under STATE_LOCK.
+    """
+    if status not in {'published', 'archived'}:
+        raise ValueError(f'Unsupported release status {status!r}.')
+
+    release = next((r for r in STATE.get('releases', []) if str(r.get('id')) == release_id), None)
+    if release is None:
+        raise KeyError(release_id)
+
+    release['status'] = status
+    if status == 'archived':
+        release['archivedAt'] = utc_now_iso()
+    else:
+        release.pop('archivedAt', None)
+
+    refresh_global_manifest_locked()
+    push_event_locked(
+        event_type='deployment',
+        severity='warning' if status == 'archived' else 'info',
+        title='Release Archived' if status == 'archived' else 'Release Restored',
+        description=(
+            f"Firmware v{release.get('version', 'unknown')} "
+            + ('is no longer offered to devices.' if status == 'archived' else 'is offered to devices again.')
+        ),
+    )
+    return release
+
+
+def rerun_pipeline_locked(release: dict[str, Any]) -> dict[str, Any]:
+    """Re-verify a published release's cached artifact, stage by stage.
+
+    Nothing is rebuilt (the gateway does not compile firmware). The re-run
+    reads the cached binary back, checks it against the checksum recorded at
+    publish time, and re-signs it to prove the signing key still works. Each
+    stage reports what it actually found. Must be called under STATE_LOCK.
+    """
+    started = datetime.now(timezone.utc)
+    stages: list[dict[str, Any]] = []
+
+    def _stage(name: str, begin: datetime, logs: str, status: str = 'success') -> None:
+        end = datetime.now(timezone.utc)
+        stages.append(
+            {
+                'name': name,
+                'status': status,
+                'startTime': begin.replace(microsecond=0).isoformat(),
+                'endTime': end.replace(microsecond=0).isoformat(),
+                'logs': logs,
+                'duration': (end - begin).total_seconds(),
+            }
+        )
+
+    assets = release.get('assets') or []
+    filename = str(assets[0].get('name', '')) if assets else ''
+    expected = str(assets[0].get('checksum', '')) if assets else ''
+
+    begin = datetime.now(timezone.utc)
+    path = safe_cache_path(filename) if filename else None
+    payload = b''
+    if not path or not path.is_file():
+        _stage('artifact', begin, f'Cached artifact {filename or "(none recorded)"} is missing.', status='failed')
+    else:
+        payload = path.read_bytes()
+        _stage('artifact', begin, f'Read {len(payload)} bytes from {path.name}.')
+
+    if payload:
+        begin = datetime.now(timezone.utc)
+        actual = sha256_bytes(payload)
+        if expected and actual != expected:
+            _stage('verify', begin, f'Integrity mismatch: cache sha256={actual}, recorded {expected}.', status='failed')
+        else:
+            _stage('verify', begin, f'sha256={actual} matches the value recorded at publish time.')
+
+        begin = datetime.now(timezone.utc)
+        try:
+            sign_firmware_payload(payload)
+            _stage('sign', begin, f'Artifact re-signed with {SIGNING_ALGORITHM} key {SIGNING_KEY_ID}.')
+        except Exception as error:  # noqa: BLE001 - reported as a failed stage
+            _stage('sign', begin, f'Signing failed: {error}', status='failed')
+
+    return build_pipeline(str(release.get('id')), stages, started)

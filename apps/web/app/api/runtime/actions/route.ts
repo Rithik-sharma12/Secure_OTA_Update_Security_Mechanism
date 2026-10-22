@@ -1,28 +1,23 @@
-import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { NextResponse } from 'next/server';
 import { withSecureApi } from '@/lib/api-security';
 import type { UserRole } from '@/lib/auth';
-import {
-  getDefaultRuntimeSettings,
-  getRuntimeActionsState,
-  updateRuntimeActionsState,
-  type RuntimeActionLogEntry,
-  type RuntimeGeneratedKey,
-  type RuntimeReport,
-  type RuntimeSettings,
-} from '@/lib/runtime-actions-state';
+import { gatewayHeaders, gatewayUrl, proxyGatewayJson } from '@/lib/gateway-proxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const REQUEST_TIMEOUT_MS = 5000;
-const gatewayUrl = (process.env.EDGE_GATEWAY_URL || 'http://localhost:5000').replace(/\/$/, '');
-const gatewayApiKey = process.env.EDGE_GATEWAY_API_KEY?.trim();
+/**
+ * The few console actions that are not a plain gateway proxy.
+ *
+ * Every action here does real work against the gateway. Anything else is
+ * refused with 400 rather than answered with a success it did not earn.
+ *
+ *   events.export    CSV of the gateway's event log
+ *   reports.export   CSV or JSON of devices, deployments or the audit trail
+ *   pipeline.rerun   re-verify a release's cached artifact (POST /api/pipeline/run)
+ */
 
-const manifestOverrideDir = path.resolve(process.cwd(), 'gateway_firmware_cache');
-const manifestOverridePath = path.join(manifestOverrideDir, 'manifest.override.json');
+const REQUEST_TIMEOUT_MS = 8000;
 
 function actionResponse(message: string, data?: unknown) {
   return NextResponse.json({ ok: true, message, data });
@@ -32,31 +27,20 @@ function actionError(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-function buildGatewayUrl(endpoint: string) {
-  const trimmed = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const url = `${gatewayUrl}${trimmed}`;
-  if (!gatewayApiKey) {
-    return url;
-  }
-
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}api_key=${encodeURIComponent(gatewayApiKey)}`;
-}
-
 async function fetchGatewayJson<T>(endpoint: string): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
   try {
-    const response = await fetch(buildGatewayUrl(endpoint), {
+    // The fleet key goes in a header from this server only; it is never put
+    // in a URL a browser could see.
+    const response = await fetch(`${gatewayUrl}${endpoint}`, {
+      headers: gatewayHeaders(),
       cache: 'no-store',
       signal: controller.signal,
     });
-
     if (!response.ok) {
       throw new Error(`Gateway ${endpoint} returned ${response.status}`);
     }
-
     return (await response.json()) as T;
   } finally {
     clearTimeout(timeout);
@@ -68,203 +52,57 @@ function asRecord(value: unknown) {
 }
 
 function csvEscape(value: unknown) {
-  const text = String(value ?? '');
-  if (/[",\n]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-
-  return text;
+  const text = value === null || value === undefined ? '' : String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function generateEventsCsv(events: Array<Record<string, unknown>>) {
-  const headers = ['id', 'timestamp', 'severity', 'type', 'title', 'description', 'deviceId'];
-  const rows = events.map((event) => [
-    csvEscape(event.id || ''),
-    csvEscape(event.timestamp || ''),
-    csvEscape(event.severity || ''),
-    csvEscape(event.type || ''),
-    csvEscape(event.title || ''),
-    csvEscape(event.description || ''),
-    csvEscape(event.deviceId || ''),
-  ].join(','));
-
-  return [headers.join(','), ...rows].join('\n');
+function toCsv(headers: string[], rows: Array<Record<string, unknown>>) {
+  return [headers.join(','), ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(','))].join('\n');
 }
 
-function createActionLog(action: string, message: string, userId?: string): RuntimeActionLogEntry {
-  return {
-    id: crypto.randomUUID(),
-    action,
-    message,
-    createdAt: new Date().toISOString(),
-    userId,
-  };
-}
+const DATASETS = {
+  devices: {
+    headers: ['id', 'arch', 'fw', 'status', 'ash', 'last_seen', 'ip', 'signalStrength', 'cpuUsage', 'memoryUsage', 'uptime', 'authMode', 'rollbackPending'],
+    async load() {
+      const payload = await fetchGatewayJson<{ devices?: unknown[] }>('/api/dashboard');
+      return (payload.devices || []).map(asRecord);
+    },
+  },
+  deployments: {
+    headers: ['id', 'version', 'releaseId', 'status', 'startedAt', 'completedAt', 'deadline', 'successCount', 'failureCount', 'pendingCount', 'cancelledCount', 'deviceIds'],
+    async load() {
+      const payload = await fetchGatewayJson<{ deployments?: unknown[] }>('/api/deployments');
+      return (payload.deployments || []).map(asRecord).map((row) => ({
+        ...row,
+        deviceIds: Array.isArray(row.deviceIds) ? row.deviceIds.join(' ') : '',
+      }));
+    },
+  },
+  audit: {
+    headers: ['id', 'timestamp', 'actor', 'sourceIp', 'method', 'path', 'status', 'action', 'detail', 'deviceId'],
+    async load() {
+      const payload = await fetchGatewayJson<{ entries?: unknown[] }>('/api/audit?limit=1000');
+      return (payload.entries || []).map(asRecord);
+    },
+  },
+} as const;
 
-function coerceBoolean(value: unknown, fallback: boolean) {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    if (value.toLowerCase() === 'true') return true;
-    if (value.toLowerCase() === 'false') return false;
-  }
-
-  return fallback;
-}
-
-function sanitizeSettings(settings: unknown): RuntimeSettings {
-  const input = asRecord(settings);
-  const defaults = getDefaultRuntimeSettings();
-
-  const timeout = Number(input.requestTimeoutSec);
-  const cacheSize = Number(input.cacheSizeMb);
-
-  return {
-    autoUpdateFirmware: coerceBoolean(input.autoUpdateFirmware, defaults.autoUpdateFirmware),
-    emailNotifications: coerceBoolean(input.emailNotifications, defaults.emailNotifications),
-    twoFactorAuth: coerceBoolean(input.twoFactorAuth, defaults.twoFactorAuth),
-    deviceTelemetry: coerceBoolean(input.deviceTelemetry, defaults.deviceTelemetry),
-    apiEndpoint: typeof input.apiEndpoint === 'string' && input.apiEndpoint.trim()
-      ? input.apiEndpoint.trim()
-      : defaults.apiEndpoint,
-    requestTimeoutSec: Number.isFinite(timeout) ? Math.max(5, Math.min(120, timeout)) : defaults.requestTimeoutSec,
-    cacheSizeMb: Number.isFinite(cacheSize) ? Math.max(100, Math.min(4096, cacheSize)) : defaults.cacheSizeMb,
-  };
-}
-
-function normalizeVersionTag(versionValue: unknown) {
-  const raw = String(versionValue || '').trim();
-  if (!raw) {
-    throw new Error('Version is required.');
-  }
-
-  const candidate = raw.startsWith('v') ? raw : `v${raw}`;
-  if (!/^v\d+\.\d+\.\d+$/.test(candidate)) {
-    throw new Error('Version must follow semantic format vX.Y.Z.');
-  }
-
-  return candidate;
-}
-
-async function resolveLatestFirmwareUrl() {
-  try {
-    const manifest = await fetchGatewayJson<Record<string, unknown>>('/releases/latest/manifest');
-    const filename = String(manifest.filename || '');
-    if (!filename) {
-      return null;
-    }
-
-    return buildGatewayUrl(`/releases/download/${encodeURIComponent(filename)}`);
-  } catch {
-    return null;
-  }
-}
-
-async function fetchGatewayEvents() {
-  try {
-    const payload = await fetchGatewayJson<{ events?: Array<Record<string, unknown>> }>('/api/events?limit=500');
-    return Array.isArray(payload.events) ? payload.events.map(asRecord) : [];
-  } catch {
-    return [];
-  }
-}
-
-function buildReportRecord(typeValue: unknown, formatValue: unknown, notesValue: unknown): RuntimeReport {
-  const reportType = String(typeValue || 'general').trim() || 'general';
-  const formatRaw = String(formatValue || 'PDF').toUpperCase();
-  const format = formatRaw === 'CSV' || formatRaw === 'JSON' ? formatRaw : 'PDF';
-  const notes = String(notesValue || '').trim();
-
-  const createdAt = new Date().toISOString();
-  const title = `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Report`;
-  const content = [
-    `Report: ${title}`,
-    `GeneratedAt: ${createdAt}`,
-    `Format: ${format}`,
-    notes ? `Notes: ${notes}` : 'Notes: n/a',
-  ].join('\n');
-
-  return {
-    id: crypto.randomUUID(),
-    title,
-    type: reportType,
-    format,
-    status: 'generated',
-    createdAt,
-    sizeBytes: Buffer.byteLength(content, 'utf-8'),
-    content,
-  };
-}
-
-function buildGeneratedKey(nameValue: unknown, typeValue: unknown): RuntimeGeneratedKey {
-  const name = String(nameValue || '').trim() || `Runtime Key ${new Date().toISOString()}`;
-  const normalizedType = String(typeValue || 'RSA').toUpperCase();
-  const type = normalizedType === 'ECDSA' || normalizedType === 'AES' ? normalizedType : 'RSA';
-
-  return {
-    id: crypto.randomUUID(),
-    name,
-    type,
-    keySize: type === 'AES' ? 256 : 2048,
-    createdAt: new Date().toISOString(),
-    active: true,
-    fingerprint: crypto.randomBytes(12).toString('hex').toUpperCase(),
-  };
-}
-
-async function saveManifestOverride(manifest: Record<string, unknown>) {
-  await fs.mkdir(manifestOverrideDir, { recursive: true });
-  await fs.writeFile(manifestOverridePath, JSON.stringify(manifest, null, 2), 'utf-8');
-}
-
-async function clearManifestOverride() {
-  try {
-    await fs.unlink(manifestOverridePath);
-  } catch {
-    // Ignore missing override file.
-  }
-}
+type DatasetName = keyof typeof DATASETS;
 
 /**
- * Per-action authorisation for the runtime action multiplexer.
- *
- * A single role gate on this route would be either too loose (a viewer saving
- * the manifest) or too tight (a viewer unable to export the events already on
- * their screen). The default is the strict one: anything not listed needs an
- * operator, and only the explicitly read-only actions are open to viewers.
+ * Per-action authorisation. Exports of what a viewer can already see are open
+ * to viewers; the audit trail names accounts and addresses, so it is
+ * operator-only (as GET /api/audit is). Re-running the pipeline is an
+ * operator action.
  */
-const VIEWER_ACTIONS = new Set([
-  'events.export',
-  'releases.download',
-  'reports.generate',
-  'reports.download',
-]);
-
-/** Mints secrets, rewrites platform settings, or is flagged destructive. */
-const ADMIN_ACTIONS = new Set(['keys.create', 'keys.inspect', 'settings.save', 'settings.reset']);
+const VIEWER_ACTIONS = new Set(['events.export', 'reports.export']);
+const OPERATOR_ACTIONS = new Set(['pipeline.rerun']);
 
 function rolePermitsAction(role: UserRole, action: string): boolean {
-  if (role === 'admin') {
-    return true;
+  if (role === 'admin' || role === 'operator') {
+    return VIEWER_ACTIONS.has(action) || OPERATOR_ACTIONS.has(action);
   }
-  if (action.startsWith('danger.') || ADMIN_ACTIONS.has(action)) {
-    return false;
-  }
-  return role === 'operator' || VIEWER_ACTIONS.has(action);
-}
-
-export async function GET(request: Request) {
-  return withSecureApi(
-    request,
-    'runtime.actions.get',
-    async () => {
-      const state = await getRuntimeActionsState();
-      return NextResponse.json({ ok: true, data: state });
-    },
-    { requireAuth: true }
-  );
+  return VIEWER_ACTIONS.has(action);
 }
 
 export async function POST(request: Request) {
@@ -276,10 +114,13 @@ export async function POST(request: Request) {
       const body = asRecord(payload);
       const action = String(body.action || '').trim();
       const actionPayload = asRecord(body.payload);
-      const userId = auth?.user.id;
 
       if (!action) {
         return actionError('Action is required.');
+      }
+
+      if (!VIEWER_ACTIONS.has(action) && !OPERATOR_ACTIONS.has(action)) {
+        return actionError(`Unsupported action '${action}'. The console has no backend for it.`, 400);
       }
 
       if (!rolePermitsAction(auth!.user.role, action)) {
@@ -287,314 +128,74 @@ export async function POST(request: Request) {
       }
 
       if (action === 'events.export') {
-        const fallbackEvents = Array.isArray(actionPayload.events)
-          ? actionPayload.events.map(asRecord)
-          : [];
-        const gatewayEvents = await fetchGatewayEvents();
-        const events = gatewayEvents.length > 0 ? gatewayEvents : fallbackEvents;
-
-        const csv = generateEventsCsv(events);
+        let events: Array<Record<string, unknown>>;
+        try {
+          const payload = await fetchGatewayJson<{ events?: unknown[] }>('/api/events?limit=500');
+          events = (payload.events || []).map(asRecord);
+        } catch (error) {
+          return actionError(error instanceof Error ? error.message : 'Could not read events from the gateway.', 502);
+        }
         return actionResponse('Event export is ready.', {
           filename: `event-logs-${new Date().toISOString().slice(0, 10)}.csv`,
           mimeType: 'text/csv;charset=utf-8',
-          content: csv,
+          content: toCsv(['id', 'timestamp', 'severity', 'type', 'title', 'description', 'deviceId'], events),
         });
       }
 
-      if (action === 'manifest.save') {
-        const manifestJson = String(actionPayload.manifestJson || '').trim();
-        if (!manifestJson) {
-          return actionError('Manifest content is empty.');
+      if (action === 'reports.export') {
+        const dataset = String(actionPayload.dataset || '') as DatasetName;
+        if (!(dataset in DATASETS)) {
+          return actionError('dataset must be one of devices, deployments, audit.');
+        }
+        const format = String(actionPayload.format || 'CSV').toUpperCase();
+        if (format !== 'CSV' && format !== 'JSON') {
+          return actionError('format must be CSV or JSON.');
+        }
+        if (dataset === 'audit' && auth!.user.role === 'viewer') {
+          return actionError('The audit trail is available to operators and admins.', 403);
         }
 
-        let parsedManifest: Record<string, unknown>;
+        let rows: Array<Record<string, unknown>>;
         try {
-          parsedManifest = asRecord(JSON.parse(manifestJson));
-        } catch {
-          return actionError('Manifest must be valid JSON.');
-        }
-
-        if (!Array.isArray(parsedManifest.entries)) {
-          return actionError('Manifest JSON must contain an entries array.');
-        }
-
-        await saveManifestOverride(parsedManifest);
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, 'Saved manifest override.', userId),
-          ],
-        }));
-
-        return actionResponse('Manifest saved successfully.');
-      }
-
-      if (action === 'manifest.reset') {
-        await clearManifestOverride();
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, 'Reset manifest override.', userId),
-          ],
-        }));
-
-        return actionResponse('Manifest reset to gateway default.');
-      }
-
-      if (action === 'releases.download') {
-        const directUrl = String(actionPayload.downloadUrl || '').trim();
-        const fileName = String(actionPayload.fileName || '').trim();
-
-        const resolvedUrl = directUrl
-          || (fileName ? buildGatewayUrl(`/releases/download/${encodeURIComponent(fileName)}`) : await resolveLatestFirmwareUrl());
-
-        if (!resolvedUrl) {
-          return actionError('Unable to resolve firmware download URL right now.', 503);
-        }
-
-        return actionResponse('Firmware download URL prepared.', {
-          downloadUrl: resolvedUrl,
-        });
-      }
-
-      if (action === 'releases.archive') {
-        const releaseId = String(actionPayload.releaseId || '').trim();
-        if (!releaseId) {
-          return actionError('releaseId is required for archive action.');
-        }
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          archivedReleaseIds: state.archivedReleaseIds.includes(releaseId)
-            ? state.archivedReleaseIds
-            : [...state.archivedReleaseIds, releaseId],
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, `Archived release ${releaseId}.`, userId),
-          ],
-        }));
-
-        return actionResponse('Release archived.', { releaseId });
-      }
-
-      if (action === 'settings.save') {
-        const settings = sanitizeSettings(actionPayload.settings);
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          settings,
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, 'Saved runtime settings.', userId),
-          ],
-        }));
-
-        return actionResponse('Settings saved.', { settings });
-      }
-
-      if (action === 'settings.reset') {
-        const defaults = getDefaultRuntimeSettings();
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          settings: defaults,
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, 'Reset runtime settings to defaults.', userId),
-          ],
-        }));
-
-        return actionResponse('Settings reset to defaults.', { settings: defaults });
-      }
-
-      if (action === 'reports.generate') {
-        const report = buildReportRecord(actionPayload.type, actionPayload.format, actionPayload.notes);
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          reports: [report, ...state.reports].slice(0, 100),
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, `Generated report ${report.title}.`, userId),
-          ],
-        }));
-
-        return actionResponse('Report generated.', { report });
-      }
-
-      if (action === 'reports.download') {
-        const reportId = String(actionPayload.reportId || '').trim();
-        if (!reportId) {
-          return actionError('reportId is required.');
-        }
-
-        const state = await getRuntimeActionsState();
-        const report = state.reports.find((item) => item.id === reportId);
-
-        if (!report) {
-          return actionError('Report not found.', 404);
-        }
-
-        const extension = report.format.toLowerCase();
-        return actionResponse('Report download prepared.', {
-          filename: `${report.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${extension}`,
-          mimeType: report.format === 'CSV' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8',
-          content: report.content,
-        });
-      }
-
-      if (action === 'simulator.launch') {
-        const name = String(actionPayload.name || '').trim() || '0';
-        const deviceType = String(actionPayload.deviceType || '0');
-        const firmwareVersion = String(actionPayload.firmwareVersion || '0');
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          simulator: {
-            name,
-            deviceType,
-            firmwareVersion,
-            status: 'stopped',
-            startedAt: null,
-            updatedAt: new Date().toISOString(),
-          },
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, `Launched simulator ${name}.`, userId),
-          ],
-        }));
-
-        return actionResponse('Simulation launched.', {
-          name,
-          deviceType,
-          firmwareVersion,
-          status: 'stopped',
-        });
-      }
-
-      if (action === 'simulator.control') {
-        const command = String(actionPayload.command || '').trim().toLowerCase();
-        if (!['pause', 'resume', 'restart', 'stop'].includes(command)) {
-          return actionError('Simulator command must be one of pause, resume, restart, stop.');
-        }
-
-        const state = await updateRuntimeActionsState((current) => {
-          const nextStatus = command === 'pause'
-            ? 'paused'
-            : command === 'stop'
-              ? 'stopped'
-              : 'running';
-
-          return {
-            ...current,
-            simulator: {
-              ...current.simulator,
-              status: nextStatus,
-              startedAt: command === 'restart' ? new Date().toISOString() : current.simulator.startedAt,
-              updatedAt: new Date().toISOString(),
-            },
-            actionLog: [
-              ...current.actionLog.slice(-199),
-              createActionLog(action, `Simulator command: ${command}.`, userId),
-            ],
-          };
-        });
-
-        return actionResponse(`Simulator ${command} command applied.`, {
-          simulator: state.simulator,
-        });
-      }
-
-      if (action === 'version.create-tag') {
-        let version: string;
-        try {
-          version = normalizeVersionTag(actionPayload.version);
+          rows = await DATASETS[dataset].load();
         } catch (error) {
-          return actionError(error instanceof Error ? error.message : 'Invalid version tag.');
+          return actionError(error instanceof Error ? error.message : 'Could not read data from the gateway.', 502);
         }
 
-        const notes = String(actionPayload.notes || '').trim();
-
-        await updateRuntimeActionsState((state) => {
-          if (state.tags.some((tag) => tag.version === version)) {
-            return state;
-          }
-
-          return {
-            ...state,
-            tags: [{ version, notes, createdAt: new Date().toISOString() }, ...state.tags].slice(0, 100),
-            actionLog: [
-              ...state.actionLog.slice(-199),
-              createActionLog(action, `Created release tag ${version}.`, userId),
-            ],
-          };
-        });
-
-        return actionResponse(`Release tag ${version} created.`, { version, notes });
-      }
-
-      if (action === 'keys.create') {
-        const generatedKey = buildGeneratedKey(actionPayload.name, actionPayload.type);
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          generatedKeys: [generatedKey, ...state.generatedKeys].slice(0, 100),
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, `Generated key ${generatedKey.name}.`, userId),
-          ],
-        }));
-
-        return actionResponse('Key generated.', { key: generatedKey });
-      }
-
-      if (action === 'keys.inspect') {
-        const recordId = String(actionPayload.recordId || '').trim();
-        if (!recordId) {
-          return actionError('recordId is required.');
-        }
-
-        const state = await getRuntimeActionsState();
-        const key = state.generatedKeys.find((item) => item.id === recordId);
-
-        if (!key) {
-          return actionError('Key not found.', 404);
-        }
-
-        await updateRuntimeActionsState((current) => ({
-          ...current,
-          actionLog: [
-            ...current.actionLog.slice(-199),
-            createActionLog(action, `Opened key ${key.name}.`, userId),
-          ],
-        }));
-
-        return actionResponse(`Opened ${key.name}.`, { key });
-      }
-
-      if (action === 'pipeline.control' || action === 'devices.action' || action === 'diagnostics.scan' || action === 'ash.scan' || action === 'tcv.save-config' || action.startsWith('danger.')) {
-        const actionSummary = String(actionPayload.command || actionPayload.name || actionPayload.deviceId || actionPayload.scope || 'completed');
-
-        await updateRuntimeActionsState((state) => ({
-          ...state,
-          actionLog: [
-            ...state.actionLog.slice(-199),
-            createActionLog(action, `${action} -> ${actionSummary}`, userId),
-          ],
-        }));
-
-        return actionResponse('Action executed successfully.', {
-          action,
-          summary: actionSummary,
-          executedAt: new Date().toISOString(),
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        const content = format === 'CSV'
+          ? toCsv([...DATASETS[dataset].headers], rows)
+          : JSON.stringify({ dataset, exportedAt: new Date().toISOString(), rows }, null, 2);
+        return actionResponse(`${rows.length} ${dataset} row(s) exported.`, {
+          filename: `${dataset}-${stamp}.${format.toLowerCase()}`,
+          mimeType: format === 'CSV' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8',
+          content,
+          rowCount: rows.length,
         });
       }
 
-      return actionError(`Unsupported action '${action}'.`, 404);
+      // pipeline.rerun
+      const releaseId = String(actionPayload.releaseId || '').trim();
+      if (releaseId && !/^[A-Za-z0-9_.-]{1,96}$/.test(releaseId)) {
+        return actionError('Invalid releaseId.');
+      }
+      const response = await proxyGatewayJson('Pipeline', '/api/pipeline/run', {
+        method: 'POST',
+        body: { releaseId: releaseId || null },
+        auth,
+      });
+      if (!response.ok) return response;
+      const result = asRecord(await response.json());
+      const pipeline = asRecord(result.pipeline);
+      const passed = pipeline.status === 'success';
+      return NextResponse.json(
+        {
+          ok: true,
+          message: passed ? 'Re-verification passed.' : 'Re-verification failed. See the stage logs.',
+          data: { pipeline },
+        },
+        { status: 200 }
+      );
     },
     { requireAuth: true }
   );

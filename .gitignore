@@ -87,3 +87,5 @@ gateway_keys/
 
 # Patches and bundles handed over from Claude sessions
 claude-gen/
+# go-online.cmd report
+deploy/last-run.log

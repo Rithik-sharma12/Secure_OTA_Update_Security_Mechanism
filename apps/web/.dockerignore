@@ -9,3 +9,8 @@ node_modules
 .env.*.local
 coverage
 dist
+# Local data and tests never belong in the image.
+.local-db
+.data
+tests
+tsconfig.tsbuildinfo

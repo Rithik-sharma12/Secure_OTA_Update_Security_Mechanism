@@ -26,10 +26,8 @@ export type Capability =
   | 'network.scan'
   /** Run an allowlisted shell command on the host. */
   | 'runtime.command'
-  /** Create or inspect signing key material. */
-  | 'keys.manage'
-  /** Change platform settings. */
-  | 'settings.write';
+  /** Archive or restore a release. */
+  | 'releases.manage';
 
 const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   'users.manage': ['admin'],
@@ -39,8 +37,7 @@ const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   'host.grant': ['admin', 'operator'],
   'network.scan': ['admin'],
   'runtime.command': ['admin'],
-  'keys.manage': ['admin'],
-  'settings.write': ['admin'],
+  'releases.manage': ['admin', 'operator'],
 };
 
 export function can(role: UserRole | null | undefined, capability: Capability): boolean {
@@ -50,20 +47,13 @@ export function can(role: UserRole | null | undefined, capability: Capability): 
 // ── Runtime actions ────────────────────────────────────────────────
 // Mirrors `rolePermitsAction` in app/api/runtime/actions/route.ts.
 
-const VIEWER_ACTIONS = new Set([
-  'events.export',
-  'releases.download',
-  'reports.generate',
-  'reports.download',
-]);
-
-const ADMIN_ACTIONS = new Set(['keys.create', 'keys.inspect', 'settings.save', 'settings.reset']);
+const VIEWER_ACTIONS = new Set(['events.export', 'reports.export']);
+const OPERATOR_ACTIONS = new Set(['pipeline.rerun']);
 
 export function canRunAction(role: UserRole | null | undefined, action: string): boolean {
   if (!role) return false;
-  if (role === 'admin') return true;
-  if (action.startsWith('danger.') || ADMIN_ACTIONS.has(action)) return false;
-  return role === 'operator' || VIEWER_ACTIONS.has(action);
+  if (role === 'admin' || role === 'operator') return VIEWER_ACTIONS.has(action) || OPERATOR_ACTIONS.has(action);
+  return VIEWER_ACTIONS.has(action);
 }
 
 /** One line explaining why an action is unavailable, for a tooltip or notice. */

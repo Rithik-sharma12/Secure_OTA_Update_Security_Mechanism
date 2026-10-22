@@ -4,14 +4,18 @@ import React from 'react';
 import { isLiveConnected, subscribeToGatewayChanges } from '@/lib/live-updates';
 import { apiFetch, clearAuthSession } from '@/lib/client-auth';
 import type {
+  AshDevice,
   Certificate,
   Deployment,
+  DeploymentTarget,
   Device,
   Event,
+  GatewayHostStats,
   Key,
   Manifest,
   Pipeline,
   Release,
+  SigningPublicKey,
 } from '@/lib/types';
 import { logger, errorTracker } from '@/lib/logger';
 
@@ -26,12 +30,20 @@ type RuntimeSnapshot = {
   generatedAt: string;
   connection: RuntimeConnection;
   devices: Device[];
+  /** Raw ASH score per device, straight from the gateway. */
+  ashDevices: AshDevice[];
+  /** Host stats of the machine the gateway runs on; null when not reported. */
+  piStats: GatewayHostStats | null;
+  /** Gateway alert lines, newest first. */
+  alerts: string[];
   events: Event[];
   releases: Release[];
   manifest: Manifest | null;
   pipeline: Pipeline | null;
   keys: Key[];
   certificates: Certificate[];
+  /** Public half of the gateway's signing key; null when it could not be read. */
+  signingKey: SigningPublicKey | null;
   deployments: Deployment[];
 };
 
@@ -44,44 +56,37 @@ const emptySnapshot: RuntimeSnapshot = {
     error: 'No runtime data loaded.',
   },
   devices: [],
+  ashDevices: [],
+  piStats: null,
+  alerts: [],
   events: [],
   releases: [],
   manifest: null,
   pipeline: null,
   keys: [],
   certificates: [],
+  signingKey: null,
   deployments: [],
 };
 
-function asDate(value: unknown) {
-  const parsed = new Date(value as string);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+/** A Date for a real timestamp, null for a missing or unparseable one. */
+function asDateOrNull(value: unknown): Date | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function asPipelineStageName(value: unknown): Pipeline['stages'][number]['name'] {
-  const normalized = String(value || 'deploy').toLowerCase();
-  return normalized === 'build' || normalized === 'test' || normalized === 'deploy' || normalized === 'verify'
-    ? normalized
-    : 'deploy';
+/** For fields the server only sends when it has a real timestamp. */
+function asDate(value: unknown): Date {
+  return asDateOrNull(value) ?? new Date(0);
 }
 
-function asPipelineStageStatus(value: unknown): Pipeline['stages'][number]['status'] {
-  const normalized = String(value || 'pending').toLowerCase();
-  return normalized === 'pending' || normalized === 'running' || normalized === 'success' || normalized === 'failed' || normalized === 'skipped'
-    ? normalized
-    : 'pending';
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
-function asKeyType(value: unknown): Key['type'] {
-  const normalized = String(value || 'RSA').toUpperCase();
-  return normalized === 'RSA' || normalized === 'ECDSA' || normalized === 'AES' ? normalized : 'RSA';
-}
-
-function asDeploymentStatus(value: unknown): Deployment['status'] {
-  const normalized = String(value || 'pending').toLowerCase();
-  return normalized === 'pending' || normalized === 'in-progress' || normalized === 'success' || normalized === 'failed' || normalized === 'partial'
-    ? normalized
-    : 'pending';
+function asList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function normalizeSnapshot(raw: unknown): RuntimeSnapshot {
@@ -91,163 +96,186 @@ function normalizeSnapshot(raw: unknown): RuntimeSnapshot {
 
   const payload = raw as Record<string, unknown>;
 
-  const devices = Array.isArray(payload.devices)
-    ? payload.devices.map((device) => {
-        const item = device as Record<string, unknown>;
+  const devices = asList(payload.devices).map((device) => {
+    const item = asRecord(device);
+    return {
+      id: String(item.id || ''),
+      name: String(item.name || item.id || ''),
+      type: String(item.type || 'Unknown') as Device['type'],
+      status: String(item.status || 'offline') as Device['status'],
+      reportedStatus: String(item.reportedStatus || ''),
+      firmwareVersion: String(item.firmwareVersion || 'unknown'),
+      latestVersion: String(item.latestVersion || item.firmwareVersion || 'unknown'),
+      lastSync: asDateOrNull(item.lastSync),
+      location: String(item.location || ''),
+      health: String(item.health || 'critical') as Device['health'],
+      ash: Number(item.ash || 0),
+      cpuUsage: Number(item.cpuUsage || 0),
+      memoryUsage: Number(item.memoryUsage || 0),
+      uptime: Number(item.uptime || 0),
+      signalStrength: item.signalStrength !== undefined ? Number(item.signalStrength) : undefined,
+      ip: typeof item.ip === 'string' ? item.ip : undefined,
+      authMode: typeof item.authMode === 'string' ? item.authMode : undefined,
+      rollbackPending: Boolean(item.rollbackPending),
+      ota: item.ota && typeof item.ota === 'object' ? (item.ota as Device['ota']) : undefined,
+    } satisfies Device;
+  });
+
+  const ashDevices = asList(payload.ashDevices).map((entry) => {
+    const item = asRecord(entry);
+    return { id: String(item.id || ''), score: Number(item.score || 0), status: String(item.status || '') };
+  });
+
+  const piRaw = payload.piStats ? asRecord(payload.piStats) : null;
+  const piStats = piRaw ? { ip: String(piRaw.ip || ''), temp: String(piRaw.temp || ''), load: String(piRaw.load || '') } : null;
+
+  const events = asList(payload.events).map((event) => {
+    const item = asRecord(event);
+    return {
+      id: String(item.id || ''),
+      timestamp: asDate(item.timestamp),
+      type: String(item.type || 'info') as Event['type'],
+      severity: String(item.severity || 'info') as Event['severity'],
+      title: String(item.title || 'Event'),
+      description: String(item.description || ''),
+      deviceId: item.deviceId ? String(item.deviceId) : undefined,
+    } satisfies Event;
+  });
+
+  const releases = asList(payload.releases).map((release) => {
+    const item = asRecord(release);
+    return {
+      id: String(item.id || ''),
+      version: String(item.version || ''),
+      releaseDate: asDate(item.releaseDate),
+      description: String(item.description || ''),
+      assets: asList(item.assets).map((asset) => {
+        const assetItem = asRecord(asset);
         return {
-          id: String(item.id || ''),
-          name: String(item.name || item.id || 'Unnamed device'),
-          type: String(item.type || 'ESP32') as Device['type'],
-          status: String(item.status || 'standby') as Device['status'],
-          firmwareVersion: String(item.firmwareVersion || 'unknown'),
-          latestVersion: String(item.latestVersion || item.firmwareVersion || 'unknown'),
-          lastSync: asDate(item.lastSync),
-          location: String(item.location || 'Unknown location'),
-          health: String(item.health || 'good') as Device['health'],
-          cpuUsage: Number(item.cpuUsage || 0),
-          memoryUsage: Number(item.memoryUsage || 0),
-          uptime: Number(item.uptime || 0),
-          signalStrength: item.signalStrength !== undefined ? Number(item.signalStrength) : undefined,
-          ip: typeof item.ip === 'string' ? item.ip : undefined,
-          authMode: typeof item.authMode === 'string' ? item.authMode : undefined,
-          rollbackPending: Boolean(item.rollbackPending),
-          ota: item.ota && typeof item.ota === 'object' ? (item.ota as Device['ota']) : undefined,
-        } satisfies Device;
-      })
-    : [];
+          id: String(assetItem.id || ''),
+          name: String(assetItem.name || ''),
+          size: Number(assetItem.size || 0),
+          checksum: String(assetItem.checksum || ''),
+          createdAt: asDate(assetItem.createdAt),
+        };
+      }),
+      compatible: asList(item.compatible).map((value) => String(value)),
+      changelog: String(item.changelog || ''),
+      downloadCount: Number(item.downloadCount || 0),
+      status: String(item.status || 'published') as Release['status'],
+      archivedAt: asDateOrNull(item.archivedAt) ?? undefined,
+      securePackage: typeof item.securePackage === 'boolean' ? item.securePackage : undefined,
+    } satisfies Release;
+  });
 
-  const events = Array.isArray(payload.events)
-    ? payload.events.map((event) => {
-        const item = event as Record<string, unknown>;
-        return {
-          id: String(item.id || ''),
-          timestamp: asDate(item.timestamp),
-          type: String(item.type || 'info') as Event['type'],
-          severity: String(item.severity || 'info') as Event['severity'],
-          title: String(item.title || 'Event'),
-          description: String(item.description || ''),
-          deviceId: item.deviceId ? String(item.deviceId) : undefined,
-        } satisfies Event;
-      })
-    : [];
-
-  const releases = Array.isArray(payload.releases)
-    ? payload.releases.map((release) => {
-        const item = release as Record<string, unknown>;
-        const assetsRaw = Array.isArray(item.assets) ? item.assets : [];
-
-        return {
-          id: String(item.id || ''),
-          version: String(item.version || 'unknown'),
-          releaseDate: asDate(item.releaseDate),
-          description: String(item.description || ''),
-          assets: assetsRaw.map((asset) => {
-            const assetItem = asset as Record<string, unknown>;
-            return {
-              id: String(assetItem.id || ''),
-              name: String(assetItem.name || ''),
-              size: Number(assetItem.size || 0),
-              checksum: String(assetItem.checksum || 'n/a'),
-              createdAt: asDate(assetItem.createdAt),
-            };
-          }),
-          compatible: (Array.isArray(item.compatible) ? item.compatible : []).map((value) => String(value)) as Release['compatible'],
-          changelog: String(item.changelog || ''),
-          downloadCount: Number(item.downloadCount || 0),
-          status: String(item.status || 'published') as Release['status'],
-        } satisfies Release;
-      })
-    : [];
-
-  const manifestRaw = payload.manifest as Record<string, unknown> | null | undefined;
+  const manifestRaw = payload.manifest ? asRecord(payload.manifest) : null;
   const manifest = manifestRaw
     ? ({
-        id: String(manifestRaw.id || 'manifest-live'),
-        releaseId: String(manifestRaw.releaseId || 'release-live'),
-        entries: (Array.isArray(manifestRaw.entries) ? manifestRaw.entries : []).map((entry) => {
-          const item = entry as Record<string, unknown>;
-          return {
-            device: String(item.device || 'ESP32') as Manifest['entries'][number]['device'],
-            version: String(item.version || 'unknown'),
-            checksum: String(item.checksum || 'n/a'),
-            size: Number(item.size || 0),
-            url: String(item.url || ''),
-          };
-        }),
-        createdAt: asDate(manifestRaw.createdAt),
-        signature: manifestRaw.signature ? String(manifestRaw.signature) : undefined,
+        version: String(manifestRaw.version || ''),
+        filename: String(manifestRaw.filename || ''),
+        sha256: String(manifestRaw.sha256 || ''),
+        size: Number(manifestRaw.size || 0),
+        signature: String(manifestRaw.signature || ''),
+        signatureAlgorithm: String(manifestRaw.signatureAlgorithm || ''),
+        signatureKeyId: String(manifestRaw.signatureKeyId || ''),
+        generatedAt: asDateOrNull(manifestRaw.generatedAt),
+        url: String(manifestRaw.url || ''),
+        compatible: asList(manifestRaw.compatible).map(String),
+        imageSha256: typeof manifestRaw.imageSha256 === 'string' ? manifestRaw.imageSha256 : undefined,
+        securePackage: manifestRaw.securePackage === true ? true : undefined,
+        raw: asRecord(manifestRaw.raw),
       } satisfies Manifest)
     : null;
 
-  const pipelineRaw = payload.pipeline as Record<string, unknown> | null | undefined;
+  const pipelineRaw = payload.pipeline ? asRecord(payload.pipeline) : null;
   const pipeline = pipelineRaw
     ? ({
-        id: String(pipelineRaw.id || 'pipeline-live'),
-        releaseId: String(pipelineRaw.releaseId || 'release-live'),
+        id: String(pipelineRaw.id || ''),
+        releaseId: String(pipelineRaw.releaseId || ''),
         createdAt: asDate(pipelineRaw.createdAt),
-        stages: (Array.isArray(pipelineRaw.stages) ? pipelineRaw.stages : []).map((stage) => {
-          const item = stage as Record<string, unknown>;
+        stages: asList(pipelineRaw.stages).map((stage) => {
+          const item = asRecord(stage);
           return {
             id: String(item.id || ''),
-            name: asPipelineStageName(item.name),
-            status: asPipelineStageStatus(item.status),
-            startTime: item.startTime ? asDate(item.startTime) : undefined,
-            endTime: item.endTime ? asDate(item.endTime) : undefined,
+            name: String(item.name || ''),
+            status: String(item.status || 'pending') as Pipeline['stages'][number]['status'],
+            startTime: asDateOrNull(item.startTime) ?? undefined,
+            endTime: asDateOrNull(item.endTime) ?? undefined,
             logs: String(item.logs || ''),
             duration: item.duration !== undefined ? Number(item.duration) : undefined,
           };
         }),
-        status: asPipelineStageStatus(pipelineRaw.status),
+        status: String(pipelineRaw.status || 'pending') as Pipeline['status'],
         totalDuration: Number(pipelineRaw.totalDuration || 0),
       } satisfies Pipeline)
     : null;
 
-  const keys = Array.isArray(payload.keys)
-    ? payload.keys.map((key) => {
-        const item = key as Record<string, unknown>;
-        return {
-          id: String(item.id || ''),
-          name: String(item.name || 'Unnamed key'),
-          type: asKeyType(item.type),
-          keySize: Number(item.keySize || 0),
-          createdAt: asDate(item.createdAt),
-          expiresAt: item.expiresAt ? asDate(item.expiresAt) : undefined,
-          active: item.active === undefined ? true : Boolean(item.active),
-        } satisfies Key;
-      })
-    : [];
+  const keys = asList(payload.keys).map((key) => {
+    const item = asRecord(key);
+    return {
+      id: String(item.id || ''),
+      name: String(item.name || ''),
+      type: String(item.type || ''),
+      keySize: Number(item.keySize || 0),
+      createdAt: asDate(item.createdAt),
+      expiresAt: asDateOrNull(item.expiresAt) ?? undefined,
+      active: item.active === undefined ? true : Boolean(item.active),
+    } satisfies Key;
+  });
 
-  const certificates = Array.isArray(payload.certificates)
-    ? payload.certificates.map((certificate) => {
-        const item = certificate as Record<string, unknown>;
-        return {
-          id: String(item.id || ''),
-          name: String(item.name || 'Unnamed certificate'),
-          issuer: String(item.issuer || 'Unknown issuer'),
-          subject: String(item.subject || 'Unknown subject'),
-          validFrom: asDate(item.validFrom),
-          validTo: asDate(item.validTo),
-          fingerprint: String(item.fingerprint || 'n/a'),
-        } satisfies Certificate;
-      })
-    : [];
+  const certificates = asList(payload.certificates).map((certificate) => {
+    const item = asRecord(certificate);
+    return {
+      id: String(item.id || ''),
+      name: String(item.name || ''),
+      issuer: String(item.issuer || ''),
+      subject: String(item.subject || ''),
+      validFrom: asDate(item.validFrom),
+      validTo: asDateOrNull(item.validTo) ?? undefined,
+      fingerprint: String(item.fingerprint || ''),
+    } satisfies Certificate;
+  });
 
-  const deployments = Array.isArray(payload.deployments)
-    ? payload.deployments.map((deployment) => {
-        const item = deployment as Record<string, unknown>;
-        return {
-          id: String(item.id || ''),
-          releaseId: String(item.releaseId || ''),
-          deviceIds: (Array.isArray(item.deviceIds) ? item.deviceIds : []).map((value) => String(value)),
-          status: asDeploymentStatus(item.status),
-          startedAt: asDate(item.startedAt),
-          completedAt: item.completedAt ? asDate(item.completedAt) : undefined,
-          successCount: Number(item.successCount || 0),
-          failureCount: Number(item.failureCount || 0),
-          logs: String(item.logs || ''),
-        } satisfies Deployment;
-      })
-    : [];
+  const signingRaw = payload.signingKey ? asRecord(payload.signingKey) : null;
+  const signingKey = signingRaw && typeof signingRaw.publicKeyPem === 'string'
+    ? {
+        algorithm: String(signingRaw.algorithm || ''),
+        keyId: String(signingRaw.keyId || ''),
+        fingerprint: String(signingRaw.fingerprint || ''),
+        publicKeyPem: signingRaw.publicKeyPem,
+      }
+    : null;
+
+  const deployments = asList(payload.deployments).map((deployment) => {
+    const item = asRecord(deployment);
+    const targets: Record<string, DeploymentTarget> = {};
+    Object.entries(asRecord(item.targets)).forEach(([deviceId, target]) => {
+      const record = asRecord(target);
+      targets[deviceId] = {
+        state: String(record.state || 'pending') as DeploymentTarget['state'],
+        reason: record.reason ? String(record.reason) : null,
+        fromVersion: record.fromVersion ? String(record.fromVersion) : null,
+        confirmedAt: asDateOrNull(record.confirmedAt),
+      };
+    });
+    return {
+      id: String(item.id || ''),
+      releaseId: String(item.releaseId || ''),
+      version: String(item.version || ''),
+      deviceIds: asList(item.deviceIds).map((value) => String(value)),
+      targets,
+      status: String(item.status || 'pending') as Deployment['status'],
+      startedAt: asDate(item.startedAt),
+      completedAt: asDateOrNull(item.completedAt) ?? undefined,
+      deadline: asDateOrNull(item.deadline) ?? undefined,
+      successCount: Number(item.successCount || 0),
+      failureCount: Number(item.failureCount || 0),
+      pendingCount: Number(item.pendingCount || 0),
+      cancelledCount: Number(item.cancelledCount || 0),
+      retryOf: item.retryOf ? String(item.retryOf) : undefined,
+      logs: String(item.logs || ''),
+    } satisfies Deployment;
+  });
 
   const connectionRaw = payload.connection as Record<string, unknown> | undefined;
 
@@ -260,12 +288,16 @@ function normalizeSnapshot(raw: unknown): RuntimeSnapshot {
       error: connectionRaw?.error ? String(connectionRaw.error) : null,
     },
     devices,
+    ashDevices,
+    piStats,
+    alerts: asList(payload.alerts).map(String),
     events,
     releases,
     manifest,
     pipeline,
     keys,
     certificates,
+    signingKey,
     deployments,
   };
 }

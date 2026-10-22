@@ -2,6 +2,7 @@ import net from 'node:net';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { OPERATOR_ROLES, withSecureApi } from '@/lib/api-security';
+import { gatewayHeaders, gatewayUrl } from '@/lib/gateway-proxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -64,12 +65,9 @@ async function probeTcp(host: string, port: number, timeoutMs: number) {
 }
 
 async function fetchLatestGatewayVersion() {
-  const gatewayUrl = (process.env.EDGE_GATEWAY_URL || 'http://localhost:5000').replace(/\/$/, '');
-  const gatewayApiKey = process.env.EDGE_GATEWAY_API_KEY?.trim();
-  const manifestUrl = `${gatewayUrl}/releases/latest/manifest${gatewayApiKey ? `?api_key=${encodeURIComponent(gatewayApiKey)}` : ''}`;
-
   try {
-    const response = await fetch(manifestUrl, { cache: 'no-store' });
+    // Key in a header, never in the URL, where proxies and logs would keep it.
+    const response = await fetch(`${gatewayUrl}/releases/latest/manifest`, { headers: gatewayHeaders(), cache: 'no-store' });
     if (!response.ok) {
       return null;
     }

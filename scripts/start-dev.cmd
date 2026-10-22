@@ -21,7 +21,7 @@ if defined PID3000 (
 
 echo Starting the SecureOTA dashboard on http://localhost:3000 ...
 echo Keep this window open. Press Ctrl+C to stop.
-if not exist "node_modules" (
+if not exist "node_modules\next\dist\bin\next" (
   echo Installing dependencies first...
   call npm install
 )
@@ -33,6 +33,14 @@ if errorlevel 1 (
   start "SecureOTA gateway" cmd /k call "%~dp0start-gateway.cmd"
 ) else (
   echo The gateway is already running on port 5000.
+)
+rem Start the USB flashing agent too, unless it is already listening on 17317.
+%SystemRoot%\System32\netstat.exe -ano | findstr /R /C:"127.0.0.1:17317 .*LISTENING" >nul
+if errorlevel 1 (
+  echo Opening the USB agent in a third window...
+  start "SecureOTA USB agent" cmd /k call "%~dp0start-agent.cmd"
+) else (
+  echo The USB agent is already running on port 17317.
 )
 call npm run dev
 pause

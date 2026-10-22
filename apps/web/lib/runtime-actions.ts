@@ -12,7 +12,6 @@ export type RuntimeDownloadPayload = {
   filename?: string;
   mimeType?: string;
   content?: string;
-  downloadUrl?: string;
 };
 
 async function parseJsonSafe(response: Response) {
@@ -46,27 +45,8 @@ export async function executeRuntimeAction<T = unknown>(action: string, payload:
   return body;
 }
 
-export async function fetchRuntimeActionState<T = unknown>() {
-  const response = await apiFetch('/api/runtime/actions', { cache: 'no-store' });
-  const body = (await parseJsonSafe(response)) as RuntimeActionResult<T> | null;
-
-  if (!response.ok || !body?.ok) {
-    const errorMsg = body?.error || body?.message || 'Unable to load runtime action state.';
-    logger.error('RuntimeActions', 'Failed to load runtime action state', { responseStatus: response.status, errorBody: body });
-    errorTracker.track(new Error(errorMsg), 'RuntimeActions:FetchState');
-    throw new Error(errorMsg);
-  }
-
-  return body;
-}
-
 export function downloadRuntimePayload(payload: RuntimeDownloadPayload) {
   if (typeof window === 'undefined') {
-    return;
-  }
-
-  if (payload.downloadUrl) {
-    window.open(payload.downloadUrl, '_blank', 'noopener,noreferrer');
     return;
   }
 
@@ -74,7 +54,10 @@ export function downloadRuntimePayload(payload: RuntimeDownloadPayload) {
   const mimeType = payload.mimeType || 'text/plain;charset=utf-8';
   const filename = payload.filename || `download-${Date.now()}.txt`;
 
-  const blob = new Blob([content], { type: mimeType });
+  saveBlob(new Blob([content], { type: mimeType }), filename);
+}
+
+function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -83,4 +66,18 @@ export function downloadRuntimePayload(payload: RuntimeDownloadPayload) {
   anchor.click();
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Download a release's firmware binary through the console's own server
+ * route. The server fetches it from the gateway with the fleet key; the key
+ * never reaches the browser.
+ */
+export async function downloadReleaseFile(filename: string) {
+  const response = await apiFetch(`/api/firmware/download?file=${encodeURIComponent(filename)}`, { cache: 'no-store' });
+  if (!response.ok) {
+    const body = (await parseJsonSafe(response)) as { error?: string } | null;
+    throw new Error(body?.error || `Download failed (${response.status}).`);
+  }
+  saveBlob(await response.blob(), filename);
 }

@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os';
 import { NextResponse } from 'next/server';
 import type { AuthContext } from '@/lib/auth';
 import { logger } from '@/lib/logger';
@@ -18,12 +19,50 @@ const gatewayApiKey = process.env.EDGE_GATEWAY_API_KEY?.trim();
  * EDGE_GATEWAY_URL, which may be a Docker-internal name (http://gateway:5000)
  * no board on the internet can resolve.
  */
-export const deviceGatewayUrl = (
-  process.env.OTA_DEVICE_GATEWAY_URL ||
-  process.env.OTA_GATEWAY_PUBLIC_URL ||
-  process.env.EDGE_GATEWAY_URL ||
-  ''
-).replace(/\/$/, '');
+export const deviceGatewayUrl = boardReachable(
+  (process.env.OTA_DEVICE_GATEWAY_URL || process.env.OTA_GATEWAY_PUBLIC_URL || process.env.EDGE_GATEWAY_URL || '').replace(
+    /\/$/,
+    ''
+  )
+);
+
+/**
+ * In local development EDGE_GATEWAY_URL is http://localhost:5000, which is
+ * the board itself once it is on Wi-Fi. When the console and the gateway run
+ * on the same computer, hand boards that computer's LAN address instead.
+ * Docker-internal names (http://gateway:5000) are left alone: set
+ * OTA_DEVICE_GATEWAY_URL for those deployments.
+ */
+function boardReachable(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  if (!/^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])$/i.test(parsed.hostname)) return url;
+  const lan = lanIPv4();
+  if (!lan) return url;
+  parsed.hostname = lan;
+  return parsed.toString().replace(/\/$/, '');
+}
+
+function lanIPv4(): string | null {
+  const candidates: string[] = [];
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.')) candidates.push(entry.address);
+    }
+  }
+  // Prefer the usual private ranges a board on the same Wi-Fi can reach.
+  return (
+    candidates.find((ip) => ip.startsWith('192.168.')) ??
+    candidates.find((ip) => ip.startsWith('10.')) ??
+    candidates.find((ip) => /^172\.(1[6-9]|2\d|3[01])\./.test(ip)) ??
+    candidates[0] ??
+    null
+  );
+}
 
 const TIMEOUT_MS = 15_000;
 

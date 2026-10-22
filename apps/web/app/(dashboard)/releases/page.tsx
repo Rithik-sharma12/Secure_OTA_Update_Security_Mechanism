@@ -3,14 +3,17 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, Plus, Archive, Eye, Package } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Download, Plus, Archive, ArchiveRestore, Eye, Package } from 'lucide-react';
 import { EmptyState, SkeletonRows } from '@/components/ui/empty-state';
-import { formatNumber, formatUtcDate } from '@/lib/formatters';
+import { formatBytes, formatNumber, formatUtcDate, formatUtcDateTime } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { PublishFirmwareCard } from '@/components/dashboard/publish-firmware-card';
-import { downloadRuntimePayload, executeRuntimeAction, fetchRuntimeActionState, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
+import { downloadReleaseFile } from '@/lib/runtime-actions';
+import { apiFetch } from '@/lib/client-auth';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useCurrentUser } from '@/lib/use-current-user';
+import { StatGrid, StatTile } from '@/components/ui/stat-tile';
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -25,54 +28,39 @@ function getStatusColor(status: string) {
   }
 }
 
+async function setReleaseArchived(releaseId: string, archived: boolean) {
+  const response = await apiFetch(`/api/releases/${encodeURIComponent(releaseId)}/${archived ? 'archive' : 'unarchive'}`, {
+    method: 'POST',
+  });
+  const body = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+  if (!response.ok || !body?.ok) {
+    throw new Error(body?.error || `The gateway refused the request (${response.status}).`);
+  }
+}
+
 export default function ReleasesPage() {
   const { can, reasonFor } = useCurrentUser();
-  const mayArchive = can('firmware.publish');
+  const mayArchive = can('releases.manage');
   const { snapshot, isLoading, refresh } = useRuntimeSnapshot();
   const publishRef = React.useRef<HTMLDivElement>(null);
-  const [archivedReleaseIds, setArchivedReleaseIds] = React.useState<string[]>([]);
-  const [selectedReleaseId, setSelectedReleaseId] = React.useState<string | null>(null);
+  const [detailReleaseId, setDetailReleaseId] = React.useState<string | null>(null);
   const [busyReleaseId, setBusyReleaseId] = React.useState<string | null>(null);
   const [actionMessage, setActionMessage] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const releases = snapshot.releases;
+  const detailRelease = releases.find((release) => release.id === detailReleaseId) || null;
 
-  React.useEffect(() => {
-    const loadState = async () => {
-      try {
-        const response = await fetchRuntimeActionState<{ archivedReleaseIds?: string[] }>();
-        setArchivedReleaseIds(response.data?.archivedReleaseIds || []);
-      } catch {
-        setArchivedReleaseIds([]);
-      }
-    };
-
-    void loadState();
-  }, []);
-
-  const getReleaseStatus = (releaseId: string, fallbackStatus: string) => {
-    if (archivedReleaseIds.includes(releaseId)) {
-      return 'archived';
+  const handleDownload = async (releaseId: string, fileName: string | undefined) => {
+    if (!fileName) {
+      setActionError('This release has no stored file to download.');
+      return;
     }
-
-    return fallbackStatus;
-  };
-
-  const handleDownload = async (releaseId: string, fileName?: string) => {
     setBusyReleaseId(releaseId);
     setActionError(null);
     setActionMessage(null);
-
     try {
-      const response = await executeRuntimeAction<RuntimeDownloadPayload>('releases.download', {
-        fileName,
-      });
-
-      if (response.data) {
-        downloadRuntimePayload(response.data);
-      }
-
-      setActionMessage(response.message || 'Firmware download is ready.');
+      await downloadReleaseFile(fileName);
+      setActionMessage(`Downloaded ${fileName}.`);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Failed to download release asset.');
     } finally {
@@ -80,29 +68,26 @@ export default function ReleasesPage() {
     }
   };
 
-  const handleArchive = async (releaseId: string) => {
+  const handleArchive = async (releaseId: string, version: string, archived: boolean) => {
     setBusyReleaseId(releaseId);
     setActionError(null);
     setActionMessage(null);
-
     try {
-      const response = await executeRuntimeAction('releases.archive', { releaseId });
-      setArchivedReleaseIds((current) => (current.includes(releaseId) ? current : [...current, releaseId]));
-      setActionMessage(response.message || `Release ${releaseId} archived.`);
+      await setReleaseArchived(releaseId, archived);
+      setActionMessage(
+        archived
+          ? `v${version} archived. Devices are no longer offered it.`
+          : `v${version} restored. Devices are offered it again.`
+      );
+      await refresh();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to archive release.');
+      setActionError(error instanceof Error ? error.message : 'Unable to change the release.');
     } finally {
       setBusyReleaseId(null);
     }
   };
 
-  const handleView = (releaseId: string) => {
-    setSelectedReleaseId(releaseId);
-    setActionError(null);
-    setActionMessage(`Selected release ${releaseId} for detailed inspection.`);
-  };
-
-  const publishedCount = releases.filter((release) => getReleaseStatus(release.id, release.status) === 'published').length;
+  const publishedCount = releases.filter((release) => release.status === 'published').length;
   const totalDownloads = releases.reduce((sum, release) => sum + release.downloadCount, 0);
 
   return (
@@ -126,6 +111,18 @@ export default function ReleasesPage() {
       </div>
       {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
       {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
+
+      {/* Summary */}
+      <StatGrid columns={3}>
+        <StatTile label="Releases" value={releases.length} hint="Including archived" />
+        <StatTile
+          label="Published"
+          value={publishedCount}
+          tone={publishedCount > 0 ? 'good' : 'neutral'}
+          hint={publishedCount > 0 ? 'Offered to compatible boards' : 'Publish a build to start OTA'}
+        />
+        <StatTile label="Downloads" value={formatNumber(totalDownloads)} hint="Firmware fetched by boards" />
+      </StatGrid>
 
       {/* Upload a compiled .bin and publish it as the latest release */}
       <div ref={publishRef}>
@@ -153,14 +150,12 @@ export default function ReleasesPage() {
         )}
 
         {releases.map((release) => {
-          const status = getReleaseStatus(release.id, release.status);
+          const status = release.status;
           const isBusy = busyReleaseId === release.id;
           return (
           <Card
             key={release.id}
-            className={`glass border-border/50 hover:border-border/80 transition-colors ${
-              selectedReleaseId === release.id ? 'ring-1 ring-primary/40' : ''
-            }`}
+            className="glass border-border/50 hover:border-border/80 transition-colors"
           >
             <CardContent className="pt-6">
               <div className="flex items-start justify-between mb-4">
@@ -204,6 +199,9 @@ export default function ReleasesPage() {
                   <div className="mb-4">
                     <p className="text-xs text-foreground/50 mb-2">Compatible Devices</p>
                     <div className="flex flex-wrap gap-2">
+                      {release.compatible.length === 0 && (
+                        <span className="text-xs text-foreground/60">All architectures</span>
+                      )}
                       {release.compatible.map((device) => (
                         <Badge
                           key={device}
@@ -230,8 +228,8 @@ export default function ReleasesPage() {
                   <Button
                     size="sm"
                     className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                    onClick={() => void handleDownload(release.id)}
-                    disabled={isBusy}
+                    onClick={() => void handleDownload(release.id, release.assets[0]?.name)}
+                    disabled={isBusy || release.assets.length === 0}
                   >
                     <Download className="w-4 h-4 mr-1" />
                     {isBusy ? 'Working...' : 'Download'}
@@ -240,7 +238,7 @@ export default function ReleasesPage() {
                     size="sm"
                     variant="outline"
                     className="border-border"
-                    onClick={() => handleView(release.id)}
+                    onClick={() => setDetailReleaseId(release.id)}
                   >
                     <Eye className="w-4 h-4 mr-1" />
                     View
@@ -250,12 +248,25 @@ export default function ReleasesPage() {
                       size="sm"
                       variant="outline"
                       className="border-border"
-                      onClick={() => void handleArchive(release.id)}
+                      onClick={() => void handleArchive(release.id, release.version, true)}
                       disabled={isBusy || !mayArchive}
-                      title={mayArchive ? undefined : reasonFor('firmware.publish')}
+                      title={mayArchive ? 'Stop offering this release to devices' : reasonFor('releases.manage')}
                     >
                       <Archive className="w-4 h-4 mr-1" />
                       Archive
+                    </Button>
+                  )}
+                  {status === 'archived' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-border"
+                      onClick={() => void handleArchive(release.id, release.version, false)}
+                      disabled={isBusy || !mayArchive}
+                      title={mayArchive ? 'Offer this release to devices again' : reasonFor('releases.manage')}
+                    >
+                      <ArchiveRestore className="w-4 h-4 mr-1" />
+                      Restore
                     </Button>
                   )}
                 </div>
@@ -271,7 +282,7 @@ export default function ReleasesPage() {
                         <div>
                           <p className="text-foreground font-medium">{asset.name}</p>
                           <p className="text-foreground/50">
-                            {(asset.size / 1024).toFixed(2)} KB • SHA256: {asset.checksum.substring(0, 8)}...
+                            {formatBytes(asset.size)} · SHA-256 {asset.checksum ? `${asset.checksum.substring(0, 12)}...` : 'not recorded'}
                           </p>
                         </div>
                         <Button
@@ -294,21 +305,62 @@ export default function ReleasesPage() {
         })}
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { label: 'Total Releases', value: releases.length, color: 'bg-chart-2/20 text-chart-2' },
-          { label: 'Published', value: publishedCount, color: 'bg-chart-1/20 text-chart-1' },
-          { label: 'Total Downloads', value: formatNumber(totalDownloads), color: 'bg-primary/20 text-primary' },
-        ].map((stat) => (
-          <Card key={stat.label} className="glass border-border/50">
-            <CardContent className="pt-6">
-              <p className="text-sm text-foreground/70 mb-1">{stat.label}</p>
-              <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Dialog open={detailRelease !== null} onOpenChange={(open) => !open && setDetailReleaseId(null)}>
+        <DialogContent className="max-w-2xl">
+          {detailRelease && (
+            <>
+              <DialogHeader>
+                <DialogTitle>v{detailRelease.version}</DialogTitle>
+                <DialogDescription>{detailRelease.description || 'No description.'}</DialogDescription>
+              </DialogHeader>
+              <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-foreground/50">Status</dt>
+                  <dd className="capitalize">
+                    {detailRelease.status}
+                    {detailRelease.archivedAt ? ` since ${formatUtcDateTime(detailRelease.archivedAt)} UTC` : ''}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-foreground/50">Created</dt>
+                  <dd>{detailRelease.releaseDate.getTime() > 0 ? `${formatUtcDateTime(detailRelease.releaseDate)} UTC` : 'Not recorded'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-foreground/50">Compatible</dt>
+                  <dd>{detailRelease.compatible.length > 0 ? detailRelease.compatible.join(', ') : 'All architectures'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-foreground/50">Package</dt>
+                  <dd>{detailRelease.securePackage ? 'Encrypted package' : 'Plain image'}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-foreground/50">Downloads from the gateway</dt>
+                  <dd>{formatNumber(detailRelease.downloadCount)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-foreground/50">Release id</dt>
+                  <dd className="break-all font-mono text-xs">{detailRelease.id}</dd>
+                </div>
+              </dl>
+              {detailRelease.assets.map((asset) => (
+                <div key={asset.id} className="space-y-1 rounded-lg bg-muted/30 p-3 text-sm">
+                  <p className="font-medium">{asset.name || 'Unnamed file'}</p>
+                  <p className="text-xs text-foreground/60">{formatBytes(asset.size)}</p>
+                  <p className="break-all font-mono text-xs text-foreground/70">SHA-256 {asset.checksum || 'not recorded'}</p>
+                </div>
+              ))}
+              {detailRelease.changelog && (
+                <div>
+                  <p className="mb-1 text-xs text-foreground/50">Notes</p>
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/30 p-3 font-mono text-xs">
+                    {detailRelease.changelog}
+                  </pre>
+                </div>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

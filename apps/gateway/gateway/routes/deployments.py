@@ -17,6 +17,7 @@ from ..deployment import (
     retry_targets,
 )
 from ..models import DeploymentCreatePayload
+from ..release import is_release_published
 from ..state import (
     STATE,
     STATE_LOCK,
@@ -54,12 +55,17 @@ def create_deployment(payload: DeploymentCreatePayload, request: Request, _auth:
         if not releases:
             raise HTTPException(status_code=404, detail='No releases available for deployment.')
 
-        selected_release = releases[0]
         if payload.releaseId:
             match = next((release for release in releases if release.get('id') == payload.releaseId), None)
             if not match:
                 raise HTTPException(status_code=404, detail=f'Release {payload.releaseId} not found.')
+            if not is_release_published(match):
+                raise HTTPException(status_code=409, detail=f'Release {payload.releaseId} is archived. Restore it before deploying.')
             selected_release = match
+        else:
+            selected_release = next((release for release in releases if is_release_published(release)), None)
+            if not selected_release:
+                raise HTTPException(status_code=404, detail='No published release available for deployment.')
 
         if payload.deviceIds:
             target_device_ids = [str(device_id) for device_id in payload.deviceIds]
@@ -120,6 +126,8 @@ def retry_deployment(deployment_id: str, request: Request, _auth: None = Depends
         release = next((r for r in STATE.get('releases', []) if r.get('id') == previous.get('releaseId')), None)
         if not release:
             raise HTTPException(status_code=404, detail='The release of that deployment no longer exists.')
+        if not is_release_published(release):
+            raise HTTPException(status_code=409, detail='The release of that deployment is archived.')
         deployment = create_deployment_locked(release, device_ids)
         deployment['retryOf'] = deployment_id
         STATE['updatedAt'] = utc_now_iso()

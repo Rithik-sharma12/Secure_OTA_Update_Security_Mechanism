@@ -114,6 +114,29 @@ docker compose -f docker-compose.cloud.yml \
   --env-file Secure_OTA_Update_Security_Mechanism/.env.docker up -d
 ```
 
+### Publish the latest local changes
+
+The public dashboard is the same Docker stack running on the deployment
+computer, exposed through the Cloudflare Tunnel. It does not automatically
+read files from a developer machine. After changing the web or gateway code,
+run the platform's online command from the repository root:
+
+```bat
+scripts\go-online.cmd sync
+```
+
+This rebuilds the gateway and dashboard images from the current working tree,
+forces both containers to be recreated, and keeps the existing data volumes,
+keys, releases and users. The equivalent command on Linux/macOS is:
+
+```bash
+./scripts/go-online.sh sync
+```
+
+Use `sync` after every local change that should be visible online. The command
+requires Docker Desktop, `.env.docker`, and the Cloudflare tunnel credentials
+described above.
+
 ### Verify
 
 ```bash

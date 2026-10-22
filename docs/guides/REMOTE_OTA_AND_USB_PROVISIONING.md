@@ -49,7 +49,7 @@ Where it comes from:
 * **Release workflow** builds `firmware-<board>-full.bin` for each board before
   encryption and attaches it to the GitHub release; the webhook attaches it to
   the gateway release next to the OTA package.
-* **Manually**: `./scripts/go-online.sh build` writes `firmware-full.bin`; upload it in
+* **Manually**: `scripts\build-firmware.cmd` writes `firmware/dist/esp32dev/firmware-full.bin`; upload it in
   *Releases → Publish* as *Factory image* together with the app `.bin` (and,
   for an encrypted package, its plaintext SHA-256).
 

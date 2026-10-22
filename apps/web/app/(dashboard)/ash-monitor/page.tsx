@@ -1,262 +1,201 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import { Activity, AlertTriangle, Download, ShieldAlert } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Activity, AlertTriangle, CheckCircle, Zap, AlertCircle, Thermometer, HardDrive, Wifi, Battery } from 'lucide-react';
+import { EmptyState, SkeletonRows } from '@/components/ui/empty-state';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { formatUtcDateTime } from '@/lib/formatters';
+import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { downloadRuntimePayload, executeRuntimeAction, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
+import { StatGrid, StatTile } from '@/components/ui/stat-tile';
+
+/**
+ * At or below this ASH score the gateway refuses to deploy to a device
+ * (QUARANTINE_ASH_THRESHOLD in apps/gateway/gateway/deployment.py).
+ */
+const QUARANTINE_ASH_THRESHOLD = 40;
+
+function scoreClass(score: number) {
+  if (score <= QUARANTINE_ASH_THRESHOLD) return 'text-chart-4';
+  if (score <= 60) return 'text-chart-3';
+  return 'text-chart-1';
+}
+
+/** Alert lines are stored as "[<iso time>] message". */
+function parseAlert(line: string) {
+  const match = /^\[([^\]]+)\]\s*(.*)$/.exec(line);
+  const at = match ? new Date(match[1]) : null;
+  return { at: at && !Number.isNaN(at.getTime()) ? at : null, message: match ? match[2] : line };
+}
 
 export default function ASHMonitorPage() {
-  const systemHealth = 0;
-  const [busyAction, setBusyAction] = React.useState<string | null>(null);
-  const [actionMessage, setActionMessage] = React.useState<string | null>(null);
-  const [actionError, setActionError] = React.useState<string | null>(null);
+  const { snapshot, isLoading } = useRuntimeSnapshot();
+  const [busy, setBusy] = React.useState(false);
+  const [message, setMessage] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const handleRunHealthCheck = async () => {
-    setBusyAction('ash.scan');
-    setActionError(null);
-    setActionMessage(null);
+  // Raw scores from the gateway's ash_devices list, keyed by device id.
+  const rawScores = React.useMemo(
+    () => new Map(snapshot.ashDevices.map((entry) => [entry.id, entry.score])),
+    [snapshot.ashDevices]
+  );
 
+  const rows = snapshot.devices
+    .map((device) => ({ device, score: rawScores.get(device.id) ?? device.ash }))
+    .sort((left, right) => left.score - right.score);
+
+  const fleetAverage = rows.length > 0 ? rows.reduce((sum, row) => sum + row.score, 0) / rows.length : null;
+  const quarantined = rows.filter((row) => row.score <= QUARANTINE_ASH_THRESHOLD).length;
+  const alerts = snapshot.alerts.slice(0, 20).map(parseAlert);
+
+  const handleExport = async () => {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
     try {
-      const response = await executeRuntimeAction('ash.scan', {
-        scope: 'full-health-check',
-      });
-      setActionMessage(response.message || 'ASH health check completed successfully.');
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to run ASH health check.');
+      const response = await executeRuntimeAction<RuntimeDownloadPayload>('reports.export', { dataset: 'devices', format: 'CSV' });
+      if (response.data) downloadRuntimePayload(response.data);
+      setMessage(response.message || 'Export downloaded.');
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'Export failed.');
     } finally {
-      setBusyAction(null);
+      setBusy(false);
     }
   };
 
-  const handleExportReport = async () => {
-    setBusyAction('ash.export');
-    setActionError(null);
-    setActionMessage(null);
-
-    try {
-      const generated = await executeRuntimeAction<{ report?: { id: string } }>('reports.generate', {
-        type: 'ash-monitor',
-        format: 'CSV',
-        notes: 'ASH Monitor export report',
-      });
-
-      const reportId = generated.data?.report?.id;
-      if (!reportId) {
-        throw new Error('Report generation did not return a report id.');
-      }
-
-      const download = await executeRuntimeAction<RuntimeDownloadPayload>('reports.download', {
-        reportId,
-      });
-
-      if (download.data) {
-        downloadRuntimePayload(download.data);
-      }
-
-      setActionMessage(download.message || 'ASH monitor report exported.');
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Unable to export ASH report.');
-    } finally {
-      setBusyAction(null);
-    }
-  };
-  
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="p-3 rounded-lg bg-accent/20 text-accent">
-          <Activity className="w-6 h-6" />
-        </div>
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">ASH Monitor</h1>
-          <p className="text-foreground/70 mt-1">Advanced System Health monitoring and diagnostics</p>
-        </div>
-      </div>
-      {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
-      {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
-
-      {/* Health Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { 
-            label: 'Overall Health', 
-            value: '0%', 
-            color: 'text-chart-1',
-            icon: <CheckCircle className="w-5 h-5" />,
-            bgColor: 'bg-chart-1/20'
-          },
-          { 
-            label: 'Critical Issues', 
-            value: '0', 
-            color: 'text-muted-foreground',
-            icon: <AlertCircle className="w-5 h-5" />,
-            bgColor: 'bg-muted'
-          },
-          { 
-            label: 'Active Warnings', 
-            value: '0', 
-            color: 'text-chart-3',
-            icon: <AlertTriangle className="w-5 h-5" />,
-            bgColor: 'bg-chart-3/20'
-          },
-        ].map((stat) => (
-          <Card key={stat.label} className="glass border-border/50 hover:border-border/80 transition-all">
-            <CardContent className="pt-6">
-              <div className="flex items-start justify-between mb-3">
-                <p className="text-sm font-medium text-foreground/70">{stat.label}</p>
-                <div className={`p-2 rounded-lg ${stat.bgColor}`}>{stat.icon}</div>
-              </div>
-              <p className={`text-3xl font-bold ${stat.color}`}>{stat.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Health Meter */}
-      <Card className="glass border-border/50 hover:border-border/80 transition-all">
-        <CardHeader>
-          <CardTitle>System Health Score</CardTitle>
-          <CardDescription>Overall system integrity and reliability</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-3">
-            <div className="flex items-end justify-between">
-              <p className="text-sm text-foreground/70">Health Status</p>
-              <p className="text-4xl font-bold text-chart-1">{systemHealth}%</p>
-            </div>
-            <div className="w-full bg-muted/30 rounded-full h-4 overflow-hidden">
-              <div 
-                className="h-full bg-gradient-to-r from-chart-1 to-primary rounded-full transition-all"
-                style={{ width: `${systemHealth}%` }}
-              />
-            </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-accent/20 p-3 text-accent">
+            <Activity className="h-6 w-6" />
           </div>
-          <p className="text-sm text-foreground/70 text-center">
-            0
-          </p>
-        </CardContent>
-      </Card>
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">ASH Monitor</h1>
+            <p className="mt-1 text-foreground/70">
+              Adaptive security health score each device reports with its heartbeat. At {QUARANTINE_ASH_THRESHOLD} or below the gateway will not deploy to it.
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" onClick={() => void handleExport()} disabled={busy || rows.length === 0}>
+          <Download className="mr-2 h-4 w-4" />
+          {busy ? 'Exporting...' : 'Export devices CSV'}
+        </Button>
+      </div>
+      {!snapshot.connection.reachable && snapshot.connection.error && (
+        <p className="text-sm text-chart-4">{snapshot.connection.error}</p>
+      )}
+      {error && <p className="text-sm text-chart-4">{error}</p>}
+      {message && !error && <p className="text-sm text-chart-1">{message}</p>}
 
-      {/* Component Health */}
-      <Card className="glass border-border/50 hover:border-border/80 transition-all">
-        <CardHeader>
-          <CardTitle>Component Health</CardTitle>
-          <CardDescription>Individual component status and metrics</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {[
-            { 
-              component: 'Storage', 
-              health: 0, 
-              status: 'warning',
-              icon: <HardDrive className="w-4 h-4" />,
-              details: '0'
-            },
-            { 
-              component: 'Network', 
-              health: 0, 
-              status: 'warning',
-              icon: <Wifi className="w-4 h-4" />,
-              details: '0'
-            },
-            { 
-              component: 'Processor', 
-              health: 0, 
-              status: 'warning',
-              icon: <Zap className="w-4 h-4" />,
-              details: '0'
-            },
-            { 
-              component: 'Memory', 
-              health: 0, 
-              status: 'warning',
-              icon: <Activity className="w-4 h-4" />,
-              details: '0'
-            },
-            { 
-              component: 'Power', 
-              health: 0, 
-              status: 'warning',
-              icon: <Battery className="w-4 h-4" />,
-              details: '0'
-            },
-          ].map((item) => (
-            <div key={item.component} className="p-4 rounded-lg border border-border/20 bg-muted/20 hover:border-border/40 transition-colors">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="text-primary">{item.icon}</div>
-                  <div>
-                    <p className="font-semibold text-foreground">{item.component}</p>
-                    <p className="text-xs text-foreground/60">{item.details}</p>
-                  </div>
-                </div>
-                <Badge className={item.status === 'healthy' ? 'bg-chart-1/20 text-chart-1' : 'bg-chart-3/20 text-chart-3'}>
-                  {item.status}
-                </Badge>
-              </div>
-              <div className="w-full bg-muted/30 rounded-full h-2 overflow-hidden">
-                <div 
-                  className={`h-full rounded-full transition-all ${item.health > 90 ? 'bg-chart-1' : item.health > 75 ? 'bg-yellow-500' : 'bg-chart-4'}`}
-                  style={{ width: `${item.health}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-foreground/50">Health Score</span>
-                <span className="text-xs font-bold text-foreground">{item.health}%</span>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <StatGrid columns={3}>
+        <StatTile
+          label="Fleet average ASH"
+          value={fleetAverage === null ? 'No data' : fleetAverage.toFixed(0)}
+          suffix={fleetAverage === null ? undefined : 'of 100'}
+          tone={fleetAverage === null ? 'neutral' : fleetAverage <= QUARANTINE_ASH_THRESHOLD ? 'bad' : fleetAverage < 70 ? 'warn' : 'good'}
+          hint="Mean health score of reporting boards"
+        />
+        <StatTile
+          label="Quarantined"
+          value={quarantined}
+          tone={quarantined > 0 ? 'bad' : 'neutral'}
+          hint={`ASH ${QUARANTINE_ASH_THRESHOLD} or below; updates are held`}
+        />
+        <StatTile label="Devices reporting" value={rows.length} hint="Sent a health score" />
+      </StatGrid>
 
-      {/* Recent Alerts */}
-      <Card className="glass border-border/50 hover:border-border/80 transition-all">
+      <Card>
         <CardHeader>
-          <CardTitle>Recent Health Events</CardTitle>
-          <CardDescription>Latest system alerts and notifications</CardDescription>
+          <CardTitle>Devices</CardTitle>
+          <CardDescription>Lowest score first. Values are the last heartbeat each device sent.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {[
-              { severity: 'info', message: '0', time: '0' },
-            ].map((event, i) => (
-              <div key={i} className="p-3 rounded-lg border border-border/20 bg-muted/10 flex items-start gap-3">
-                <div className="mt-1">
-                  {event.severity === 'warning' && <AlertTriangle className="w-4 h-4 text-chart-3" />}
-                  {event.severity === 'info' && <Activity className="w-4 h-4 text-primary" />}
-                  {event.severity === 'success' && <CheckCircle className="w-4 h-4 text-chart-1" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground">{event.message}</p>
-                  <p className="text-xs text-foreground/50 mt-1">{event.time}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          {rows.length === 0 ? (
+            isLoading ? (
+              <SkeletonRows rows={4} columns={6} />
+            ) : (
+              <EmptyState
+                icon={<Activity className="h-5 w-5" />}
+                title="No devices have checked in yet."
+                action={
+                  <Button asChild variant="outline">
+                    <Link href="/devices">Set up a device</Link>
+                  </Button>
+                }
+              >
+                ASH scores appear here once a board sends its first heartbeat.
+              </EmptyState>
+            )
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Device</TableHead>
+                  <TableHead className="text-right">ASH</TableHead>
+                  <TableHead>Reported status</TableHead>
+                  <TableHead className="text-right">CPU</TableHead>
+                  <TableHead className="text-right">Memory</TableHead>
+                  <TableHead className="text-right">Signal</TableHead>
+                  <TableHead>Last heartbeat</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map(({ device, score }) => (
+                  <TableRow key={device.id}>
+                    <TableCell>
+                      <Link href={`/devices/${encodeURIComponent(device.id)}`} className="font-medium hover:underline">
+                        {device.name}
+                      </Link>
+                      {score <= QUARANTINE_ASH_THRESHOLD && (
+                        <Badge variant="destructive" className="ml-2">Quarantined</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className={`text-right font-semibold tabular-nums ${scoreClass(score)}`}>{score}</TableCell>
+                    <TableCell>{device.reportedStatus || 'Not reported'}</TableCell>
+                    <TableCell className="text-right tabular-nums">{device.cpuUsage.toFixed(1)}%</TableCell>
+                    <TableCell className="text-right tabular-nums">{device.memoryUsage.toFixed(1)}%</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {device.signalStrength !== undefined ? `${device.signalStrength} dBm` : 'Not reported'}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {device.lastSync ? `${formatUtcDateTime(device.lastSync)} UTC` : 'Never'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Actions */}
-      <div className="flex gap-2">
-        <Button
-          className="bg-primary hover:bg-primary/90 text-primary-foreground flex-1"
-          onClick={() => void handleRunHealthCheck()}
-          disabled={busyAction === 'ash.scan'}
-        >
-          <Activity className="w-4 h-4 mr-2" />
-          {busyAction === 'ash.scan' ? 'Running...' : 'Run Full Health Check'}
-        </Button>
-        <Button
-          variant="outline"
-          className="border-border flex-1"
-          onClick={() => void handleExportReport()}
-          disabled={busyAction === 'ash.export'}
-        >
-          Export Report
-        </Button>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Gateway alerts</CardTitle>
+          <CardDescription>Newest first, as the gateway recorded them.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {alerts.length === 0 ? (
+            <EmptyState compact icon={<ShieldAlert className="h-5 w-5" />} title="No alerts have been raised." />
+          ) : (
+            <div className="space-y-2">
+              {alerts.map((alert, index) => (
+                <div key={`${index}-${alert.message}`} className="flex items-start gap-3 rounded-lg border border-border/20 p-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 text-chart-3" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground">{alert.message}</p>
+                    {alert.at && <p className="mt-1 text-xs text-foreground/50">{formatUtcDateTime(alert.at)} UTC</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

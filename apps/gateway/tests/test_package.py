@@ -9,6 +9,7 @@ the right pieces.
 
 from __future__ import annotations
 
+import os
 import pytest
 
 from gateway.package import (
@@ -291,6 +292,8 @@ def test_regenerate_replaces_the_key(tmp_keys_dir):
 
 
 def test_private_key_is_not_world_readable(tmp_keys_dir):
+    if os.name == 'nt':
+        pytest.skip('POSIX file mode permissions are not available on Windows')
     path = tmp_keys_dir / 'p.pem'
     load_or_create_packaging_key(path, tmp_keys_dir / 'pub.pem')
     assert path.stat().st_mode & 0o077 == 0

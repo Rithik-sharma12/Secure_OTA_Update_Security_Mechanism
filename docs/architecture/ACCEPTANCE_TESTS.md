@@ -340,7 +340,7 @@ A new firmware that boots but cannot join WiFi, crashes in `loop()`, or cannot r
 
 **3. Impact — HIGH** A release tag today would compile with **empty** WiFi credentials and empty keys, and the signing step warns and continues, publishing **unsigned** binaries that devices with secure OTA provisioned would reject.
 
-**4. Fix required** Set the nine secrets (`scripts/complete-setup.ps1 -Phase secrets`), and change the signing step to hard-fail rather than warn when keys are absent on a release tag.
+**4. Fix required** Set the nine secrets (`gh secret set NAME` for each, in the repository settings), and change the signing step to hard-fail rather than warn when keys are absent on a release tag.
 
 **5. Test after fix** `AT-11.3` → PASS. Then push a tag to a scratch branch and confirm the run produces a signed artifact; separately, temporarily unset a signing secret and confirm the run **fails** instead of publishing unsigned.
 

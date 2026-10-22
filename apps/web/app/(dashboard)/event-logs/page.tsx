@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +17,7 @@ import { Search, Download, AlertCircle, CheckCircle, Info, AlertTriangle } from 
 import { formatUtcDateTime } from '@/lib/formatters';
 import { useRuntimeSnapshot } from '@/lib/runtime-data';
 import { downloadRuntimePayload, executeRuntimeAction, type RuntimeDownloadPayload } from '@/lib/runtime-actions';
+import { StatGrid, StatTile } from '@/components/ui/stat-tile';
 
 function getSeverityIcon(severity: string) {
   switch (severity) {
@@ -77,12 +79,7 @@ export default function EventLogsPage() {
     setActionMessage(null);
 
     try {
-      const response = await executeRuntimeAction<RuntimeDownloadPayload>('events.export', {
-        events: filteredEvents.map((event) => ({
-          ...event,
-          timestamp: event.timestamp.toISOString(),
-        })),
-      });
+      const response = await executeRuntimeAction<RuntimeDownloadPayload>('events.export');
 
       if (response.data) {
         downloadRuntimePayload(response.data);
@@ -97,12 +94,7 @@ export default function EventLogsPage() {
   };
 
   const handleView = (eventId: string) => {
-    setSelectedEventId(eventId);
-    const selected = filteredEvents.find((entry) => entry.id === eventId);
-    if (selected) {
-      setActionMessage(`Viewing ${selected.title}.`);
-      setActionError(null);
-    }
+    setSelectedEventId((current) => (current === eventId ? null : eventId));
   };
 
   return (
@@ -116,13 +108,39 @@ export default function EventLogsPage() {
             <p className="text-sm text-chart-4 mt-2">{snapshot.connection.error}</p>
           )}
         </div>
-        <Button variant="outline" className="border-border" onClick={handleExport} disabled={isExporting}>
+        <Button
+          variant="outline"
+          className="border-border"
+          onClick={handleExport}
+          disabled={isExporting}
+          title="Download the gateway's newest 500 events as CSV"
+        >
           <Download className="w-4 h-4 mr-2" />
-          {isExporting ? 'Exporting...' : 'Export'}
+          {isExporting ? 'Exporting...' : 'Export CSV'}
         </Button>
       </div>
       {actionError && <p className="text-sm text-chart-4">{actionError}</p>}
       {actionMessage && !actionError && <p className="text-sm text-chart-1">{actionMessage}</p>}
+
+      {/* Event statistics */}
+      <StatGrid columns={4}>
+        <StatTile label="Events" value={snapshot.events.length} hint="In the current window" />
+        <StatTile
+          label="Errors"
+          value={snapshot.events.filter((e) => e.severity === 'error').length}
+          tone={snapshot.events.some((e) => e.severity === 'error') ? 'bad' : 'neutral'}
+        />
+        <StatTile
+          label="Warnings"
+          value={snapshot.events.filter((e) => e.severity === 'warning').length}
+          tone={snapshot.events.some((e) => e.severity === 'warning') ? 'warn' : 'neutral'}
+        />
+        <StatTile
+          label="Success"
+          value={snapshot.events.filter((e) => e.severity === 'success').length}
+          tone={snapshot.events.some((e) => e.severity === 'success') ? 'good' : 'neutral'}
+        />
+      </StatGrid>
 
       {/* Filters */}
       <Card className="glass border-border/50">
@@ -228,39 +246,56 @@ export default function EventLogsPage() {
                       size="sm"
                       className="flex-shrink-0"
                       onClick={() => handleView(event.id)}
+                      aria-expanded={selectedEventId === event.id}
                     >
-                      View
+                      {selectedEventId === event.id ? 'Hide' : 'Details'}
                     </Button>
                   </div>
+                  {selectedEventId === event.id && (
+                    <dl className="mt-3 grid grid-cols-1 gap-2 rounded-lg bg-muted/30 p-3 text-xs sm:grid-cols-2">
+                      <div>
+                        <dt className="text-foreground/50">Event id</dt>
+                        <dd className="break-all font-mono">{event.id}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-foreground/50">Time (UTC)</dt>
+                        <dd className="font-mono">{event.timestamp.toISOString()}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-foreground/50">Type</dt>
+                        <dd>{event.type}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-foreground/50">Device</dt>
+                        <dd>
+                          {event.deviceId ? (
+                            <Link href={`/devices/${encodeURIComponent(event.deviceId)}`} className="underline">
+                              {event.deviceId}
+                            </Link>
+                          ) : (
+                            'Gateway'
+                          )}
+                        </dd>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <dt className="text-foreground/50">Description</dt>
+                        <dd className="whitespace-pre-wrap break-words">{event.description || 'No description.'}</dd>
+                      </div>
+                    </dl>
+                  )}
                 </div>
               ))
             ) : (
               <div className="text-center py-12">
                 <AlertCircle className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
-                <p className="text-foreground/50 mb-2">No live events found</p>
-                <p className="text-sm text-foreground/40">Device heartbeats and gateway alerts will appear here.</p>
+                <p className="text-foreground/50 mb-2">{snapshot.events.length === 0 ? 'No events have been recorded yet.' : 'No event matches these filters.'}</p>
+                <p className="text-sm text-foreground/40">Device heartbeats and gateway alerts appear here.</p>
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Event Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Events', value: snapshot.events.length, color: 'bg-chart-2/20 text-chart-2' },
-          { label: 'Errors', value: snapshot.events.filter(e => e.severity === 'error').length, color: 'bg-chart-4/20 text-chart-4' },
-          { label: 'Warnings', value: snapshot.events.filter(e => e.severity === 'warning').length, color: 'bg-chart-3/20 text-chart-3' },
-          { label: 'Success', value: snapshot.events.filter(e => e.severity === 'success').length, color: 'bg-chart-1/20 text-chart-1' },
-        ].map((stat) => (
-          <Card key={stat.label} className="glass border-border/50">
-            <CardContent className="pt-6">
-              <p className="text-sm text-foreground/70 mb-1">{stat.label}</p>
-              <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }

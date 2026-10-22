@@ -191,8 +191,8 @@ export function VersionTile({
   return (
     <div className="ota-tile" style={CARD}>
       <Head
-        value={latest}
-        unit="signed"
+        value={latest || 'No'}
+        unit={latest ? 'signed' : 'release yet'}
         right={
           <span
             style={{
@@ -341,7 +341,7 @@ export function AdoptionTile({
     <div className="ota-tile" style={CARD}>
       <Head
         value={onLatest}
-        unit={latest ? `on ${latest}` : 'on latest'}
+        unit={latest ? `on ${latest}` : 'on a release (none yet)'}
         right={
           delta !== null ? (
             <span className="tabular" style={{ ...MICRO, color: 'var(--app-warn-ink)' }}>
@@ -394,19 +394,22 @@ export function AdoptionTile({
   );
 }
 
-/** Signed releases, one capsule per published release. */
+/** Published releases, one capsule per release (up to ten). */
 export function ReleasesTile({
-  signed,
+  published,
   capsules,
+  signatureNote,
   rotationNote,
 }: {
-  signed: number;
+  published: number;
   capsules: { key: string; filled: boolean }[];
+  /** What the gateway's served manifest says about its signature. */
+  signatureNote: string;
   rotationNote: string;
 }) {
   return (
     <div className="ota-tile" style={CARD}>
-      <Head value={signed} unit={signed === 1 ? 'signed release' : 'signed releases'} />
+      <Head value={published} unit={published === 1 ? 'published release' : 'published releases'} />
       <div className="flex gap-1" style={{ height: 34 }}>
         {capsules.map((c) => (
           <span
@@ -423,7 +426,7 @@ export function ReleasesTile({
         ))}
       </div>
       <div className="flex justify-between gap-2.5" style={MICRO}>
-        <span>100% verified · 0 unsigned</span>
+        <span>{signatureNote}</span>
         <span>{rotationNote}</span>
       </div>
     </div>
