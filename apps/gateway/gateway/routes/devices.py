@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: Devices, Registration and Remote Commands
+SecureOTA Edge Gateway — Route: Devices, Registration and Remote Commands
 
 This is the internet-facing control path between the dashboard and a board:
 
@@ -39,6 +39,7 @@ from ..commands import (
     expire_commands_locked,
 )
 from ..config import MAX_OTA_HISTORY
+from ..crypto import public_key_hex
 from ..deployment import OTA_PHASES, record_ota_status_locked
 from ..models import (
     DeviceCommandPayload,
@@ -144,7 +145,16 @@ def register_device(payload: DeviceRegisterPayload, request: Request, _auth: Non
         persist_state_locked()
 
     audit_note(request, 'device.token_rotated' if rotated else 'device.registered', f'Token issued for {device_id}', device_id)
-    return {'ok': True, 'deviceId': device_id, 'deviceType': device_type, 'token': token, 'rotated': rotated}
+    # gatewayKey: the raw Ed25519 public key the board stores to verify
+    # manifestSignature at stage 5 (written to it during USB provisioning).
+    return {
+        'ok': True,
+        'deviceId': device_id,
+        'deviceType': device_type,
+        'token': token,
+        'rotated': rotated,
+        'gatewayKey': public_key_hex(),
+    }
 
 
 @router.post('/api/devices/{device_id}/revoke-token')

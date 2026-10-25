@@ -37,7 +37,7 @@ Legend: **[ignored]** = git-ignored, never committed. **[generated]** = created 
 
 ## apps/web: the console
 
-Next.js 16 App Router application, TypeScript, Tailwind 4, React 19. npm workspace package `@sentinel-ota/ide`. Runs on port 3000.
+Next.js 16 App Router application, TypeScript, Tailwind 4, React 19. npm workspace package `@secure-ota/ide`. Runs on port 3000.
 
 ```
 apps/web/
@@ -197,6 +197,8 @@ apps/gateway/
 |---|---|
 | `secureota_agent.py` | Exposes this computer's COM ports to the console on `127.0.0.1:17317`; installs pyserial and esptool on first run |
 | `README.md` | How to run it and how provisioning works |
+| `sota_link.py` | UART link host: relays an ATmega328P or STM32F103 to the gateway (heartbeat, manifest, chunks, gateway-assisted signature check) |
+| `tests/` | End-to-end test: the UART agent compiled for the PC, the link host and the real gateway |
 
 ## firmware: ESP32 firmware
 
@@ -205,12 +207,19 @@ apps/gateway/
 | `platformio.ini` | Build environments `esp32dev`, `esp32s3`, `esp32c3`, `esp32dev_ota`; toolchain pinned to espressif32 6.9.0 |
 | `esp32_ota_main/esp32_ota_main.ino` | Firmware: manifest pull, secure package verification, anti-rollback, health gate, remote commands, USB provisioning |
 | `esp32_ota_main/ota_config.h.example` | Template for device configuration; copy to `ota_config.h` [ignored] |
+| `tools/flash_board.py` | What `scripts/flash-board.cmd` runs; uses the Arduino IDE's or PlatformIO's esptool when installed |
 | `tools/build_firmware.py` | Builds the firmware, creates the release keys on first run, writes `dist/<env>/firmware-full.bin`, `firmware-ota.bin`, `SHA256SUMS.txt`, `build-info.json` |
 | `tools/create_secure_test_package.py` | Builds a signed, encrypted package from any firmware.bin |
 | `secure-keys/` | [ignored] Release signing key pair and AES key; back it up, boards trust only these keys |
 | `dist/` | [ignored] Build output of `tools/build_firmware.py` |
 | `tools/fetch_root_ca.py` | Fetches the gateway's root CA into `root_ca.h` [ignored] |
 | `SETUP_GUIDE.md` | Toolchain and flashing guide |
+| `BOARDS.md` | The four boards: what each runs, how it was tested, how to build it, the UART link protocol |
+| `lib/sota_core/` | Shared C library: Ed25519 manifest check (Monocypher), SHA-256, version and health rules; native test in `test/` |
+| `lib/sota_board/` | Arduino library for the UART boards: link client, W25Qxx SPI flash driver, five-stage agent; PC test harness in `test/` |
+| `esp8266_ota_main/` | ESP8266 update agent (Wi-Fi, five stages, S4 and S5 inside `Update.end()`) |
+| `stm32f103_ota_agent/` | STM32F103 update agent (UART link, Ed25519 on the board, image staged in SPI flash) |
+| `atmega328p_ota_agent/` | ATmega328P update agent (UART link, gateway-assisted Ed25519, DualOptiboot install) |
 | `.gitignore` | Keeps build output, keys and device config out of git |
 
 ## scripts
@@ -218,6 +227,7 @@ apps/gateway/
 | File | Purpose |
 |---|---|
 | `build-firmware.cmd` | Windows: builds the ESP32 firmware and the images the console needs (`firmware/dist/`) |
+| `flash-board.cmd` | Windows: flashes `firmware-full.bin` over USB like the Arduino IDE (finds the board, esptool with auto-reset, slower retry, manual BOOT/EN window, shows the boot) |
 | `start-dev.cmd` | Windows: starts the gateway (if not running) and the console on port 3000 |
 | `start-gateway.cmd` | Windows: starts the gateway on port 5000 with the API key from `apps/web/.env.local` |
 | `start-agent.cmd` | Windows: starts the SecureOTA USB agent on 127.0.0.1:17317 (start-dev.cmd opens it too) |
@@ -239,6 +249,7 @@ Every script changes to the repository root first, so they work from any folder.
 |---|---|
 | `README.md` | Documentation index |
 | `how-to-run.md` | Running locally and online |
+| `USER_MANUAL.md` | Full user manual: setup, board initialization, OTA releases, troubleshooting |
 | `SECURITY_REMEDIATION.md` | Past security findings and secrets to rotate |
 | `architecture/` | OTA architecture, acceptance tests, backend audit and checklist, gap analysis |
 | `guides/` | Deployment, Docker, Cloudflare Tunnel, end-to-end demo, remote OTA and provisioning, security references |

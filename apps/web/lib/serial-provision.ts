@@ -41,6 +41,8 @@ const PROVISION_LIMITS: Record<string, number> = {
   device_token: 128,
   device_id: 64,
   hostname: 32,
+  // Gateway Ed25519 public key, 64 hex characters (stage 5 manifest check).
+  gateway_key: 64,
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -58,6 +60,9 @@ export function cleanProvisionConfig(config: ProvisionConfig): Record<string, st
     if (!limit) throw new Error(`Unknown provisioning field '${key}'.`);
     if (typeof value !== 'string' || value.length > limit || /[\r\n]/.test(value)) {
       throw new Error(`'${key}' must be a single line of at most ${limit} characters.`);
+    }
+    if (key === 'gateway_key' && !/^[0-9a-f]{64}$/.test(value)) {
+      throw new Error("'gateway_key' must be 64 lowercase hex characters.");
     }
     clean[key] = value;
   }

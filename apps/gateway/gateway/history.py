@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Durable History (audit trail and telemetry)
+SecureOTA Edge Gateway — Durable History (audit trail and telemetry)
 
 gateway_state.json holds the *current* picture: latest heartbeat per device,
 the newest 500 events. That is the wrong shape for two questions people ask

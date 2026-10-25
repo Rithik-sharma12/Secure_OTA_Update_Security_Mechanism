@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: Live change stream (Server-Sent Events)
+SecureOTA Edge Gateway — Route: Live change stream (Server-Sent Events)
 
     GET /api/stream
 

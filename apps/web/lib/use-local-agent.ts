@@ -3,6 +3,17 @@
 import React from 'react';
 import { type AgentInfo, type AgentPort, detectAgent, listAgentPorts } from '@/lib/local-agent';
 
+// USB-serial bridges on ESP32/ESP8266 boards (vendor:product), for agents older than 1.4.0.
+const BOARD_ADAPTERS = new Set(['10C4:EA60', '1A86:7523', '1A86:55D4', '1A86:5523', '0403:6001', '0403:6015', '303A:1001']);
+
+/** Boards first, Bluetooth ports out: the first port is the one to flash, as in the Arduino IDE. */
+export function orderBoardPorts(ports: AgentPort[]): AgentPort[] {
+  const isBoard = (port: AgentPort) =>
+    port.recommended ?? BOARD_ADAPTERS.has(`${port.vendorId ?? ''}:${port.productId ?? ''}`.toUpperCase());
+  const isBluetooth = (port: AgentPort) => port.bluetooth ?? /bluetooth|bthenum/i.test(port.description);
+  return ports.filter((port) => !isBluetooth(port)).sort((a, b) => Number(isBoard(b)) - Number(isBoard(a)));
+}
+
 const AGENT_POLL_MS = 3000;
 const AGENT_RETRY_MS = 5000;
 
@@ -29,7 +40,7 @@ export function useLocalAgent(enabled = true) {
       return { info, ports: [] as AgentPort[] };
     }
     try {
-      const found = await listAgentPorts();
+      const found = orderBoardPorts(await listAgentPorts());
       setPorts(found);
       setError(null);
       return { info, ports: found };

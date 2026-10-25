@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — State Management
+SecureOTA Edge Gateway — State Management
 
 Thread-safe gateway state with persistence to JSON.
 """
@@ -18,7 +18,7 @@ from .config import (
     MAX_EVENTS,
     STATE_FILE,
 )
-from .crypto import build_signing_metadata
+from .crypto import build_signing_metadata, with_manifest_signature
 from .utils import utc_now_iso
 
 import uuid
@@ -173,7 +173,7 @@ def _refresh_manifest_from_firmware(manifest: dict[str, Any]) -> dict[str, Any] 
     refreshed['url'] = str(refreshed.get('url') or firmware_download_url(filename))
     # Keep downloadUrl in sync — the ESP32 firmware reads that key first.
     refreshed['downloadUrl'] = str(refreshed.get('downloadUrl') or refreshed['url'])
-    return refreshed
+    return with_manifest_signature(refreshed)
 
 
 def _release_from_manifest(manifest: dict[str, Any]) -> dict[str, Any]:

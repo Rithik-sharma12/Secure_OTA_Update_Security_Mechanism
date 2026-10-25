@@ -240,7 +240,10 @@ def build_with_arduino_cli(env: str, build_dir: Path) -> Path:
     # A fixed build path lets arduino-cli reuse the compiled core between runs.
     out = build_dir / 'arduino-build'
     out.mkdir(parents=True, exist_ok=True)
-    run(cli + ['compile', '--fqbn', ARDUINO_FQBN[env], '--build-path', str(out), str(SKETCH_DIR)])
+    # sota_core (Ed25519 manifest check, stage 5) lives in firmware/lib; PlatformIO
+    # finds it on its own, arduino-cli has to be told.
+    run(cli + ['compile', '--fqbn', ARDUINO_FQBN[env], '--library', str(FIRMWARE_DIR / 'lib' / 'sota_core'),
+               '--build-path', str(out), str(SKETCH_DIR)])
     name = SKETCH_DIR.name + '.ino'
     for source, target in ((f'{name}.bin', 'firmware.bin'),
                            (f'{name}.bootloader.bin', 'bootloader.bin'),

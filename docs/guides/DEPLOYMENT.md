@@ -1,6 +1,6 @@
-# SentinelOTA — Cloud Deployment & Containerization Guide
+# SecureOTA — Cloud Deployment & Containerization Guide
 
-This guide provides end-to-end instructions for deploying the **SentinelOTA** platform to cloud platforms (AWS EC2, DigitalOcean, Hetzner, GCP Compute Engine, Azure VM, or any Linux VPS) using **Docker Compose** with persistent data storage.
+This guide provides end-to-end instructions for deploying the **SecureOTA** platform to cloud platforms (AWS EC2, DigitalOcean, Hetzner, GCP Compute Engine, Azure VM, or any Linux VPS) using **Docker Compose** with persistent data storage.
 
 ---
 
@@ -17,9 +17,9 @@ This guide provides end-to-end instructions for deploying the **SentinelOTA** pl
 |   +-----------+-----------+                  +--------------+-------------+   |
 |               |                                             |                 |
 |               v                                             v                 |
-|     (sentinel_ota_ide_db)                    +--------------+-------------+   |
-|      [Persistent Volume]                     | (sentinel_gateway_cache)   |   |
-|                                              | (sentinel_gateway_keys)    |   |
+|     (secureota_ide_db)                    +--------------+-------------+   |
+|      [Persistent Volume]                     | (secureota_gateway_cache)   |   |
+|                                              | (secureota_gateway_keys)    |   |
 |                                              +--------------+-------------+   |
 +---------------------------------------------------------------|---------------+
                                                                  | HTTP
@@ -130,26 +130,26 @@ All sensitive data and firmware assets persist across container restarts and bui
 
 | Volume Name | Target Path inside Container | Data Stored |
 |---|---|---|
-| `sentinel_ota_ide_db` | `/app/.local-db` | NeDB database (users, sessions, release records, logs) |
-| `sentinel_gateway_cache` | `/app/gateway_firmware_cache` | Cached binary firmware packages and manifests |
-| `sentinel_gateway_keys` | `/app/gateway_keys` | Ed25519 signing keypairs for gateway signatures |
+| `secureota_ide_db` | `/app/.local-db` | NeDB database (users, sessions, release records, logs) |
+| `secureota_gateway_cache` | `/app/gateway_firmware_cache` | Cached binary firmware packages and manifests |
+| `secureota_gateway_keys` | `/app/gateway_keys` | Ed25519 signing keypairs for gateway signatures |
 
 ### Backup Volume Data
 
 To create a tar backup of all persistent volumes:
 ```bash
 # Backup NeDB database
-docker run --rm -v sentinel_ota_ide_db:/data -v $(pwd):/backup ubuntu tar cvzf /backup/ota_ide_db_backup.tar.gz -C /data .
+docker run --rm -v secureota_ide_db:/data -v $(pwd):/backup ubuntu tar cvzf /backup/ota_ide_db_backup.tar.gz -C /data .
 
 # Backup Gateway keys
-docker run --rm -v sentinel_gateway_keys:/data -v $(pwd):/backup ubuntu tar cvzf /backup/gateway_keys_backup.tar.gz -C /data .
+docker run --rm -v secureota_gateway_keys:/data -v $(pwd):/backup ubuntu tar cvzf /backup/gateway_keys_backup.tar.gz -C /data .
 ```
 
 ### Restore Volume Data
 
 ```bash
 # Restore NeDB database from backup archive
-docker run --rm -v sentinel_ota_ide_db:/data -v $(pwd):/backup ubuntu tar xvzf /backup/ota_ide_db_backup.tar.gz -C /data
+docker run --rm -v secureota_ide_db:/data -v $(pwd):/backup ubuntu tar xvzf /backup/ota_ide_db_backup.tar.gz -C /data
 ```
 
 ---
@@ -158,7 +158,7 @@ docker run --rm -v sentinel_ota_ide_db:/data -v $(pwd):/backup ubuntu tar xvzf /
 
 For production cloud deployments, it is recommended to run Nginx as a reverse proxy with Let's Encrypt TLS certs.
 
-### Sample Nginx Site Configuration (`/etc/nginx/sites-available/sentinel.conf`)
+### Sample Nginx Site Configuration (`/etc/nginx/sites-available/secureota.conf`)
 
 ```nginx
 server {

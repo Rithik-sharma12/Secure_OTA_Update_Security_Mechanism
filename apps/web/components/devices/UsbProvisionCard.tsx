@@ -73,12 +73,14 @@ export function UsbProvisionCard() {
     setSummary(null);
     try {
       let token: string | undefined;
+      let gatewayKey: string | null = null;
       let backendUrl = gatewayUrl.trim().replace(/\/$/, '');
 
       if (issueToken) {
         setPhase('registering');
         const registered = await registerDevice(board.device_id, board.device_type);
         token = registered.token;
+        gatewayKey = registered.gatewayKey;
         if (!backendUrl && registered.gatewayUrl) {
           backendUrl = registered.gatewayUrl;
           setGatewayUrl(backendUrl);
@@ -94,6 +96,7 @@ export function UsbProvisionCard() {
         ...(ssid.trim() ? { ssid: ssid.trim(), password } : {}),
         ...(backendUrl ? { backend_url: backendUrl } : {}),
         ...(token ? { device_token: token } : {}),
+        ...(gatewayKey ? { gateway_key: gatewayKey } : {}),
       });
       setPhase('done');
       setSummary(

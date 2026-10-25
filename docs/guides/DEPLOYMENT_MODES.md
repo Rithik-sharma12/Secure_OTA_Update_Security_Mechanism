@@ -1,6 +1,6 @@
 # Deployment Modes — Local vs Cloud
 
-SentinelOTA ships two deployment modes. They share the same images, the same
+SecureOTA ships two deployment modes. They share the same images, the same
 volumes, and the same credentials — the difference is **where devices reach the
 gateway**, and whether anything is published to the internet.
 

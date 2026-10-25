@@ -122,6 +122,8 @@ describe('flashImage over Web Serial', () => {
     const error = (await flashImage({ kind: 'browser', port }, image, cb).catch((err: unknown) => err)) as Error;
     expect(error.message).toContain('printed nothing');
     expect(error.message).toContain('cable');
+    // Points at the native (Arduino IDE) route when the browser cannot reach the board.
+    expect(error.message).toContain('flash-board.cmd');
   });
 });
 

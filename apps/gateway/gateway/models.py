@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Pydantic Request Models
+SecureOTA Edge Gateway — Pydantic Request Models
 """
 
 from __future__ import annotations
@@ -59,3 +59,13 @@ class DeviceOtaStatusPayload(BaseModel):
     version: str = ''
     progress: int | None = None
     detail: str = ''
+
+
+class ManifestVerifyPayload(BaseModel):
+    """Fields a constrained board sends for gateway-assisted stage 5."""
+
+    version: str = Field(min_length=1, max_length=32)
+    sha256: str = Field(min_length=64, max_length=64)
+    imageSha256: str | None = Field(default=None, max_length=64)
+    size: int = Field(ge=0)
+    signature: str = Field(min_length=1, max_length=128)

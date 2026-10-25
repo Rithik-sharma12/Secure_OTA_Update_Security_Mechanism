@@ -57,6 +57,31 @@ jobs:
           OTA_GATEWAY_CACHE_DIR: ${{ runner.temp }}/cache
           OTA_GATEWAY_KEYS_DIR: ${{ runner.temp }}/keys
 
+  firmware-core:
+    # The board-independent update agent: Ed25519 manifest check, SHA-256 and
+    # the UART agent used by the ATmega328P and STM32F103, run against the
+    # real gateway through the link host.
+    name: Firmware core and UART agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: apps/gateway/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r apps/gateway/requirements.txt pytest httpx
+
+      - name: sota_core against vectors signed like the gateway
+        run: sh firmware/lib/sota_core/test/run.sh
+
+      - name: UART agent end to end (agent <-> link host <-> gateway)
+        working-directory: apps/agent
+        run: pytest -q tests
+
   dashboard:
     name: Dashboard
     runs-on: ubuntu-latest

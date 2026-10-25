@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: Releases & Manifest
+SecureOTA Edge Gateway — Route: Releases & Manifest
 """
 
 from __future__ import annotations
@@ -11,9 +11,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import FileResponse
 
 from ..config import FIRMWARE_CACHE_DIR, MANIFEST_FILE
-from ..crypto import get_signing_key, signing_fingerprint_hex
+from ..crypto import get_signing_key, public_key_hex, signing_fingerprint_hex, verify_manifest_signature, with_manifest_signature
 from ..config import SIGNING_ALGORITHM, SIGNING_KEY_ID
-from ..models import ReleaseCreatePayload
+from ..models import ManifestVerifyPayload, ReleaseCreatePayload
 from ..release import (
     create_release_locked,
     latest_factory_release_locked,
@@ -316,11 +316,15 @@ def get_manifest(
                     'publishedDeviceTypes': published_types,
                 },
             )
-        return manifest
+        return with_manifest_signature(manifest)
 
     # Unidentified caller — legacy global behaviour.
     if MANIFEST_FILE.exists():
-        return FileResponse(path=MANIFEST_FILE, media_type='application/json')
+        try:
+            with open(MANIFEST_FILE, encoding='utf-8') as file:
+                return with_manifest_signature(json.load(file))
+        except (OSError, ValueError):
+            return FileResponse(path=MANIFEST_FILE, media_type='application/json')
 
     snapshot = gateway_snapshot()
     manifest = snapshot.get('manifest')
@@ -329,7 +333,7 @@ def get_manifest(
 
     with open(MANIFEST_FILE, 'w', encoding='utf-8') as file:
         json.dump(manifest, file, indent=2)
-    return manifest
+    return with_manifest_signature(manifest)
 
 
 @router.get('/releases/latest/public-key')
@@ -344,4 +348,20 @@ def get_public_signing_key() -> dict[str, Any]:
         'keyId': SIGNING_KEY_ID,
         'fingerprint': signing_fingerprint_hex(),
         'publicKeyPem': public_key_pem,
+        # Raw 32-byte key in hex: what a device stores to verify manifestSignature.
+        'publicKeyHex': public_key_hex(),
     }
+
+
+@router.post('/api/verify/manifest')
+def verify_manifest(payload: ManifestVerifyPayload, _read: None = Depends(require_device_read_auth)) -> dict[str, Any]:
+    """Gateway-assisted stage 5.
+
+    A board too small for Ed25519 (the ATmega328P, 2 KB of RAM) checks the
+    manifest fields and the SHA-256 of the image itself, then sends the
+    fields and the manifest signature here. The answer is one bit; the board
+    installs only on `valid: true`. The image never leaves the board, so the
+    gateway cannot approve bytes the board has not already hashed.
+    """
+    valid = verify_manifest_signature(payload.version, payload.sha256, payload.imageSha256, payload.size, payload.signature)
+    return {'valid': valid}

@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway Package
+SecureOTA Edge Gateway Package
 
 Usage:
     # As ASGI app (recommended):
@@ -23,7 +23,7 @@ from .routes import register_routes
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    application = FastAPI(title='SentinelOTA Edge Gateway', version='2.0.0')
+    application = FastAPI(title='SecureOTA Edge Gateway', version='2.0.0')
 
     # CORS middleware. Origins come from OTA_GATEWAY_CORS_ORIGINS; credentials
     # are enabled only when the list is explicit, because '*' with credentials
@@ -59,5 +59,5 @@ app = create_app()
 
 if __name__ == '__main__':
     import uvicorn
-    print(f"[*] Starting SentinelOTA FastAPI gateway on {HOST}:{PORT}...")
+    print(f"[*] Starting SecureOTA FastAPI gateway on {HOST}:{PORT}...")
     uvicorn.run(app, host=HOST, port=PORT, reload=False)

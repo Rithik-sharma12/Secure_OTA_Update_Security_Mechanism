@@ -144,7 +144,7 @@ function readCookieValue(request: Request, cookieName: string) {
 }
 
 function readBootstrapCredentials() {
-  const username = (process.env.OTA_ADMIN_USERNAME || 'sentinel_admin').trim();
+  const username = (process.env.OTA_ADMIN_USERNAME || 'secureota_admin').trim();
   // No default. The previous hardcoded fallback is published in this
   // repository's git history, so every deployment that did not set
   // OTA_ADMIN_PASSWORD shared one publicly known admin password. The value

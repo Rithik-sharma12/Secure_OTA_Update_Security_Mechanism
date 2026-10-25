@@ -36,7 +36,7 @@ services:
       - gateway_cache:/app/gateway_firmware_cache
       - gateway_keys:/app/gateway_keys
     networks:
-      - sentinel_network
+      - secureota_network
 
   ota_ide:
     build:
@@ -98,17 +98,17 @@ services:
       - ota_ide_db:/app/.local-db
       - ./firmware/dist:/app/firmware-dist:ro
     networks:
-      - sentinel_network
+      - secureota_network
 
 volumes:
   gateway_cache:
-    name: sentinel_gateway_cache
+    name: secureota_gateway_cache
   gateway_keys:
-    name: sentinel_gateway_keys
+    name: secureota_gateway_keys
   ota_ide_db:
-    name: sentinel_ota_ide_db
+    name: secureota_ide_db
 
 networks:
-  sentinel_network:
-    name: sentinel_network
+  secureota_network:
+    name: secureota_network
     driver: bridge

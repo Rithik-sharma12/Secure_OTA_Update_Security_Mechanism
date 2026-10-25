@@ -38,6 +38,9 @@
 #include "mbedtls/md.h"
 #include "mbedtls/pk.h"
 
+// Stage 5: Ed25519 check of the gateway-signed manifest (firmware/lib/sota_core).
+#include "sota_core.h"
+
 #include "ota_config.h"
 // Public roots for https:// gateways behind Cloudflare (Let's Encrypt, Google
 // Trust Services, SSL.com, DigiCert). Used when OTA_ROOT_CA is left empty.
@@ -55,6 +58,14 @@
 #endif
 #ifndef BACKEND_API_KEY
 #define BACKEND_API_KEY ""
+#endif
+// Raw Ed25519 public key of the gateway, 64 hex characters
+// (GET /releases/latest/public-key -> publicKeyHex). Usually left empty and
+// written over USB by the dashboard's board setup ("gateway_key"). When a key
+// is present, stage 5 is mandatory: an unsigned or badly signed manifest is
+// never installed.
+#ifndef GATEWAY_ED25519_PUBKEY
+#define GATEWAY_ED25519_PUBKEY ""
 #endif
 
 #define FIRMWARE_VERSION    "2.5.1"
@@ -116,7 +127,7 @@
 #define SECURE_HEADER_BYTES 10U
 
 #define SECURE_SIG_ALG_RSA2048_SHA256 1U  // legacy: image only, version unsigned
-#define SECURE_SIG_ALG_ED25519        2U  // reserved; not verifiable in this build
+#define SECURE_SIG_ALG_ED25519        2U  // reserved package format; Ed25519 is checked on the manifest (stage 5)
 #define SECURE_SIG_ALG_RSA2048_VERSIONED 3U
 #define SECURE_CIPHER_ALG_AES256_CBC  1U
 #define SECURE_MAX_VERSION_BYTES      32U
@@ -237,6 +248,7 @@ struct RuntimeConfig {
   String deviceToken;  // per-device token from POST /api/devices/register
   String deviceId;
   String hostname;
+  String gatewayKey;   // Ed25519 public key (hex) for stage 5
 };
 
 struct PendingCommand {
@@ -283,6 +295,11 @@ struct ManifestInfo {
   String sha256;
   String imageSha256;
 
+  // Artifact size in bytes and the gateway's Ed25519 signature over
+  // version, sha256, imageSha256 and size (stage 5, sota_verify_manifest).
+  unsigned long size = 0;
+  String manifestSignature;
+
   /*
    * True when the gateway says the artifact is an encrypted package. A device
    * without secure keys must refuse it: the plain path would happily flash
@@ -294,6 +311,14 @@ struct ManifestInfo {
 };
 
 AppState state;
+
+// The manifest being installed, for the stage 5 check that runs just before
+// the boot partition is switched. Set by performHttpUpdate().
+const ManifestInfo *installingManifest = nullptr;
+// Set when stage 5 rejected the update, so the health penalty is the
+// signature one (-30) rather than the generic update failure (-25).
+bool lastFailureWasSignature = false;
+bool verifyManifestSignature(const ManifestInfo &manifest);
 
 void setupWiFi();
 void setupArduinoOTA();
@@ -651,7 +676,11 @@ UpdateOutcome checkBackendOTA() {
 
   Serial.println("[Backend] Update failed");
   state.failedAttempts24h++;
-  adjustHealth(-25, "update failed");
+  if (lastFailureWasSignature) {
+    adjustHealth(sota_health_delta(SOTA_EV_SIGNATURE_INVALID), "manifest signature invalid");
+  } else {
+    adjustHealth(-25, "update failed");
+  }
   reportOtaStatus("failed", manifest.version, -1, "Download, verification or flash write failed (see serial log)");
   return UPDATE_FAILED;
 }
@@ -707,6 +736,8 @@ bool fetchLatestRelease(ManifestInfo &manifestOut) {
   normalizeDigestField(manifestOut.imageSha256, "imageSha256");
 
   manifestOut.securePackage = doc["securePackage"] | false;
+  manifestOut.size = doc["size"] | 0UL;
+  manifestOut.manifestSignature = doc["manifestSignature"] | "";
   if (doc["downloadUrl"].is<const char*>()) {
     manifestOut.downloadUrl = doc["downloadUrl"].as<String>();
   } else {
@@ -826,6 +857,8 @@ bool sendHeartbeat() {
  */
 bool performHttpUpdate(const ManifestInfo &manifest) {
   digitalWrite(LED_STATUS, HIGH);
+  installingManifest = &manifest;
+  lastFailureWasSignature = false;
 
   bool success = false;
 
@@ -877,8 +910,45 @@ bool performHttpUpdate(const ManifestInfo &manifest) {
 #endif
   }
 
+  installingManifest = nullptr;
   digitalWrite(LED_STATUS, LOW);
   return success;
+}
+
+/*
+ * Stage 5 of the five-stage pipeline. Runs after the image has been downloaded
+ * into the inactive partition (stage 3) and matched to the manifest digest
+ * (stage 4), and before the boot partition is switched.
+ *
+ * The gateway signs "SOTA-MANIFEST-V1\nversion\nsha256\nimageSha256\nsize" with
+ * its Ed25519 key. Stage 4 already proved the bytes hash to `sha256` (or
+ * `imageSha256` for a package), so a valid signature over those fields binds
+ * the flashed image to the gateway key and to the version agreed in stage 2.
+ *
+ * With no gateway key on the board (built and provisioned before this
+ * existed) the stage is skipped and logged, so existing boards keep updating;
+ * the dashboard writes the key during board setup.
+ */
+bool verifyManifestSignature(const ManifestInfo &manifest) {
+  if (cfg.gatewayKey.length() == 0) {
+    Serial.println("[Stage 5] SKIPPED: no gateway Ed25519 key on this board (set it up again from the dashboard).");
+    return true;
+  }
+  const unsigned long started = millis();
+  const sota_sig_result result = sota_verify_manifest(
+    cfg.gatewayKey.c_str(),
+    manifest.manifestSignature.c_str(),
+    manifest.version.c_str(),
+    manifest.sha256.c_str(),
+    manifest.imageSha256.c_str(),
+    manifest.size);
+  if (result != SOTA_SIG_OK) {
+    Serial.printf("[Stage 5] REJECTED: %s\n", sota_sig_result_text(result));
+    lastFailureWasSignature = true;
+    return false;
+  }
+  Serial.printf("[Stage 5] Ed25519 manifest signature valid (%lu ms).\n", millis() - started);
+  return true;
 }
 
 /*
@@ -1329,6 +1399,10 @@ bool performSecurePackageUpdate(const String &url, const String &expectedSha256,
                                    : "[Update] NOTE: signature alone (no rollback binding).");
     }
 
+    if (installingManifest != nullptr && !verifyManifestSignature(*installingManifest)) {
+      break;
+    }
+
     Serial.printf("[Update] Signature verified. Writing %u bytes to flash.\n", static_cast<unsigned int>(totalWritten));
 
     if (!Update.end(true)) {
@@ -1526,6 +1600,10 @@ bool performPlainPackageUpdate(const String &url, const String &expectedSha256) 
 
   mbedtls_md_free(&mdCtx);
 
+  if (success && installingManifest != nullptr && !verifyManifestSignature(*installingManifest)) {
+    success = false;
+  }
+
   if (!success) {
     Update.abort();
   } else if (!Update.end(true)) {
@@ -1664,6 +1742,8 @@ void loadRuntimeConfig() {
   cfg.deviceToken = nvsString("token", DEVICE_TOKEN);
   cfg.deviceId = nvsString("devid", DEVICE_ID);
   cfg.hostname = nvsString("host", DEVICE_HOSTNAME);
+  cfg.gatewayKey = nvsString("gwkey", GATEWAY_ED25519_PUBKEY);
+  cfg.gatewayKey.toLowerCase();
   prefs.end();
 
   while (cfg.backendUrl.endsWith("/")) {
@@ -1996,6 +2076,7 @@ void handleSerialLine(const String &rawLine) {
     info["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
     info["backend_url"] = cfg.backendUrl;
     info["has_device_token"] = cfg.deviceToken.length() > 0;
+    info["has_gateway_key"] = cfg.gatewayKey.length() == 64;
     info["health"] = state.healthScore;
     info["quarantined"] = state.inQuarantine;
     String out;
@@ -2046,6 +2127,14 @@ void handleSerialLine(const String &rawLine) {
       Serial.println("SOTA:ERR this build has no OTA_ROOT_CA, so it cannot verify an https:// gateway");
       return;
     }
+    const String gwkey = doc["gateway_key"] | "";
+    if (doc["gateway_key"].is<const char *>()) {
+      uint8_t keyBytes[SOTA_ED25519_PUBLIC_KEY_BYTES];
+      if (sota_hex_decode(gwkey.c_str(), keyBytes, sizeof(keyBytes)) != 0) {
+        Serial.println("SOTA:ERR gateway_key must be 64 hex characters");
+        return;
+      }
+    }
     if (doc["device_id"].is<const char *>() && devid.length() && !validDeviceId(devid)) {
       Serial.println("SOTA:ERR device_id may only contain A-Z a-z 0-9 _ . : -");
       return;
@@ -2059,6 +2148,7 @@ void handleSerialLine(const String &rawLine) {
     if (doc["api_key"].is<const char *>()) prefs.putString("apikey", doc["api_key"].as<String>());
     if (doc["device_id"].is<const char *>()) prefs.putString("devid", devid);
     if (doc["hostname"].is<const char *>()) prefs.putString("host", doc["hostname"].as<String>());
+    if (doc["gateway_key"].is<const char *>()) prefs.putString("gwkey", gwkey);
     prefs.end();
 
     // A board moved to a new network starts with a clean health record.

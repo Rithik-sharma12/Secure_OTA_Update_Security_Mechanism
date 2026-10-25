@@ -1,4 +1,4 @@
-# SentinelOTA — CLOUD / INTERNET deployment
+# SecureOTA — CLOUD / INTERNET deployment
 #
 #   docker compose -f docker-compose.cloud.yml \
 #     --env-file .env.docker up -d
@@ -58,4 +58,4 @@ services:
       # config.yml is committed; credentials.json is git-ignored.
       - ./deploy/cloudflared:/etc/cloudflared:ro
     networks:
-      - sentinel_network
+      - secureota_network

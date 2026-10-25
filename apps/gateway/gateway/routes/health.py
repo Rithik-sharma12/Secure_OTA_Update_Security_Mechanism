@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: Health & Root
+SecureOTA Edge Gateway — Route: Health & Root
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get('/')
 def root() -> dict[str, Any]:
     return {
-        'service': 'SentinelOTA Edge Gateway',
+        'service': 'SecureOTA Edge Gateway',
         'status': 'running',
         'time': utc_now_iso(),
         'endpoints': {

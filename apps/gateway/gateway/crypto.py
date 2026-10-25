@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Ed25519 Cryptographic Operations
+SecureOTA Edge Gateway — Ed25519 Cryptographic Operations
 
 Key management, firmware signing, and fingerprint generation.
 """
@@ -89,6 +89,79 @@ def sign_firmware_payload(payload: bytes) -> str:
     """Sign a firmware payload and return base64-encoded signature."""
     signature = get_signing_key().sign(payload)
     return base64.b64encode(signature).decode('ascii')
+
+
+# ── Manifest statement (stage 5 of the device pipeline) ─────────────────
+#
+# The device cannot afford to verify a signature over a whole firmware image
+# (an ATmega328P cannot even hold one), so the gateway also signs a short
+# statement that binds the manifest fields the device acts on. The device
+# checks the downloaded bytes against `sha256` (stage 4) and this signature
+# over `sha256` (stage 5), which together bind the image to the gateway key.
+#
+# The exact byte layout is shared with firmware/lib/sota_core
+# (sota_manifest_message); changing either side breaks every device.
+MANIFEST_SIGNATURE_PREFIX = 'SOTA-MANIFEST-V1'
+MANIFEST_SIGNATURE_FORMAT = 'SOTA-MANIFEST-V1: prefix, version, sha256, imageSha256, size; newline separated'
+
+
+def manifest_signing_message(version: str, sha256: str, image_sha256: str | None, size: int) -> bytes:
+    """The statement a device verifies with the gateway's Ed25519 public key."""
+    version = str(version).strip()
+    sha256 = str(sha256 or '').strip().lower()
+    image_sha256 = str(image_sha256 or '').strip().lower()
+    if not version or len(version) > 32 or any(ch in version for ch in '\r\n'):
+        raise ValueError('Manifest version cannot be signed.')
+    if len(sha256) != 64:
+        raise ValueError('Manifest sha256 must be 64 hex characters.')
+    if image_sha256 and len(image_sha256) != 64:
+        raise ValueError('Manifest imageSha256 must be 64 hex characters.')
+    return '\n'.join([MANIFEST_SIGNATURE_PREFIX, version, sha256, image_sha256, str(int(size))]).encode('ascii')
+
+
+def with_manifest_signature(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of `manifest` carrying `manifestSignature` over its current fields."""
+    signed = dict(manifest)
+    try:
+        message = manifest_signing_message(
+            str(signed.get('version', '')),
+            str(signed.get('sha256', '')),
+            signed.get('imageSha256'),
+            int(signed.get('size', 0)),
+        )
+    except (TypeError, ValueError):
+        # Not a full release manifest (for example "no update assigned").
+        return signed
+    signed['manifestSignature'] = base64.b64encode(get_signing_key().sign(message)).decode('ascii')
+    signed['manifestSignatureAlgorithm'] = SIGNING_ALGORITHM
+    signed['manifestSignatureFormat'] = MANIFEST_SIGNATURE_FORMAT
+    return signed
+
+
+def verify_manifest_signature(version: str, sha256: str, image_sha256: str | None, size: int, signature_b64: str) -> bool:
+    """Gateway-assisted stage 5 for boards that cannot run Ed25519 themselves."""
+    from cryptography.exceptions import InvalidSignature
+
+    try:
+        message = manifest_signing_message(version, sha256, image_sha256, size)
+        signature = base64.b64decode(signature_b64, validate=True)
+    except (TypeError, ValueError):
+        return False
+    if len(signature) != 64:
+        return False
+    try:
+        get_signing_key().public_key().verify(signature, message)
+    except InvalidSignature:
+        return False
+    return True
+
+
+def public_key_hex() -> str:
+    """The raw 32-byte Ed25519 public key in hex, as devices store it."""
+    return get_signing_key().public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ).hex()
 
 
 def build_signing_metadata() -> tuple[dict[str, Any], dict[str, Any]]:

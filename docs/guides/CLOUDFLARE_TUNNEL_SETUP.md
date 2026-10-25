@@ -1,4 +1,4 @@
-# Publishing SentinelOTA on nyx-ctf.tech via Cloudflare Tunnel
+# Publishing SecureOTA on nyx-ctf.tech via Cloudflare Tunnel
 
 Puts the dashboard and the OTA gateway on the public internet with HTTPS,
 without opening a single inbound port.
@@ -51,7 +51,7 @@ site reads **Active**. Nothing below works until it does.
 **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**:
 
 1. Type: **Cloudflared**
-2. Name: e.g. `sentinel-ota`
+2. Name: e.g. `secure-ota`
 3. On the install screen choose **Docker**, and copy the **token** out of the
    command shown (the long string after `--token`). You don't need to run it.
 
@@ -243,6 +243,6 @@ device is lost.
 
 ```bash
 docker logs --tail 50 secure_ota_cloudflared
-docker run --rm --network sentinel_network curlimages/curl -sI http://ota_ide:3000
-docker run --rm --network sentinel_network curlimages/curl -s  http://gateway:5000/healthz
+docker run --rm --network secureota_network curlimages/curl -sI http://ota_ide:3000
+docker run --rm --network secureota_network curlimages/curl -s  http://gateway:5000/healthz
 ```

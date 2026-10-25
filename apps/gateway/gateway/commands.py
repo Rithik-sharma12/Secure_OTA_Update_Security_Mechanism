@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Remote Device Commands
+SecureOTA Edge Gateway — Remote Device Commands
 
 The gateway cannot open a connection to a device: boards sit behind home
 routers, campus NAT and mobile carriers. What it *can* do is answer. Every

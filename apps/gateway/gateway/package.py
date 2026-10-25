@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Secure Firmware Package Format
+SecureOTA Edge Gateway — Secure Firmware Package Format
 
 This module is the single definition of the encrypted package that
 `esp32_ota_main.ino` parses in `performSecurePackageUpdate()`. Both the

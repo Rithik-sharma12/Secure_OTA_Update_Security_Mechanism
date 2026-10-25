@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Write Authentication
+SecureOTA Edge Gateway — Write Authentication
 
 The API key guard for every state-mutating endpoint.
 

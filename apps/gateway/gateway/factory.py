@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Factory (first-flash) images
+SecureOTA Edge Gateway — Factory (first-flash) images
 
 A board fresh out of the box has no bootloader and no partition table, so the
 OTA app image a release serves cannot bring it up: written over USB at 0x10000

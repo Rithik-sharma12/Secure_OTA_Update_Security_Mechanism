@@ -62,7 +62,7 @@ _ensure("esptool", "esptool")
 import serial  # noqa: E402
 from serial.tools import list_ports  # noqa: E402
 
-AGENT_VERSION = "1.3.1"
+AGENT_VERSION = "1.4.0"
 DEFAULT_PORT = 17317
 ALLOWED_ORIGINS = {
     "https://ota.nyx-ctf.tech",
@@ -91,7 +91,9 @@ KNOWN_CHIPS = {
     (0x10C4, 0xEA60): "Silicon Labs CP210x",
     (0x1A86, 0x7523): "WCH CH340",
     (0x1A86, 0x55D4): "WCH CH9102",
+    (0x1A86, 0x5523): "WCH CH341",
     (0x0403, 0x6001): "FTDI FT232R",
+    (0x0403, 0x6015): "FTDI FT231X",
     (0x303A, 0x1001): "Espressif USB-JTAG/serial",
 }
 
@@ -122,6 +124,8 @@ def describe_ports() -> list[dict]:
     result = []
     for port in list_ports.comports():
         chip = KNOWN_CHIPS.get((port.vid or 0, port.pid or 0))
+        text = f"{port.description or ''} {port.hwid or ''}".lower()
+        bluetooth = "bluetooth" in text or "bthenum" in text
         result.append({
             "path": port.device,
             "description": chip or port.description or "USB serial device",
@@ -130,9 +134,34 @@ def describe_ports() -> list[dict]:
             "vendorId": f"{port.vid:04X}" if port.vid else None,
             "productId": f"{port.pid:04X}" if port.pid else None,
             "hwid": port.hwid,
+            # A USB-serial bridge ESP boards use; the dashboard selects it first.
+            "recommended": bool(chip) and not bluetooth,
+            "bluetooth": bluetooth,
         })
-    result.sort(key=lambda p: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", p["path"])])
+    result.sort(key=lambda p: (not p["recommended"], [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", p["path"])]))
     return result
+
+
+BUSY_PORT_HINT = (
+    "Close the program using it - Arduino IDE Serial Monitor or Plotter, PlatformIO / VS Code serial monitor, "
+    "PuTTY, the dashboard Serial Monitor, or a browser tab that opened the port for flashing - then retry."
+)
+
+
+def port_open_error(port: str) -> str | None:
+    """None when the port can be opened; otherwise a sentence saying why not."""
+    try:
+        probe = serial.Serial()
+        probe.port, probe.baudrate = port, 115200
+        probe.dtr = probe.rts = False  # looking must not reset the board
+        probe.open()
+        probe.close()
+        return None
+    except serial.SerialException as exc:
+        text = str(exc)
+        if "FileNotFoundError" in text or "cannot find" in text.lower() or "No such file" in text:
+            return f"{port} is not connected any more. Plug the board in again and pick its port."
+        return f"{port} is in use by another program. {BUSY_PORT_HINT}"
 
 # ------------------------------------------------------------------ multipart
 
@@ -225,6 +254,17 @@ class FlashJob:
         proc.wait()
         return proc.returncode
 
+    def _connected(self) -> bool:
+        text = "\n".join(self.log)
+        return self.progress > 0 or bool(self.chip) or "Writing at" in text
+
+    def _data_dropped(self) -> bool:
+        text = "\n".join(self.log)
+        return any(token in text for token in (
+            "Serial data stream stopped", "Timed out waiting for packet", "Packet content transfer stopped",
+            "checksum error", "Possible serial noise", "MD5 of file does not match",
+        ))
+
     def _connect_failed(self) -> bool:
         text = "\n".join(self.log)
         return any(token in text for token in (
@@ -251,6 +291,13 @@ class FlashJob:
             self.finished = time.time()
             return
         try:
+            # Fail fast and plainly when another program holds the port; esptool
+            # would otherwise report it as a board that does not answer.
+            busy = port_open_error(self.port)
+            if busy:
+                self.status, self.error = "failed", busy
+                self.log.append(f"[agent] {busy}")
+                return
             code = 1
             if not self.manual_boot:
                 self.log.append("[agent] resetting the board into download mode (automatic)")
@@ -266,6 +313,12 @@ class FlashJob:
                 self.manual_until = 0.0
                 if code == 0:
                     self.log.append("[agent] done. If the board does not start, press EN (RST) once.")
+            # Connected, then the transfer broke: what the Arduino IDE answers
+            # with "try a lower upload speed". Retry once at 115200.
+            if code != 0 and self._connected() and self._data_dropped() and self.baud > 115200:
+                self.log.append(f"[agent] the transfer broke at {self.baud} baud; retrying at 115200 (slower, more tolerant)")
+                self.baud, self.progress = 115200, 0
+                code = self._esptool("no_reset" if self.manual_boot else "default_reset", 8)
             if code == 0:
                 self.status, self.progress = "success", 100
             else:
@@ -308,6 +361,8 @@ def port_busy_with_flash(port: str) -> bool:
 PROVISION_KEYS = {
     "ssid": 32, "password": 64, "backend_url": 200, "device_token": 128,
     "device_id": 64, "api_key": 128, "hostname": 32,
+    # Gateway Ed25519 public key (64 hex) for the stage 5 manifest check.
+    "gateway_key": 64,
 }
 SERIAL_EXCHANGE_SECONDS = 12.0
 

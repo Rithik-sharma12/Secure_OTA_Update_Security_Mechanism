@@ -98,10 +98,13 @@ export async function getDeviceDetail(deviceId: string) {
 }
 
 export async function registerDevice(deviceId: string, deviceType?: string) {
-  return request<{ deviceId: string; token: string; rotated: boolean; gatewayUrl: string }>('/api/devices/register', {
+  return request<{ deviceId: string; token: string; rotated: boolean; gatewayUrl: string; gatewayKey: string | null }>(
+    '/api/devices/register',
+    {
     method: 'POST',
-    body: JSON.stringify({ deviceId, deviceType }),
-  });
+      body: JSON.stringify({ deviceId, deviceType }),
+    }
+  );
 }
 
 /** Poll a command until the device reports back or `timeoutMs` passes. */

@@ -145,7 +145,7 @@ def test_open_writes_can_be_opted_into_explicitly():
     )
 
     assert result.returncode == 0, result.stderr
-    assert 'SentinelOTA' in result.stdout
+    assert 'SecureOTA' in result.stdout
 
 
 def test_open_writes_flag_accepts_the_usual_spellings():

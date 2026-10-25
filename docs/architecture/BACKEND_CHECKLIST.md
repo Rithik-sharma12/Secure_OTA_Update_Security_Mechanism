@@ -72,7 +72,7 @@ Write endpoints need `x-api-key: <OTA_GATEWAY_API_KEY>`.
 - [ ] `DELETE /api/host/access` — revokes a grant by id (scoped to the owning user)
 - [ ] `POST /api/serial/upload` — **403 with `requiresGrant`** when the target COM port has no active grant (consent gate)
 - [ ] `POST /api/network/scan` — **403** without a network grant on that subnet; otherwise bounded TCP sweep (/24 max) returns responding hosts
-- [ ] Grants expire (`OTA_ACCESS_GRANT_TTL_HOURS`, default 12) and are stored in `access-grants.db` (mounted `sentinel_ota_ide_db` volume)
+- [ ] Grants expire (`OTA_ACCESS_GRANT_TTL_HOURS`, default 12) and are stored in `access-grants.db` (mounted `secureota_ide_db` volume)
 - [ ] UI: `HostAccessCard` on the Devices page grants/revokes and runs discovery; discovered host → "Deploy via OTA" preloads the OTA target
 
 ---

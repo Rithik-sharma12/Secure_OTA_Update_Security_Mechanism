@@ -29,6 +29,10 @@ export type AgentPort = {
   serialNumber: string | null;
   vendorId: string | null;
   productId: string | null;
+  /** A USB-serial bridge ESP boards use (agent 1.4.0+). */
+  recommended?: boolean;
+  /** A Bluetooth serial port: never a board. */
+  bluetooth?: boolean;
 };
 
 export type AgentJob = {
@@ -243,6 +247,8 @@ export type ProvisionConfig = {
   device_token?: string;
   device_id?: string;
   hostname?: string;
+  /** Gateway Ed25519 public key (64 hex) for the stage 5 manifest check. */
+  gateway_key?: string;
   reset_health?: boolean;
 };
 
@@ -284,7 +290,17 @@ export async function provisionAgentDevice(port: string, config: ProvisionConfig
     },
     25000
   );
-  if (!response.ok) throw await agentJsonError(response, 'Provisioning failed');
+  if (!response.ok) {
+    const error = await agentJsonError(response, 'Provisioning failed');
+    // An agent older than 1.3.2 does not know gateway_key and refuses the
+    // whole request. Provision without it rather than failing the setup; the
+    // board then skips stage 5 until it is set up again with a newer agent.
+    if (config.gateway_key && /unknown config key 'gateway_key'/.test(error.message)) {
+      const { gateway_key: _omitted, ...rest } = config;
+      return provisionAgentDevice(port, rest, baud);
+    }
+    throw error;
+  }
   const payload = (await response.json()) as { written?: string[] };
   return payload.written || [];
 }

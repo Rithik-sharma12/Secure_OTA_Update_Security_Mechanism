@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: Operations (Pipeline, Sync, Download)
+SecureOTA Edge Gateway — Route: Operations (Pipeline, Sync, Download)
 """
 
 from __future__ import annotations

@@ -34,7 +34,12 @@ export async function POST(request: Request) {
       });
       if (!proxied.ok) return proxied;
 
-      const data = (await proxied.json()) as { token?: string; rotated?: boolean; deviceType?: string | null };
+      const data = (await proxied.json()) as {
+        token?: string;
+        rotated?: boolean;
+        deviceType?: string | null;
+        gatewayKey?: string;
+      };
       logger.info('DeviceRegister', `Device token ${data.rotated ? 'rotated' : 'issued'} for ${deviceId}`, {
         userId: auth?.user.id,
       });
@@ -48,6 +53,9 @@ export async function POST(request: Request) {
           // Where the board should send heartbeats. Empty when the server
           // does not know its public address; the operator types it instead.
           gatewayUrl: deviceGatewayUrl,
+          // Gateway Ed25519 public key; the board stores it to verify
+          // manifestSignature (stage 5). Public by design.
+          gatewayKey: typeof data.gatewayKey === 'string' && /^[0-9a-f]{64}$/.test(data.gatewayKey) ? data.gatewayKey : null,
         },
         { headers: { 'Cache-Control': 'no-store' } }
       );

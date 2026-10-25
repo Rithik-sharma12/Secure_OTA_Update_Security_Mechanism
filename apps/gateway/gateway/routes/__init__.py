@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route Registration
+SecureOTA Edge Gateway — Route Registration
 
 Registers all API routers with the FastAPI application.
 """

@@ -1,4 +1,4 @@
-# How to Run SentinelOTA
+# How to Run SecureOTA
 
 Two ways to run the platform:
 
@@ -122,20 +122,27 @@ read files from a developer machine. After changing the web or gateway code,
 run the platform's online command from the repository root:
 
 ```bat
-scripts\go-online.cmd sync
+scripts\go-online.cmd           :: deploy the code in this folder, uncommitted changes included
+scripts\go-online.cmd update    :: git pull --ff-only first (refused while there are uncommitted changes)
 ```
 
-This rebuilds the gateway and dashboard images from the current working tree,
-forces both containers to be recreated, and keeps the existing data volumes,
-keys, releases and users. The equivalent command on Linux/macOS is:
+Each run:
 
-```bash
-./scripts/go-online.sh sync
-```
+1. checks the configuration and the tunnel credentials;
+2. shows which branch and commit it deploys (and how many uncommitted changes);
+3. checks `firmware\dist` against the firmware code and offers to rebuild it, so
+   the dashboard flashes the current firmware (answer N to keep the old image);
+4. starts Docker Desktop and frees ports 3000 and 5000;
+5. rebuilds the gateway and dashboard images (`docker compose build`), then
+   recreates every container (`up -d --force-recreate`), keeping the data
+   volumes, keys, releases and users, and removes the replaced image layers;
+6. waits for both containers to be healthy and for the tunnel, then prints the
+   deployed commit and warns if the USB agent on this PC is older than the code.
 
-Use `sync` after every local change that should be visible online. The command
-requires Docker Desktop, `.env.docker`, and the Cloudflare tunnel credentials
-described above.
+Run it after every change that should be visible online. It needs Docker
+Desktop, `.env.docker` and the Cloudflare tunnel credentials described above.
+For local development, `scripts\start-dev.cmd` reinstalls npm packages when
+`package-lock.json` changed and replaces an outdated USB agent automatically.
 
 ### Verify
 
@@ -255,7 +262,7 @@ switching requires a USB reflash.
 | `port is already allocated` | Something else uses 3000/5000. Stop it, or change the published port. |
 | `container name already in use` | Stale container from an old run: `docker compose down`, then `up` again. |
 | Login shows `Unexpected token '<'` | The origin was restarting and an HTML error page came back. Wait a few seconds and retry. |
-| Login rejects a correct password | The admin is bootstrapped **once**. Editing `OTA_ADMIN_PASSWORD` later does nothing unless `users.db` in the `sentinel_ota_ide_db` volume is cleared. |
+| Login rejects a correct password | The admin is bootstrapped **once**. Editing `OTA_ADMIN_PASSWORD` later does nothing unless `users.db` in the `secureota_ide_db` volume is cleared. |
 | Dashboard loads, devices never update | Check the advertised URL (section 4). A `localhost` value is the usual cause. |
 | `Failed to check manifest: 404` | No release published yet. Normal on a fresh gateway. |
 | Public hostname returns **503** | Tunnel is up but has no ingress rules. See the tunnel guide. |

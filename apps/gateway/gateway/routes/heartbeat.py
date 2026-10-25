@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: Device Heartbeat
+SecureOTA Edge Gateway — Route: Device Heartbeat
 """
 
 from __future__ import annotations

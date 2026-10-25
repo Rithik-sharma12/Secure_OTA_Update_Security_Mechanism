@@ -1,0 +1,21 @@
+// Copy to ota_config.h (git-ignored) and fill in. Never commit the real file.
+#pragma once
+
+#define WIFI_SSID     "your-wifi"
+#define WIFI_PASSWORD "your-password"
+
+// Gateway base URL as the board reaches it, e.g. http://192.168.1.20:5000
+#define BACKEND_URL   "http://192.168.1.20:5000"
+
+#define DEVICE_ID     "esp8266-01"
+// Per-device token: POST /api/devices/register (dashboard: Devices > set up a board)
+#define DEVICE_TOKEN  ""
+
+// Required: the gateway's raw Ed25519 public key, 64 hex characters
+// (GET <gateway>/releases/latest/public-key -> publicKeyHex).
+#define GATEWAY_ED25519_PUBKEY ""
+
+// Optional for an https:// gateway: SHA-1 fingerprint of its certificate,
+// "AA BB ...". Without it TLS is not authenticated; the image is still
+// protected by stages 4 and 5 (SHA-256 + Ed25519).
+#define GATEWAY_TLS_FINGERPRINT ""

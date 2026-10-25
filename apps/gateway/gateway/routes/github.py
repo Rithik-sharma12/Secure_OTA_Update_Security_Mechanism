@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: GitHub release webhook
+SecureOTA Edge Gateway — Route: GitHub release webhook
 
 Closes the gap between CI and the fleet. Before this, a tag built and signed
 firmware into a GitHub Release, and then an operator downloaded the .bin and
@@ -97,7 +97,7 @@ def download_asset(asset: dict[str, Any]) -> bytes:
         headers = {'Accept': 'application/octet-stream'}
     if not url.startswith('https://'):
         raise ValueError(f"Asset {asset.get('name')} has no https download URL.")
-    request = urllib.request.Request(url, headers={**headers, 'User-Agent': 'SentinelOTA-gateway'})
+    request = urllib.request.Request(url, headers={**headers, 'User-Agent': 'SecureOTA-gateway'})
     with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:  # noqa: S310 (https only, checked above)
         data = response.read(MAX_ASSET_BYTES + 1)
     if len(data) > MAX_ASSET_BYTES:

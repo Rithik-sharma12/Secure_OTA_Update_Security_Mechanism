@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Deployment Logic
+SecureOTA Edge Gateway — Deployment Logic
 
 A deployment is an *assignment*, not an action the gateway can perform. The
 gateway cannot push firmware: devices poll, download, flash, and reboot on

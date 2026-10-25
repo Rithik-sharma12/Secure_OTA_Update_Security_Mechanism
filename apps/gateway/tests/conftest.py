@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-_TMP_ROOT = Path(tempfile.mkdtemp(prefix='sentinel-gateway-tests-'))
+_TMP_ROOT = Path(tempfile.mkdtemp(prefix='secureota-gateway-tests-'))
 
 # A real key, so the auth tests exercise the comparison path rather than the
 # "open by design" short circuit.

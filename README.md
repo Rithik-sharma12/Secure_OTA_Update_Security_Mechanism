@@ -141,7 +141,7 @@ sequenceDiagram
     Note over B: no accepted heartbeat in 120 s: bootloader restores previous firmware
 ```
 
-Two signature layers exist on purpose: the gateway's Ed25519 key protects release metadata on its APIs, and the RSA-2048 release key is what the ESP32 verifies before flashing. Details: [docs/architecture/OTA_ARCHITECTURE.md](docs/architecture/OTA_ARCHITECTURE.md) and [docs/guides/END_TO_END_DEMO.md](docs/guides/END_TO_END_DEMO.md).
+Two signature layers exist on purpose. The gateway's Ed25519 key signs each manifest statement (version, SHA-256, image SHA-256, size); every board checks that signature as stage 5 before it installs, or, on the ATmega328P, asks the gateway to (`POST /api/verify/manifest`). The RSA-2048 release key additionally signs the encrypted package that the ESP32 decrypts and verifies in secure mode. Per-board details and test status: [firmware/BOARDS.md](firmware/BOARDS.md). Details: [docs/architecture/OTA_ARCHITECTURE.md](docs/architecture/OTA_ARCHITECTURE.md) and [docs/guides/END_TO_END_DEMO.md](docs/guides/END_TO_END_DEMO.md).
 
 ## Screenshots
 
@@ -183,6 +183,8 @@ Captured from the running console with sample boards registered through the real
 Every folder and important file is described in **[Tree.md](Tree.md)**.
 
 ## Getting started
+
+New to the platform? Follow the step-by-step [user manual](docs/USER_MANUAL.md).
 
 ### Prerequisites
 
@@ -244,7 +246,8 @@ Services: `gateway` on 5000 and `ota_ide` on 3000, with named volumes for gatewa
 ### 4. Online (Cloudflare Tunnel)
 
 ```bat
-scripts\go-online.cmd          :: build with your latest code and put it online
+scripts\go-online.cmd          :: rebuild from this folder (uncommitted changes too), restart every container, go online
+scripts\go-online.cmd update   :: git pull first, then the same
 scripts\go-online.cmd status   :: containers, tunnel and public addresses
 scripts\go-online.cmd logs     :: recent logs of every container
 scripts\go-online.cmd off      :: take it offline (data and keys are kept)
@@ -306,7 +309,7 @@ pio run -e esp32dev -t upload          # flash over USB
 pio device monitor -b 115200           # serial monitor
 ```
 
-The toolchain is pinned to `espressif32 @ 6.9.0` (Arduino-ESP32 2.0.17); the console enforces the same version. Provisioning over USB uses the `SOTA:INFO` and `SOTA:PROVISION` line protocol, described in [docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md](docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md). Release targets accepted by the gateway: ESP32, ESP8266, STM32F103 and ATmega328P; over-the-internet updates with the health gate run on the ESP32 family.
+The toolchain is pinned to `espressif32 @ 6.9.0` (Arduino-ESP32 2.0.17); the console enforces the same version. Provisioning over USB uses the `SOTA:INFO` and `SOTA:PROVISION` line protocol, described in [docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md](docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md). Release targets accepted by the gateway: ESP32, ESP8266, STM32F103 and ATmega328P. The ESP32 and ESP8266 update over Wi-Fi; the STM32F103 and ATmega328P reach the gateway through the UART link host (`apps/agent/sota_link.py`). Only the ESP32 has been run on hardware so far; see [firmware/BOARDS.md](firmware/BOARDS.md).
 
 ## Gateway API
 
@@ -327,7 +330,8 @@ Write endpoints require the API key (`x-api-key`) or a device token. Main routes
 | GET, POST | `/api/deployments` | List or create deployments |
 | POST | `/api/deployments/{id}/retry`, `/cancel` | Retry failed targets or cancel |
 | GET | `/releases/latest/manifest`, `/releases/download/{file}` | Device manifest and firmware download |
-| GET | `/releases/latest/public-key` | Gateway's Ed25519 public key |
+| GET | `/releases/latest/public-key` | Gateway's Ed25519 public key (`publicKeyHex` is what boards store) |
+| POST | `/api/verify/manifest` | Gateway-assisted stage 5: is this manifest signature valid? (one bit) |
 | GET | `/api/audit` | Audit trail |
 | GET | `/api/stream`, `/api/events` | Live updates for the console |
 | POST | `/api/github/webhook` | GitHub release import |
@@ -367,6 +371,7 @@ Design notes: [docs/design/](docs/design).
 |---|---|
 | [Tree.md](Tree.md) | Every folder and important file, with its purpose |
 | [docs/how-to-run.md](docs/how-to-run.md) | Running locally and online, step by step |
+| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Full user manual: start the platform, set up a board, release and deliver an OTA update, troubleshooting |
 | [docs/guides/END_TO_END_DEMO.md](docs/guides/END_TO_END_DEMO.md) | Full demo from firmware build to confirmed OTA |
 | [docs/guides/DEPLOYMENT.md](docs/guides/DEPLOYMENT.md) | Cloud VPS deployment |
 | [docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md](docs/guides/REMOTE_OTA_AND_USB_PROVISIONING.md) | Remote commands and USB provisioning |

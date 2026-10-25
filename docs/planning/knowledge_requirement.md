@@ -791,7 +791,7 @@ Certificate:
   Version: 3
   Serial Number: 0x1A2B3C4D5E6F
   Signature Algorithm: sha256WithRSAEncryption
-  Issuer: CN=ScentinelOTA Intermediate CA, O=YourOrg, C=US
+  Issuer: CN=SecureOTA Intermediate CA, O=YourOrg, C=US
   Subject: CN=FirmwareSigningKey-2026, O=YourOrg, C=US
   Validity:
     Not Before: 2026-01-01 00:00:00 UTC
@@ -2005,7 +2005,7 @@ Example Log Entry (JSON):
 ```
 CRL Structure:
   Version: 2
-  Issuer: CN=ScentinelOTA Intermediate CA, O=YourOrg, C=US
+  Issuer: CN=SecureOTA Intermediate CA, O=YourOrg, C=US
   Last Update: 2026-03-06T00:00:00Z
   Next Update: 2026-03-13T00:00:00Z
 

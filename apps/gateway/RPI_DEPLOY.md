@@ -1,4 +1,4 @@
-# Deploying SentinelOTA Monitor on Raspberry Pi Zero 2 W
+# Deploying SecureOTA Monitor on Raspberry Pi Zero 2 W
 
 Your idea is **highly relevant** and represents a standard "Edge Gateway" architecture in IoT. 
 The Raspberry Pi Zero 2 W acts as the local "Master" that monitors the health (ASH Scores) of all "Slave" devices, caches firmware updates to save bandwidth, and alerts you to security threats.

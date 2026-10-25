@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Release, Manifest, and Pipeline Logic
+SecureOTA Edge Gateway — Release, Manifest, and Pipeline Logic
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .config import (
     SIGNING_ALGORITHM,
     SIGNING_KEY_ID,
 )
-from .crypto import sign_firmware_payload
+from .crypto import MANIFEST_SIGNATURE_PREFIX, sign_firmware_payload, with_manifest_signature
 from .factory import FactoryImageError, validate_factory_image
 from .package import PackageError, is_hex_digest, looks_like_secure_package, parse_package
 from .state import STATE, push_event_locked, persist_state_locked
@@ -226,7 +226,7 @@ def manifest_for_release_locked(release: dict[str, Any] | None) -> dict[str, Any
     if release_is_secure_package(release, payload):
         manifest['securePackage'] = True
 
-    return manifest
+    return with_manifest_signature(manifest)
 
 
 def latest_release_for_device_locked(device_type: str) -> dict[str, Any] | None:
@@ -396,6 +396,12 @@ def create_release_locked(
         artifact_path, firmware_payload = load_release_artifact(normalized_version, source_file_path)
         source_artifact = str(artifact_path)
 
+    # The gateway key also signs manifest statements (crypto.manifest_signing_message).
+    # An artifact that *is* such a statement would come back with a valid
+    # manifest signature for fields the operator never published.
+    if firmware_payload.startswith(MANIFEST_SIGNATURE_PREFIX.encode('ascii')):
+        raise ValueError('This file is not a firmware image.')
+
     # A secure package that carries a signed version must be published under
     # that version. The device refuses the mismatch anyway; refusing it here
     # turns a fleet-wide failed update into an error at publish time.
@@ -505,6 +511,10 @@ def create_release_locked(
     # flashing ciphertext and relying on the image-magic check to save it.
     if release_is_secure_package(release, firmware_payload):
         manifest['securePackage'] = True
+
+    # Ed25519 over version, sha256, imageSha256 and size: what a device checks
+    # at stage 5 (or asks the gateway to check, on an ATmega328P).
+    manifest = with_manifest_signature(manifest)
 
     _stage(
         'sign',

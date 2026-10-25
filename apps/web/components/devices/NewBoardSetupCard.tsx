@@ -324,6 +324,8 @@ export function NewBoardSetupCard() {
         password,
         backend_url: backendUrl,
         device_token: registered.token,
+        // Lets the board check the gateway's Ed25519 manifest signature (stage 5).
+        ...(registered.gatewayKey ? { gateway_key: registered.gatewayKey } : {}),
         reset_health: true,
       });
       appendLog(`[setup] wrote ${written.join(', ')}; board is rebooting onto ${ssid.trim()}`);

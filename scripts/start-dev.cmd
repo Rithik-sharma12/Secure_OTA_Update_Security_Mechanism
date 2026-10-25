@@ -24,6 +24,13 @@ echo Keep this window open. Press Ctrl+C to stop.
 if not exist "node_modules\next\dist\bin\next" (
   echo Installing dependencies first...
   call npm install
+) else (
+  rem Reinstall when package-lock.json changed since the last install, e.g. after a pull.
+  powershell -NoProfile -Command "if((Get-Item package-lock.json).LastWriteTime -gt (Get-Item node_modules\.package-lock.json -ErrorAction SilentlyContinue).LastWriteTime){ exit 1 }" >nul 2>&1
+  if errorlevel 1 (
+    echo Dependencies changed since the last install; updating them...
+    call npm install
+  )
 )
 
 rem Start the gateway too, unless it is already listening on 5000.
@@ -34,13 +41,9 @@ if errorlevel 1 (
 ) else (
   echo The gateway is already running on port 5000.
 )
-rem Start the USB flashing agent too, unless it is already listening on 17317.
-%SystemRoot%\System32\netstat.exe -ano | findstr /R /C:"127.0.0.1:17317 .*LISTENING" >nul
-if errorlevel 1 (
-  echo Opening the USB agent in a third window...
-  start "SecureOTA USB agent" cmd /k call "%~dp0start-agent.cmd"
-) else (
-  echo The USB agent is already running on port 17317.
-)
+rem Start the USB flashing agent too. start-agent.cmd keeps a running agent of
+rem this version and replaces an older one, so a code update reaches it.
+echo Opening the USB agent in a third window...
+start "SecureOTA USB agent" cmd /k call "%~dp0start-agent.cmd"
 call npm run dev
 pause

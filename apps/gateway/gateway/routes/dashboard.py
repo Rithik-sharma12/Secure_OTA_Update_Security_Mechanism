@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Route: Dashboard & Events
+SecureOTA Edge Gateway — Route: Dashboard & Events
 """
 
 from __future__ import annotations

@@ -7,7 +7,9 @@ cd /d "%~dp0.."
 rem ---------------------------------------------------------------------------
 rem  SecureOTA on the internet (Windows, Docker Desktop + Cloudflare Tunnel).
 rem
-rem    scripts\go-online.cmd          build with your latest code and go online
+rem    scripts\go-online.cmd          rebuild from the code in this folder (including
+rem                                   uncommitted changes) and restart every container
+rem    scripts\go-online.cmd update   git pull first, then the same
 rem    scripts\go-online.cmd status   what is running, and is it reachable
 rem    scripts\go-online.cmd logs     last lines of every container log
 rem    scripts\go-online.cmd off      take it offline (data and keys are kept)
@@ -33,21 +35,26 @@ rem The console shows local firmware builds with their path on this computer.
 set "SECUREOTA_REPO_DIR=%CD%"
 if not exist "firmware\dist" mkdir "firmware\dist"
 
+set "PULL="
 set "ACTION=%~1"
 if "%ACTION%"=="" set "ACTION=on"
 if /i "%ACTION%"=="on" goto :on
 if /i "%ACTION%"=="sync" goto :on
+if /i "%ACTION%"=="update" set "PULL=1"
+if /i "%ACTION%"=="update" goto :on
+if /i "%ACTION%"=="pull" set "PULL=1"
+if /i "%ACTION%"=="pull" goto :on
 if /i "%ACTION%"=="status" goto :status
 if /i "%ACTION%"=="logs" goto :logs
 if /i "%ACTION%"=="off" goto :off
-echo Unknown option "%ACTION%". Use: go-online.cmd [on^|status^|logs^|off]
+echo Unknown option "%ACTION%". Use: go-online.cmd [on^|update^|status^|logs^|off]
 goto :end
 
 rem ===========================================================================
 :on
 echo SecureOTA go-online %DATE% %TIME%> "%LOG%"
 
-echo ==^> 1/6 Checking the configuration
+echo ==^> 1/8 Checking the configuration
 if not exist ".env.docker" (
   call :fail "Missing .env.docker. Copy .env.example to .env.docker and fill it in."
   goto :end
@@ -73,25 +80,70 @@ if not errorlevel 1 (
 )
 echo     ok
 
-echo ==^> 2/6 Starting Docker
+echo ==^> 2/8 Taking the latest code
+set "GITREV=unknown"
+set "GITBRANCH=?"
+set /a DIRTY=0
+for /f %%R in ('git rev-parse --short HEAD 2^>NUL') do set "GITREV=%%R"
+for /f %%B in ('git rev-parse --abbrev-ref HEAD 2^>NUL') do set "GITBRANCH=%%B"
+for /f %%L in ('git status --porcelain --untracked-files=no 2^>NUL ^| find /c /v ""') do set /a DIRTY=%%L
+if "%PULL%"=="1" (
+  if !DIRTY! GTR 0 (
+    call :fail "There are !DIRTY! uncommitted changes here. Commit or stash them before 'go-online.cmd update', or run plain go-online.cmd to deploy them as they are."
+    goto :end
+  )
+  echo     pulling the latest commits from GitHub...
+  git pull --ff-only
+  if errorlevel 1 (
+    call :fail "git pull did not complete (see above). Resolve it, then run go-online.cmd update again."
+    goto :end
+  )
+  for /f %%R in ('git rev-parse --short HEAD 2^>NUL') do set "GITREV=%%R"
+)
+echo     branch !GITBRANCH!, commit !GITREV!
+if !DIRTY! GTR 0 echo     plus !DIRTY! uncommitted change^(s^) in this folder, which are included
+>>"%LOG%" echo code: branch !GITBRANCH! commit !GITREV! uncommitted !DIRTY!
+
+echo ==^> 3/8 Checking the firmware images the dashboard flashes
+call :check_firmware
+
+echo ==^> 4/8 Starting Docker
 call :ensure_docker || goto :end
 echo     ok
 
-echo ==^> 3/6 Freeing ports 3000 and 5000
+echo ==^> 5/8 Freeing ports 3000 and 5000
 rem start-dev.cmd runs a local dashboard and gateway on the same ports.
 call :free_port 3000 "local dashboard" || goto :end
 call :free_port 5000 "local gateway" || goto :end
 echo     ok
 
-echo ==^> 4/6 Building with your latest code and starting (the first build takes several minutes)
-%COMPOSE% up -d --build --remove-orphans
+echo ==^> 6/8 Building the images from this code and restarting the containers
+echo     (the first build takes several minutes; later ones reuse unchanged layers)
+%COMPOSE% build
 if errorlevel 1 (
-  call :fail "Docker could not build or start the stack. The messages above say why."
+  call :fail "Docker could not build the images. The messages above say why."
   call :collect
   goto :end
 )
+rem The project was renamed from SentinelOTA: its Docker volumes are now
+rem secureota_*. Copy the old ones once so keys, releases and users carry over.
+call :migrate_volume sentinel_gateway_keys secureota_gateway_keys || goto :end
+call :migrate_volume sentinel_gateway_cache secureota_gateway_cache || goto :end
+call :migrate_volume sentinel_ota_ide_db secureota_ide_db || goto :end
+rem --force-recreate: every container restarts on the new image and the
+rem current .env.docker, even when Docker thinks nothing changed.
+%COMPOSE% up -d --force-recreate --remove-orphans
+if errorlevel 1 (
+  call :fail "Docker could not start the stack. The messages above say why."
+  call :collect
+  goto :end
+)
+rem Old image layers left behind by the rebuild; volumes (keys, releases, users) are untouched.
+docker image prune -f >nul 2>&1
+rem The network from before the rename, if nothing uses it any more.
+docker network rm sentinel_network >nul 2>&1
 
-echo ==^> 5/6 Waiting for the dashboard and gateway on this computer
+echo ==^> 7/8 Waiting for the dashboard and gateway on this computer
 call :wait_http "http://localhost:5000/healthz" 36 "gateway" || (
   call :fail "The gateway container did not become healthy."
   call :collect
@@ -104,7 +156,7 @@ call :wait_http "http://localhost:3000/api/health/live" 60 "dashboard" || (
 )
 echo     ok
 
-echo ==^> 6/6 Waiting for the Cloudflare tunnel
+echo ==^> 8/8 Waiting for the Cloudflare tunnel
 set /a tries=0
 :tunnel_loop
 set /a tries+=1
@@ -132,12 +184,14 @@ echo ===========================================================
 echo   ONLINE
 echo   Dashboard : %UI_URL%   (HTTP !UICODE!)
 echo   Gateway   : %GW_URL%   (healthy)
+echo   Code      : !GITBRANCH! @ !GITREV!
 echo.
 echo   Also on this computer: http://localhost:3000
 echo   Status / logs:         scripts\go-online.cmd status ^| logs
 echo   Take it offline:       scripts\go-online.cmd off
 echo ===========================================================
-echo ONLINE dashboard HTTP !UICODE!>> "%LOG%"
+call :check_agent
+echo ONLINE dashboard HTTP !UICODE! commit !GITREV!>> "%LOG%"
 call :collect quiet
 start "" %UI_URL%
 goto :end
@@ -149,6 +203,10 @@ if errorlevel 1 (
   echo Docker is not running, so nothing is online.
   goto :end
 )
+echo ==^> Code in this folder
+for /f %%R in ('git rev-parse --short HEAD 2^>NUL') do echo     commit %%R
+findstr /B /C:"ONLINE" "%LOG%" 2>NUL
+echo.
 echo ==^> Containers
 %COMPOSE% ps --format "table {{.Name}}\t{{.Status}}"
 echo.
@@ -180,6 +238,54 @@ echo OFFLINE. Run scripts\start-dev.cmd to work locally again.
 goto :end
 
 rem ===========================================================================
+rem :check_firmware -> is firmware\dist older than the firmware code? offer to rebuild it
+:check_firmware
+powershell -NoProfile -Command "$b='firmware\dist\esp32dev\build-info.json'; if(-not (Test-Path $b)){ exit 2 }; $t=(Get-Item $b).LastWriteTime; $n=Get-ChildItem -Recurse -File -Path firmware\esp32_ota_main,firmware\lib -Include *.ino,*.c,*.cpp,*.h -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt $t } | Select-Object -First 1; if($n){ exit 1 }; exit 0" >nul 2>&1
+set "FWRC=%ERRORLEVEL%"
+if "%FWRC%"=="0" (
+  echo     firmware\dist is up to date with the firmware code
+  exit /b 0
+)
+if "%FWRC%"=="2" (echo     no firmware has been built yet) else (echo     the firmware code changed after the last build)
+choice /C YN /T 20 /D N /M "    Build it now (a few minutes; N keeps the older image)"
+if errorlevel 2 (
+  echo     skipped: run scripts\build-firmware.cmd later; the dashboard picks the new image up without a restart
+  exit /b 0
+)
+set "PY=%CD%\.venv\Scripts\python.exe"
+if not exist "%PY%" set "PY=python"
+"%PY%" firmware\tools\build_firmware.py
+if errorlevel 1 (
+  echo     the firmware build failed; going online anyway with the previous image
+) else (
+  echo     firmware built
+)
+exit /b 0
+
+rem :migrate_volume OLD NEW -> one-time copy of a renamed Docker volume (the old one is kept)
+:migrate_volume
+docker volume inspect %~2 >nul 2>&1
+if not errorlevel 1 exit /b 0
+docker volume inspect %~1 >nul 2>&1
+if errorlevel 1 exit /b 0
+echo     copying Docker volume %~1 to %~2 ^(one time, after the rename to SecureOTA^)
+rem Stop the containers so nothing writes while the copy runs; they are recreated next.
+%COMPOSE% stop >nul 2>&1
+docker stop secure_ota_gateway secure_ota_ide >nul 2>&1
+docker volume create %~2 >nul
+docker run --rm -v %~1:/from:ro -v %~2:/to alpine sh -c "cp -a /from/. /to/"
+if errorlevel 1 (
+  docker volume rm %~2 >nul 2>&1
+  call :fail "Could not copy Docker volume %~1 to %~2. The old volume is untouched; run go-online.cmd again."
+  exit /b 1
+)
+exit /b 0
+
+rem :check_agent -> warn when the USB agent running on this PC is older than this code
+:check_agent
+powershell -NoProfile -Command "try { $r=Invoke-RestMethod -TimeoutSec 3 http://127.0.0.1:17317/health; $m=Select-String -Path 'apps\agent\secureota_agent.py' -Pattern 'AGENT_VERSION = .(\d+\.\d+\.\d+).'; $f=$m.Matches[0].Groups[1].Value; if($r.version -ne $f){ Write-Output ('  USB agent v'+$r.version+' is running but this code has v'+$f+'. Restart it: scripts\start-agent.cmd') } } catch {}"
+exit /b 0
+
 rem :wait_http URL TRIES NAME -> waits TRIES x 5 s for HTTP 200
 :wait_http
 set /a wt=0

@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Audit trail of state-changing requests
+SecureOTA Edge Gateway — Audit trail of state-changing requests
 
 Every POST/PUT/PATCH/DELETE that is not a device's own report is recorded
 with who made it, from where, what it was and how it ended — including 401s,

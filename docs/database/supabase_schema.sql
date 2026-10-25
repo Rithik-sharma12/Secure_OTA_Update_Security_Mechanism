@@ -1,5 +1,5 @@
 -- =============================================================================
--- SentinelOTA Supabase Database Schema
+-- SecureOTA Supabase Database Schema
 -- Run this script in the Supabase SQL Editor (https://supabase.com/dashboard)
 -- =============================================================================
 

@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Configuration
+SecureOTA Edge Gateway — Configuration
 
 All gateway settings read from environment variables with sensible defaults.
 """

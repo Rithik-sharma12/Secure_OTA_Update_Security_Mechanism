@@ -1,4 +1,4 @@
-# SentinelOTA Gateway — Python Dependencies
+# SecureOTA Gateway — Python Dependencies
 
 fastapi>=0.115.0
 uvicorn>=0.30.0

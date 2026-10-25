@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Utility Functions
+SecureOTA Edge Gateway — Utility Functions
 """
 
 from __future__ import annotations

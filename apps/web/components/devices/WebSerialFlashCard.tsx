@@ -711,10 +711,20 @@ export function WebSerialFlashCard({
           </div>
 
           {agentChecked && !agent && (
-            <p className="text-xs text-muted-foreground">
-              For automatic COM port detection and manual port flashing, <a className="underline" href="/agent/secureota_agent.py" download>download the SecureOTA Agent</a> and
-              run it with Python: <code className="bg-muted px-1 rounded text-[10px]">python secureota_agent.py</code>. Keep its window open while using this page.
-            </p>
+            <div className="rounded-md border border-chart-4/40 bg-chart-4/5 p-3 text-xs text-foreground/80 space-y-1">
+              <p className="font-medium text-foreground">Flash like the Arduino IDE (recommended)</p>
+              <p>
+                Browser flashing depends on Chrome passing the reset lines through the USB driver, which often fails
+                with CP210x / CH340 boards on Windows. The SecureOTA Agent uses the same esptool as the Arduino IDE:
+                run <code className="bg-muted px-1 rounded text-[10px]">{'scripts\\start-agent.cmd'}</code> (or{' '}
+                <a className="underline" href="/agent/secureota_agent.py" download>download the agent</a> and run{' '}
+                <code className="bg-muted px-1 rounded text-[10px]">python secureota_agent.py</code>) and keep its window open.
+              </p>
+              <p>
+                No dashboard needed: <code className="bg-muted px-1 rounded text-[10px]">{'scripts\\flash-board.cmd'}</code> finds the
+                board, flashes <code className="bg-muted px-1 rounded text-[10px]">firmware-full.bin</code> and shows it booting.
+              </p>
+            </div>
           )}
         </div>
 

@@ -1,5 +1,5 @@
 """
-SentinelOTA Edge Gateway — Backwards-Compatible Entry Point
+SecureOTA Edge Gateway — Backwards-Compatible Entry Point
 
 This file preserves the original `uvicorn edge_gateway:app` usage.
 The actual implementation now lives in the `gateway/` package.
@@ -17,5 +17,5 @@ from gateway.config import HOST, PORT
 
 if __name__ == '__main__':
     import uvicorn
-    print(f"[*] Starting SentinelOTA FastAPI gateway on {HOST}:{PORT}...")
+    print(f"[*] Starting SecureOTA FastAPI gateway on {HOST}:{PORT}...")
     uvicorn.run(app, host=HOST, port=PORT, reload=False)

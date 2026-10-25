@@ -93,6 +93,16 @@ export function explainFlashError(message: string): string {
   return message;
 }
 
+/**
+ * Browser flashing (esptool-js over Web Serial) depends on Chrome passing the
+ * DTR/RTS reset and every byte through the USB-serial driver; with some
+ * CP210x/CH340 drivers on Windows it does not. The agent and
+ * scripts\flash-board.cmd run the same esptool the Arduino IDE uses.
+ */
+export const NATIVE_FLASH_TIP =
+  ' Browser flashing is the least reliable route on Windows: start the SecureOTA Agent (scripts\\start-agent.cmd), ' +
+  'which flashes with the same esptool as the Arduino IDE, or run scripts\\flash-board.cmd.';
+
 /** What the ROM printed after each reset, to explain a failed connection. */
 type BootObservation = { bootMode: string; downloadMode: boolean };
 
@@ -101,7 +111,8 @@ function diagnose(observed: BootObservation[], manualTried: boolean): string {
   if (download) {
     return (
       'The board is in download mode but does not answer. Another program may be reading the port, or the ' +
-      'USB adapter drops data: close other serial tools, try another USB cable or port, then retry.'
+      'USB adapter drops data: close other serial tools, try another USB cable or port, then retry.' +
+      NATIVE_FLASH_TIP
     );
   }
   const normal = observed.find((entry) => entry.bootMode);
@@ -110,13 +121,15 @@ function diagnose(observed: BootObservation[], manualTried: boolean): string {
     return (
       `The board never entered download mode: it reset but started its normal firmware (boot mode ${normal.bootMode}), ` +
       'so IO0 was not held low. The automatic BOOT line is not working on this board or adapter. ' +
-      `Put it in download mode by hand: ${MANUAL_BOOT_STEPS}${manual}`
+      `Put it in download mode by hand: ${MANUAL_BOOT_STEPS}${manual}` +
+      NATIVE_FLASH_TIP
     );
   }
   return (
     'The board never entered download mode and printed nothing after the reset. Check that this is the board\'s ' +
     'COM port, that the USB cable carries data (charge-only cables show no port or stay silent) and that the ' +
-    `CP210x / CH340 driver is installed. Then put it in download mode by hand: ${MANUAL_BOOT_STEPS}${manual}`
+    `CP210x / CH340 driver is installed. Then put it in download mode by hand: ${MANUAL_BOOT_STEPS}${manual}` +
+    NATIVE_FLASH_TIP
   );
 }
 
